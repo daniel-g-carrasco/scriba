@@ -10,6 +10,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import _setup  # noqa: F401
 from test_recording import flac
@@ -47,6 +48,22 @@ class BalanceFileTest(unittest.TestCase):
     def samples(self, source, name):
         return audio.read(ffmpeg.decode(source, self.folder / f"{name}.wav"))
 
+    def balanced_samples(self, joined, position, name):
+        # Keep the real AAC output; replay its actual filter graph losslessly
+        # to measure gains independently of the encoder's masking/quantisation.
+        with mock.patch.object(recording, "_run", wraps=recording._run) as run:
+            made = recording.rebalance(joined, self.folder, "call", position)
+        command = list(run.call_args.args[0])
+        for option in ("-b:a", "-movflags"):
+            at = command.index(option)
+            del command[at:at + 2]
+        command[command.index("-c:a") + 1] = "pcm_s16le"
+        command[command.index("-f") + 1] = "wav"
+        lossless = self.folder / f"{name}-lossless.wav"
+        command[-1] = str(lossless)
+        recording._run(command, "The lossless test mix could not be made.", None)
+        return made, self.samples(lossless, f"{name}-pcm")
+
     def test_centre_matches_the_automatic_mix_and_both_ends_change_all_tracks_of_each_role(self):
         import numpy as np
         takes = self.takes()
@@ -54,16 +71,19 @@ class BalanceFileTest(unittest.TestCase):
         automatic = recording.mix(takes, self.folder, "call")
         before = {p: p.read_bytes() for p in (joined, automatic, *(t.path for t in takes))}
         self.assertTrue(recording.balance_available(joined))
-        centre = recording.rebalance(joined, self.folder, "call", 0)
-        np.testing.assert_array_equal(self.samples(centre, "centre"), self.samples(automatic, "automatic"))
-        reference = np.abs(np.fft.rfft(self.samples(centre, "reference")[audio.RATE:2 * audio.RATE]))
+        centre, centre_pcm = self.balanced_samples(joined, 0, "centre")
+        centre_aac = self.samples(centre, "centre")
+        np.testing.assert_array_equal(centre_aac, self.samples(automatic, "automatic"))
+        reference = np.abs(np.fft.rfft(centre_pcm[audio.RATE:2 * audio.RATE]))
         for position in (-1, 1):
-            made = recording.rebalance(joined, self.folder, "call", position)
-            spectrum = np.abs(np.fft.rfft(self.samples(made, f"end{position}")[audio.RATE:2 * audio.RATE]))
+            made, pcm = self.balanced_samples(joined, position, f"end{position}")
+            # The user's AAC file is still made and decoded by the production path.
+            self.assertEqual(len(self.samples(made, f"end{position}")), len(centre_aac))
+            spectrum = np.abs(np.fft.rfft(pcm[audio.RATE:2 * audio.RATE]))
             for hz, role in ((440, "me"), (660, "others"), (880, "others"), (1100, "me")):
                 change = 20 * math.log10(spectrum[hz] / reference[hz])
                 expected = -12 if (position > 0 and role == "others") or (position < 0 and role == "me") else 0
-                self.assertAlmostEqual(change, expected, delta=0.6, msg=f"{position}: {role}, {hz} Hz")
+                self.assertAlmostEqual(change, expected, delta=0.05, msg=f"{position}: {role}, {hz} Hz")
         for path, content in before.items():
             self.assertEqual(path.read_bytes(), content, path.name)
 

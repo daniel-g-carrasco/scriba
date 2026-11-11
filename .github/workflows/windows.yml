@@ -65,6 +65,10 @@ jobs:
       - name: Tests
         # blocking: nothing is packaged, let alone released, from a build
         # whose tests fail on Windows
+        env:
+          # The runner has no audio device. Let autoaudiosink use its synced
+          # fakesink fallback while real decoding, playback and seeking run.
+          GST_PLUGIN_FEATURE_RANK: "wasapi2sink:0,wasapisink:0,directsoundsink:0,waveformsink:0,openalsink:0"
         run: |
           set -o pipefail
           env -u MSYSTEM python -W default -W "ignore::DeprecationWarning:gi.events" \

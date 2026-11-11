@@ -236,6 +236,8 @@ class PreviewFileTest(unittest.TestCase):
         self.assertFalse(paths[0].parent.exists())
 
     def test_application_close_waits_for_decoder_cancellation_and_leaves_no_temporary_files(self):
+        # Skip in the parent: a child's SkipTest is just a non-zero process exit.
+        _setup.gtk_or_skip()
         import numpy as np
         source = self.folder / "close-test.wav"
         audio.write(source, np.zeros(4 * audio.RATE, np.int16))
@@ -252,6 +254,7 @@ class PreviewFileTest(unittest.TestCase):
         self.assertIn(b"no windows, processes or preview folders left", done.stdout)
 
     def test_tagged_mp3_is_played_muted_in_a_child_process_and_the_source_is_untouched(self):
+        _setup.gtk_or_skip()
         from test_engines import run_ffmpeg
         source = self.folder / "voice with ID3.mp3"
         run_ffmpeg("-f", "lavfi", "-i", "sine=frequency=440:duration=4", "-metadata", "title=Voice preview",
