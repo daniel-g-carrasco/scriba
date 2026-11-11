@@ -34,8 +34,9 @@ The two ways in:
   choice come from Core Audio (app/winaudio.py).
 - Linux: pulsesrc (plugins-good; PipeWire answers it as PulseAudio does),
   the input by its source's name, an output by its monitor
-  ("<sink>.monitor"); the devices from GStreamer's device monitor. Not
-  tried on a machine: written from the plugin documentation. pulsesrc has no continue-on-error: a device that goes away
+  ("<sink>.monitor"); the devices from PulseAudio's own GStreamer provider.
+  Without a sound server there are no devices. pulsesrc has no
+  continue-on-error: a device that goes away
   stops the recording, its files closed properly.
 
 GStreamer's bus is read in threads of this module (no main loop): the
@@ -114,8 +115,7 @@ def _make(factory: str, **properties) -> Gst.Element:
 # -- the devices -----------------------------------------------------------------------
 
 def list_devices() -> list[dev.Device]:
-    """The inputs and the outputs there are now. Failure when the system
-    does not say."""
+    """The inputs and outputs there are now; none if PulseAudio is unavailable."""
     if WINDOWS:
         from . import winaudio
         try:
@@ -126,19 +126,17 @@ def list_devices() -> list[dev.Device]:
 
 
 def _pulse_devices() -> list[dev.Device]:
-    """PulseAudio's sources (PipeWire's too), through GStreamer's device
-    monitor: a "monitor" class source is an output's [not tried]."""
+    """PulseAudio's sources (PipeWire's too): a monitor source is an output."""
     init()
-    monitor = Gst.DeviceMonitor.new()
-    # PipeWire's provider hides Pulse devices by default, including monitors.
-    monitor.set_show_all_devices(True)
-    monitor.add_filter("Audio/Source", None)
-    if not monitor.start():
-        raise Failure(_("The sound devices cannot be listed."), "Gst.DeviceMonitor did not start")
+    # DeviceMonitor starts unrelated providers too; GStreamer 1.28.2 can abort
+    # when stopping it after one failed. Only Pulse devices back pulsesrc.
+    provider = Gst.DeviceProviderFactory.get_by_name("pulsedeviceprovider")
+    if provider is None or not provider.start():
+        return []
     try:
-        found = monitor.get_devices() or []
+        found = provider.get_devices() or []
     finally:
-        monitor.stop()
+        provider.stop()
     out = []
     for device in found:
         element = device.create_element(None)
