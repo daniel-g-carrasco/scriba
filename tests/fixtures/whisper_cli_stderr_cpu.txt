@@ -1,0 +1,69 @@
+load_backend: loaded BLAS backend from C:\msys64\ucrt64\bin\ggml-blas.dll
+load_backend: loaded RPC backend from C:\msys64\ucrt64\bin\ggml-rpc.dll
+ggml_vulkan: Found 2 Vulkan devices:
+ggml_vulkan: 0 = Intel(R) Iris(R) Xe Graphics (Intel Corporation) | uma: 1 | fp16: 1 | bf16: 0 | fp4: 0 | warp size: 32 | shared memory: 32768 | int dot: 1 | matrix cores: none
+ggml_vulkan: 1 = NVIDIA RTX A2000 8GB Laptop GPU (NVIDIA) | uma: 0 | fp16: 1 | bf16: 1 | fp4: 0 | warp size: 32 | shared memory: 49152 | int dot: 1 | matrix cores: NV_coopmat2
+load_backend: loaded Vulkan backend from C:\msys64\ucrt64\bin\ggml-vulkan.dll
+ggml_opencl: selected platform: 'Intel(R) OpenCL Graphics'
+
+ggml_opencl: device: 'Intel(R) Iris(R) Xe Graphics (OpenCL 3.0 NEO )'
+ggml_opencl: default device: 'Intel(R) Iris(R) Xe Graphics (OpenCL 3.0 NEO )'
+load_backend: loaded OpenCL backend from C:\msys64\ucrt64\bin\ggml-opencl.dll
+load_backend: loaded CPU backend from C:\msys64\ucrt64\bin\ggml-cpu-alderlake.dll
+whisper_init_from_file_with_params_no_state: loading model from 'C:/models/ggml-large-v3-turbo-q5_0.bin'
+whisper_init_with_params_no_state: use gpu    = 0
+whisper_init_with_params_no_state: flash attn = 1
+whisper_init_with_params_no_state: gpu_device = 0
+whisper_init_with_params_no_state: dtw        = 0
+whisper_init_with_params_no_state: devices    = 5
+whisper_init_with_params_no_state: backends   = 5
+whisper_model_load: loading model
+whisper_model_load: n_vocab       = 51866
+whisper_model_load: n_audio_ctx   = 1500
+whisper_model_load: n_audio_state = 1280
+whisper_model_load: n_audio_head  = 20
+whisper_model_load: n_audio_layer = 32
+whisper_model_load: n_text_ctx    = 448
+whisper_model_load: n_text_state  = 1280
+whisper_model_load: n_text_head   = 20
+whisper_model_load: n_text_layer  = 4
+whisper_model_load: n_mels        = 128
+whisper_model_load: ftype         = 8
+whisper_model_load: qntvr         = 2
+whisper_model_load: type          = 5 (large v3)
+whisper_model_load: adding 1609 extra tokens
+whisper_model_load: n_langs       = 100
+whisper_model_load:          CPU total size =   573.40 MB
+whisper_model_load: model size    =  573.40 MB
+whisper_backend_init_gpu: no GPU found
+whisper_backend_init: using BLAS backend
+whisper_init_state: kv self size  =   10.49 MB
+whisper_init_state: kv cross size =   31.46 MB
+whisper_init_state: kv pad  size  =    7.86 MB
+whisper_init_state: compute buffer (conv)   =   36.15 MB
+whisper_init_state: compute buffer (encode) =   55.35 MB
+whisper_init_state: compute buffer (cross)  =    9.27 MB
+whisper_init_state: compute buffer (decode) =   99.12 MB
+read_audio_data: reading audio data from 'clip30.wav' ...
+read_audio_data: trying to decode with miniaudio
+
+system_info: n_threads = 8 / 20 | WHISPER : VITISAI = 0 | COREML = 0 | OPENVINO = 0 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX_VNNI = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | OPENMP = 1 | REPACK = 1 | 
+
+main: processing 'clip30.wav' (480000 samples, 30.0 sec), 8 threads, 1 processors, 5 beams + best of 5, lang = it, task = transcribe, timestamps = 1 ...
+
+whisper_print_progress_callback: progress = 100%
+output_json: saving output to 'cpu.json'
+
+whisper_print_timings:     load time =   277.15 ms
+whisper_print_timings:     fallbacks =   0 p /   0 h
+whisper_print_timings:      mel time =    36.86 ms
+whisper_print_timings:   sample time =   284.32 ms /   383 runs (     0.74 ms per run)
+whisper_print_timings:   encode time = 10680.30 ms /     1 runs ( 10680.30 ms per run)
+whisper_print_timings:   decode time =    30.28 ms /     1 runs (    30.28 ms per run)
+whisper_print_timings:   batchd time =  3192.27 ms /   380 runs (     8.40 ms per run)
+whisper_print_timings:   prompt time =     0.00 ms /     1 runs (     0.00 ms per run)
+whisper_print_timings:    total time = 14646.45 ms
+
+real	0m17,242s
+user	0m0,015s
+sys	0m0,000s

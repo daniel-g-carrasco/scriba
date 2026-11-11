@@ -1,0 +1,28 @@
+{
+  "about": "An invented call, written for the tests (no real meeting): segments as a speech engine gives them, turns as a voice engine gives them. The transcript body follows trascrivi.py; subtitles round milliseconds correctly, with the voice word 'Speaker' in place of 'Parlante'.",
+  "segments": [
+    [0.0, 3.48, " Buongiorno a tutti, iniziamo con il quadro generale."],
+    [3.48, 7.9, " Sì, ho ricevuto le tavole ieri sera."],
+    [8.2, 8.2, "   "],
+    [8.3, 12.66, " Il cavo da 240 mm² arriva dal locale tecnico --> fino al quadro QG-01."],
+    [12.66, 15.0, " Perfetto."],
+    [15.02, 21.4, " Then we can check the cable schedule with the UK team."],
+    [21.4, 25.0, " D'accordo, lo mando a François e a Jürgen entro venerdì."],
+    [25.31, 29.99, " Ci sentiamo la prossima settimana."],
+    [3599.5, 3601.25, " Siamo oltre l'ora: il conteggio cambia forma."],
+    [3601.25, 3725.875, " Ultima battuta, con i tempi di un'ora e due minuti."],
+    [3726.0, 3727.0, " Grazie."]
+  ],
+  "turns": [
+    [0.0, 3.6, "SPEAKER_02"],
+    [3.6, 8.1, "SPEAKER_00"],
+    [8.4, 12.5, "SPEAKER_02"],
+    [12.5, 15.0, "SPEAKER_00"],
+    [15.0, 21.0, "SPEAKER_01"],
+    [21.0, 25.2, "SPEAKER_00"],
+    [25.5, 30.0, "SPEAKER_02"],
+    [3599.0, 3602.0, "SPEAKER_01"],
+    [3602.0, 3720.0, "SPEAKER_01"],
+    [3740.0, 3745.0, "SPEAKER_00"]
+  ]
+}

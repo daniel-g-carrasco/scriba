@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Scriba
+Comment=Record a meeting and transcribe it on your own computer, with speakers and subtitles
+Comment[it]=Registra una riunione e la trascrive sul tuo computer, con le voci e i sottotitoli
+Exec=scriba %F
+Icon=io.github.daniel_g_carrasco.scriba
+Terminal=false
+Categories=Utility;GTK;
+Keywords=files;folder;count;
+Keywords[it]=file;cartella;conta;
+StartupNotify=true

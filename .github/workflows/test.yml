@@ -1,0 +1,87 @@
+name: Test
+
+# Reusable Linux tests with the numerical, codec and display dependencies.
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install PyGObject, gettext and the validators
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-gi gir1.2-glib-2.0 gettext desktop-file-utils appstream python3-numpy python3-scipy python3-sklearn ffmpeg
+          pipx install ruff
+      - run: ruff check --select F,E9,B .
+      - run: python3 tools/compile_po.py
+      # warnings as unittest shows them, but PyGObject's on Python 3.14
+      # (gi.events, at every run of the main loop: thousands of lines)
+      - run: python3 -W default -W "ignore::DeprecationWarning:gi.events" -m unittest discover -s tests -v
+      - name: Validate desktop entry and AppStream metadata
+        run: |
+          desktop-file-validate data/io.github.daniel_g_carrasco.scriba.desktop
+          appstreamcli validate --no-net data/io.github.daniel_g_carrasco.scriba.metainfo.xml
+      - name: Check that the tag matches __version__
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          v="$(python3 -c 'import sys; sys.path.insert(0, "src"); import scriba as p; print(p.__version__)')"
+          if [ "v$v" != "${GITHUB_REF_NAME}" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match __version__ = $v"; exit 1
+          fi
+
+  gtk:
+    # the window and the dialogs: skipped silently wherever GTK 4 and
+    # libadwaita are missing, so they run here on purpose, on a display of
+    # their own
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install GTK 4, libadwaita and a display
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 xvfb gettext python3-numpy python3-scipy python3-sklearn ffmpeg \
+            gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gstreamer1.0-pulseaudio \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad libgtk-4-media-gstreamer
+      - run: python3 tools/compile_po.py
+      - name: The full suite with a display and isolated settings
+        run: |
+          export XDG_CONFIG_HOME="$RUNNER_TEMP/scriba-test/config" XDG_CACHE_HOME="$RUNNER_TEMP/scriba-test/cache"
+          export XDG_STATE_HOME="$RUNNER_TEMP/scriba-test/state" XDG_DATA_HOME="$RUNNER_TEMP/scriba-test/data"
+          xvfb-run -a python3 -W default -W "ignore::DeprecationWarning:gi.events" -m unittest discover -s tests -v
+      - name: The window tests, and that they really ran
+        run: |
+          cd tests
+          # test_window skips itself at import when GTK 4, libadwaita or a
+          # display is missing. Loaded by name, as here, it is not reported
+          # as skipped: unittest stops on that SkipTest with status 1 (the
+          # PIPESTATUS test). Under discover the same module would be a
+          # ModuleSkipped entry and an OK (the grep). A Windows-only test
+          # inside skips on its own and is fine.
+          xvfb-run -a python3 -W default -W "ignore::DeprecationWarning:gi.events" \
+            -m unittest -v test_window 2>&1 | tee ../gtk-tests.log
+          test "${PIPESTATUS[0]}" -eq 0
+          if grep -q "ModuleSkipped" ../gtk-tests.log; then echo "the GTK tests were skipped"; exit 1; fi
+      - name: The window itself, a screenshot (the sources, on xvfb)
+        run: |
+          mkdir -p gui
+          export SCRIBA_SCREENSHOT="$PWD/gui/window.png" SCRIBA_SCREENSHOT_DELAY=4
+          export XDG_CONFIG_HOME="$PWD/gui/config" XDG_STATE_HOME="$PWD/gui/state" XDG_DATA_HOME="$PWD/gui/data"
+          xvfb-run -a timeout 60 python3 bin/scriba
+          test -f gui/window.png
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        if: always()
+        with:
+          name: linux-gui
+          path: |
+            gtk-tests.log
+            gui/window.png

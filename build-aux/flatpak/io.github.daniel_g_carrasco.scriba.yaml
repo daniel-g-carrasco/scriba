@@ -1,0 +1,121 @@
+# Linux x86_64 package: GNOME Platform 50, CPU and Vulkan speech engines.
+# The numerical wheels target the runtime Python 3.13, not the host Python.
+app-id: io.github.daniel_g_carrasco.scriba
+branch: stable
+runtime: org.gnome.Platform
+runtime-version: '50'
+# A release bundle is one file; retain translations in the application itself.
+separate-locales: false
+sdk: org.gnome.Sdk
+command: scriba
+
+finish-args:
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  # PulseAudio is provided by PipeWire too: microphone and output monitors.
+  - --socket=pulseaudio
+  # The three model downloads use HTTPS; audio and transcripts stay local.
+  - --share=network
+  # Transcripts and renamed revisions are written beside arbitrary recordings,
+  # including removable disks. The file portal grants the selected file only,
+  # not its parent or sibling outputs. This access is consequently writable.
+  - --filesystem=host
+  # The user's GTK 4 style (accent colours from Noctalia, matugen and the
+  # like live in ~/.config/gtk-4.0/gtk.css): GTK looks for it in the app's
+  # own config folder, where Flatpak puts it only with this. Read-only.
+  - --filesystem=xdg-config/gtk-4.0:ro
+
+modules:
+  - python-numerical.json
+
+  - name: onnxruntime
+    buildsystem: simple
+    build-commands:
+      - install -d /app/lib /app/share/licenses/onnxruntime
+      - cp -a lib/libonnxruntime.so* lib/libonnxruntime_providers_shared.so /app/lib/
+      - install -m644 LICENSE ThirdPartyNotices.txt /app/share/licenses/onnxruntime/
+    sources:
+      - type: archive
+        url: https://github.com/microsoft/onnxruntime/releases/download/v1.29.0/onnxruntime-linux-x64-1.29.0.tgz
+        sha256: c3fddc4f139a045b0c4902c57410f0694f1c2fdf9b6939fbe38b1aeae7cd14ba
+
+  # Vulkan's compiler is in the SDK; whisper also needs these CMake headers.
+  - name: spirv-headers
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DSPIRV_HEADERS_SKIP_EXAMPLES=ON
+      - -DSPIRV_HEADERS_SKIP_TESTS=ON
+    cleanup:
+      - /include
+      - /share/cmake
+    post-install:
+      - install -Dm644 LICENSE /app/share/licenses/spirv-headers/LICENSE
+    sources:
+      - type: archive
+        url: https://github.com/KhronosGroup/SPIRV-Headers/archive/refs/tags/vulkan-sdk-1.4.321.0.tar.gz
+        sha256: 5bbea925663d4cd2bab23efad53874f2718248a73dcaf9dd21dff8cb48e602fc
+
+  - name: whisper-cpp
+    buildsystem: cmake-ninja
+    cleanup:
+      - /include
+      - /lib/cmake
+      - /lib/pkgconfig
+      - /bin/whisper-server
+      - /bin/whisper-quantize
+      - /bin/whisper-vad-speech-segments
+      - /bin/parakeet-cli
+      - /bin/parakeet-quantize
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DCMAKE_INSTALL_LIBDIR=lib
+      - -DWHISPER_BUILD_TESTS=OFF
+      - -DWHISPER_BUILD_SERVER=OFF
+      - -DWHISPER_BUILD_EXAMPLES=ON
+      - -DGGML_VULKAN=ON
+      - -DGGML_CPU=ON
+      - -DGGML_NATIVE=OFF
+      - -DGGML_BACKEND_DL=ON
+      - -DGGML_CPU_ALL_VARIANTS=ON
+    post-install:
+      - install -Dm644 LICENSE /app/share/licenses/whisper-cpp/LICENSE
+    sources:
+      - type: archive
+        url: https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v1.9.4.tar.gz
+        sha256: 57e280cee375ab02425b806ad5146b99f6eb9357e3c2b31357c8a6af2e2e44ae
+
+  - name: scriba
+    buildsystem: simple
+    build-commands:
+      - install -d /app/share/scriba
+      - cp -r src/scriba /app/share/scriba/scriba
+      # the sample of speech the cards are tested on, with its text and origin (in the package's folder)
+      - test -f /app/share/scriba/scriba/samples/sample-it.flac -a -f /app/share/scriba/scriba/samples/sample-it.txt
+      - install -Dm755 bin/scriba /app/bin/scriba
+      - python3 tools/compile_po.py --dest /app/share/locale
+      - install -Dm644 data/io.github.daniel_g_carrasco.scriba.desktop -t /app/share/applications
+      - install -Dm644 data/io.github.daniel_g_carrasco.scriba.metainfo.xml -t /app/share/metainfo
+      - install -Dm644 data/icons/hicolor/scalable/apps/io.github.daniel_g_carrasco.scriba.svg -t /app/share/icons/hicolor/scalable/apps
+      - install -Dm644 data/icons/hicolor/symbolic/apps/io.github.daniel_g_carrasco.scriba-symbolic.svg -t /app/share/icons/hicolor/symbolic/apps
+      - install -Dm644 data/icons/hicolor/64x64/apps/io.github.daniel_g_carrasco.scriba.png -t /app/share/icons/hicolor/64x64/apps
+      - install -Dm644 data/icons/hicolor/128x128/apps/io.github.daniel_g_carrasco.scriba.png -t /app/share/icons/hicolor/128x128/apps
+      - install -Dm644 data/icons/hicolor/256x256/apps/io.github.daniel_g_carrasco.scriba.png -t /app/share/icons/hicolor/256x256/apps
+      # fail the build early on an invalid desktop entry or metainfo
+      - desktop-file-validate /app/share/applications/io.github.daniel_g_carrasco.scriba.desktop
+      - appstreamcli validate --no-net /app/share/metainfo/io.github.daniel_g_carrasco.scriba.metainfo.xml
+      - /app/bin/scriba --version
+      - install -m644 tools/check_flatpak.py /app/share/scriba/check_flatpak.py
+      - python3 tools/check_flatpak.py
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - build-dir
+          - .flatpak-builder
+          - locale
+          - .ruff_cache
+          - dist
+          - build

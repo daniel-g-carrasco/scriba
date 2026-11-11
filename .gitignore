@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+build/
+dist/
+.venv/
+locale/
+po/*.pot
+build-dir/
+.flatpak-builder/
+/repo/
+/*.flatpak
+.ruff_cache/
+build-aux/windows/scriba.ico
+
+/screenshots/

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="512"
+   height="512"
+   viewBox="0 0 512 512"
+   version="1.1"
+   id="svg1"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview id="namedview1" pagecolor="#ffffff" bordercolor="#000000" borderopacity="0.25" inkscape:showpageshadow="2" inkscape:pageopacity="0.0" inkscape:pagecheckerboard="0" inkscape:deskcolor="#d1d1d1" inkscape:document-units="px" showguides="true" inkscape:zoom="0.6" inkscape:cx="544" inkscape:cy="256" inkscape:current-layer="soggetto">
+    <inkscape:page x="0" y="0" width="512" height="512" id="pagina-sfondo-chiaro" inkscape:label="Per sfondi chiari (cerchio scuro)" />
+    <inkscape:page x="576" y="0" width="512" height="512" id="pagina-sfondo-scuro" inkscape:label="Per sfondi scuri (cerchio avorio)" />
+    <sodipodi:guide position="48,256" orientation="1,0" inkscape:label="contenuto 416" />
+    <sodipodi:guide position="256,256" orientation="1,0" inkscape:label="centro" />
+    <sodipodi:guide position="464,256" orientation="1,0" inkscape:label="contenuto 416" />
+    <sodipodi:guide position="624,256" orientation="1,0" inkscape:label="contenuto 416" />
+    <sodipodi:guide position="832,256" orientation="1,0" inkscape:label="centro" />
+    <sodipodi:guide position="1040,256" orientation="1,0" inkscape:label="contenuto 416" />
+    <sodipodi:guide position="256,48" orientation="0,1" inkscape:label="contenuto 416" />
+    <sodipodi:guide position="256,256" orientation="0,1" inkscape:label="centro" />
+    <sodipodi:guide position="256,464" orientation="0,1" inkscape:label="contenuto 416" />
+  </sodipodi:namedview>
+  <inkscape:templateinfo>
+    <inkscape:name>Icona di famiglia (Margine)</inkscape:name>
+    <inkscape:shortdesc>Icona tonda 512x512 nello stile di famiglia: pagina 1 cerchio scuro per sfondi chiari, pagina 2 cerchio avorio per sfondi scuri. Disegna il soggetto nel livello Soggetto dentro il riquadro 416 delle guide; riempi con le sfumature nominate (corpo-avorio sul cerchio scuro, corpo-scuro sul cerchio avorio; ombra-* per le forme dietro). Niente contorni, niente trasparenza.</inkscape:shortdesc>
+    <inkscape:date>2026-10-18</inkscape:date>
+    <inkscape:keywords>margine lucciola icona 512 famiglia</inkscape:keywords>
+  </inkscape:templateinfo>
+  <defs id="defs1">
+    <linearGradient id="sfumatura-cerchio-scuro" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" style="stop-color:#333333;stop-opacity:1" />
+      <stop offset="1" style="stop-color:#1a1a1a;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="sfumatura-cerchio-avorio" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" style="stop-color:#f3f1ea;stop-opacity:1" />
+      <stop offset="1" style="stop-color:#e0ddd4;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="sfumatura-corpo-avorio" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" style="stop-color:#f3f1ea;stop-opacity:1" />
+      <stop offset="1" style="stop-color:#d4d0c2;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="sfumatura-corpo-scuro" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" style="stop-color:#333333;stop-opacity:1" />
+      <stop offset="1" style="stop-color:#1a1a1a;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="sfumatura-ombra-avorio" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" style="stop-color:#d9d3bd;stop-opacity:1" />
+      <stop offset="1" style="stop-color:#ccc6b2;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="sfumatura-ombra-scura" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" style="stop-color:#555555;stop-opacity:1" />
+      <stop offset="1" style="stop-color:#3d3d3d;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <g inkscape:groupmode="layer" id="sfondo" inkscape:label="Sfondo (cerchi, bloccato)" sodipodi:insensitive="true">
+    <circle id="cerchio-scuro" cx="256" cy="256" r="240" style="fill:url(#sfumatura-cerchio-scuro)" />
+    <circle id="cerchio-avorio" cx="832" cy="256" r="240" style="fill:url(#sfumatura-cerchio-avorio)" />
+  </g>
+  <g inkscape:groupmode="layer" id="soggetto" inkscape:label="Soggetto">
+    <rect id="esempio-avorio" x="216" y="216" width="80" height="80" rx="16" style="fill:url(#sfumatura-corpo-avorio)" inkscape:label="esempio: cancellami" />
+    <rect id="esempio-scuro" x="792" y="216" width="80" height="80" rx="16" style="fill:url(#sfumatura-corpo-scuro)" inkscape:label="esempio: cancellami" />
+  </g>
+</svg>

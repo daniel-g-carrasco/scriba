@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><ns0:defs xmlns:ns0="http://www.w3.org/2000/svg" id="defs1">
+    <ns0:linearGradient id="sfumatura-cerchio-scuro" x1="0" y1="0" x2="0" y2="1">
+      <ns0:stop offset="0" style="stop-color:#333333;stop-opacity:1" />
+      <ns0:stop offset="1" style="stop-color:#1a1a1a;stop-opacity:1" />
+    </ns0:linearGradient>
+    <ns0:linearGradient id="sfumatura-cerchio-avorio" x1="0" y1="0" x2="0" y2="1">
+      <ns0:stop offset="0" style="stop-color:#f3f1ea;stop-opacity:1" />
+      <ns0:stop offset="1" style="stop-color:#e0ddd4;stop-opacity:1" />
+    </ns0:linearGradient>
+    <ns0:linearGradient id="sfumatura-corpo-avorio" x1="0" y1="0" x2="0" y2="1">
+      <ns0:stop offset="0" style="stop-color:#f3f1ea;stop-opacity:1" />
+      <ns0:stop offset="1" style="stop-color:#d4d0c2;stop-opacity:1" />
+    </ns0:linearGradient>
+    <ns0:linearGradient id="sfumatura-corpo-scuro" x1="0" y1="0" x2="0" y2="1">
+      <ns0:stop offset="0" style="stop-color:#333333;stop-opacity:1" />
+      <ns0:stop offset="1" style="stop-color:#1a1a1a;stop-opacity:1" />
+    </ns0:linearGradient>
+    <ns0:linearGradient id="sfumatura-ombra-avorio" x1="0" y1="0" x2="0" y2="1">
+      <ns0:stop offset="0" style="stop-color:#d9d3bd;stop-opacity:1" />
+      <ns0:stop offset="1" style="stop-color:#ccc6b2;stop-opacity:1" />
+    </ns0:linearGradient>
+    <ns0:linearGradient id="sfumatura-ombra-scura" x1="0" y1="0" x2="0" y2="1">
+      <ns0:stop offset="0" style="stop-color:#555555;stop-opacity:1" />
+      <ns0:stop offset="1" style="stop-color:#3d3d3d;stop-opacity:1" />
+    </ns0:linearGradient>
+    <mask id="nib-holes" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+      <rect width="512" height="512" fill="white"/>
+      <circle cx="256" cy="236" r="24" fill="black"/>
+      <rect x="248" y="236" width="16" height="212" fill="black"/>
+    </mask>
+  </ns0:defs>
+  <circle cx="256" cy="256" r="240" fill="url(#sfumatura-cerchio-scuro)"/><g transform="translate(0 12)"><g mask="url(#nib-holes)"><path fill="url(#sfumatura-corpo-avorio)" d="M184 140H328L344 278 256 416 168 278Z"/><path d="M196 96H316Q328 96 328 108V140H184V108Q184 96 196 96Z" fill="url(#sfumatura-ombra-avorio)"/></g></g></svg>

@@ -1,0 +1,4 @@
+# Files executed or validated on Linux need LF in every checkout.
+*.sh text eol=lf
+bin/* text eol=lf
+*.desktop text eol=lf

@@ -1,0 +1,19 @@
+/* The app's own rules, written by hand, loaded after style.css. Measures
+   and colours come from its variables only (border-radius:
+   var(--radius-card), never 12px): tools/make_style.py --check and
+   tests/test_style.py list what is written by hand here. The sample app
+   has no rule of its own: it looks as libadwaita draws it. */
+
+/* With the system's title bar (Windows: the class is given to every window
+   there): a hairline between it and the content, in the text's colour,
+   faint. Daniel, 10/11/2026: on a screen where Windows stretches the
+   window a line stood there by itself, and the edge it gave was liked. */
+window.system-titlebar headerbar {
+  box-shadow: inset 0 var(--line-hair) alpha(currentColor, 0.09);
+}
+
+/* The Record page's round buttons (gui/record.py): the one big control of
+   the page, as GNOME's Sound Recorder has it, its icon at --icon-record. */
+button.record-button {
+  padding: var(--space-l);
+}

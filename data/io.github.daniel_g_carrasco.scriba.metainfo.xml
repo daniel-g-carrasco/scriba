@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata: shown by GNOME Software. Every release goes here
+     too, in the same words as CHANGELOG.md, shorter (tests/test_release.py
+     checks that the newest one is the version in the code). -->
+<component type="desktop-application">
+  <id>io.github.daniel_g_carrasco.scriba</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>Scriba</name>
+  <summary>Record a meeting and transcribe it on your own computer, with speakers and subtitles</summary>
+  <summary xml:lang="it">Registra una riunione e la trascrive sul tuo computer, con le voci e i sottotitoli</summary>
+
+  <developer id="io.github.daniel_g_carrasco">
+    <name>Daniel Grasso</name>
+  </developer>
+
+  <description>
+    <p>
+      Scriba is in early development, with Windows as the current development target and no public download yet. Live Bluetooth-headset call testing is still pending. Scriba records a meeting and transcribes it on your own computer. It records your microphone and the computer's sound (the others in a call) on separate tracks, with automatic device selection that you check against a meter on every device and a warning when your voice comes in faint; it also transcribes recordings made elsewhere. It writes the text with the times, the subtitles, the voices told apart and named by you, and for a video a copy with the subtitles inside. Recordings and text stay on the computer; the speech models are downloaded once and checked, and the work runs on the graphics card when one works.
+    </p>
+    <p xml:lang="it">
+      Scriba è in sviluppo iniziale, con Windows come sistema attualmente seguito e senza download pubblico. La prova di una call vera con cuffie Bluetooth è ancora da fare. Scriba registra una riunione e la trascrive sul tuo computer. Registra il tuo microfono e l'audio del computer (gli altri della call) su tracce separate, con scelta automatica dei dispositivi da controllare attraverso il misuratore di ogni dispositivo e un avviso quando la tua voce arriva debole; trascrive anche le registrazioni fatte altrove. Scrive il testo con gli orari, i sottotitoli, le voci riconosciute e chiamate con i nomi che dai tu, e per un video una copia con i sottotitoli dentro. Registrazioni e testo restano sul computer; i modelli si scaricano una volta e si controllano, e il lavoro va sulla scheda video quando ce n'è una che funziona.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.daniel_g_carrasco.scriba.desktop</launchable>
+  <provides>
+    <binary>scriba</binary>
+  </provides>
+
+  <url type="homepage">https://github.com/daniel-g-carrasco/scriba</url>
+  <url type="bugtracker">https://github.com/daniel-g-carrasco/scriba/issues</url>
+  <url type="vcs-browser">https://github.com/daniel-g-carrasco/scriba</url>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#99c1f1</color>
+    <color type="primary" scheme_preference="dark">#1a5fb4</color>
+  </branding>
+
+  <content_rating type="oars-1.1"/>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>touch</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+
+  <releases>
+    <release version="0.1.0" date="2026-11-11" type="development">
+      <description>
+        <p>Initial development version: meetings recorded (the microphone and the computer's sound on separate tracks, with automatic device selection to check before recording) and transcribed on the computer, with the voices told apart and named, the subtitles and the video with subtitles.</p>
+      </description>
+    </release>
+  </releases>
+</component>

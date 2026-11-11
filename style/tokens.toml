@@ -1,0 +1,34 @@
+# The style's values, the one place they are written. tools/make_style.py
+# makes src/scriba/gui/style.css and gui/style_values.py from them:
+# never edit those two, change a value here and run the tool
+# (tests/test_style.py fails otherwise). The format is in the template's
+# docs/10-stile-proposta.md; the names are those of the Qt model's
+# qtkit/design.py in small letters, so that the two models read alike.
+#
+# Only what the app sets itself is here. The colours, the text's sizes and
+# the controls' shapes are libadwaita's: a key left out, or an empty
+# string, means "the toolkit decides".
+format = 1
+
+[space]                 # logical pixels; a closed scale: nothing in between
+xxs = 2
+xs = 4
+s = 6
+m = 8
+l = 12
+xl = 16
+xxl = 24
+xxxl = 32
+
+[radius]
+card = 12               # a drop zone, a banner: what libadwaita's cards have
+
+[icon]
+tile = 24               # the outcome's icon beside its title (the Result page): a title-3's height
+record = 32             # the Record and Stop buttons' icons (the Record page): the one big control there
+
+[size]
+meter = 120             # a level meter's width beside a device's name (the Record page)
+
+[line]
+hair = 1                # the line under the system's title bar (Windows)

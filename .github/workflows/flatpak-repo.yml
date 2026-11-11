@@ -1,0 +1,133 @@
+name: Flatpak repository
+
+# Signed repository publication runs only for a separately authorised v* tag.
+# Main pushes and a manual run on main cannot publish.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flatpak-repo
+  cancel-in-progress: false
+
+env:
+  BASE_URL: https://daniel-g-carrasco.github.io/scriba
+  MANIFEST: build-aux/flatpak/io.github.daniel_g_carrasco.scriba.yaml
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build without publishing credentials
+        run: |
+          flatpak-builder --disable-rofiles-fuse --force-clean --ccache=false --repo=repo build-dir "$MANIFEST"
+          flatpak build --runtime build-dir python3 /app/share/scriba/check_flatpak.py
+          flatpak build-bundle repo scriba.flatpak io.github.daniel_g_carrasco.scriba stable \
+            --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: scriba-flatpak-repository
+          path: scriba.flatpak
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    # Only the separately authorised tag and its checked bundle reach users.
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write     # the gh-pages branch
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: scriba-flatpak-repository
+
+      - name: Fetch the published repository
+        run: |
+          git config --global --add safe.directory '*'
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          url="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git clone --depth 1 --branch gh-pages "$url" pages 2>/dev/null; then
+            # git does not store empty directories, and ostree refuses to
+            # list refs without the ones it created: put them back
+            mkdir -p pages/repo/refs/remotes pages/repo/refs/mirrors \
+              pages/repo/extensions pages/repo/state pages/repo/tmp/cache
+            echo "existing repository fetched"
+          else
+            git init -b gh-pages pages
+            git -C pages remote add origin "$url"
+            echo "first publication: new gh-pages branch"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Import the signing key
+        run: |
+          command -v gpg >/dev/null || dnf install -y gnupg2
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          mkdir -m 700 -p "$GNUPGHOME"
+          printf '%s\n' "$FLATPAK_GPG_PRIVATE_KEY" | gpg --batch --quiet --import
+          gpg --batch --list-secret-keys --with-colons | grep -q "^fpr:.*:${FLATPAK_GPG_KEY_ID}:" \
+            || { echo "secret key ${FLATPAK_GPG_KEY_ID} not found after import"; exit 1; }
+          # OSTree reads the legacy public keyring, not GnuPG's keybox.
+          gpg --batch --export "$FLATPAK_GPG_KEY_ID" > "$GNUPGHOME/pubring.gpg"
+          echo "GNUPGHOME=$GNUPGHOME" >> "$GITHUB_ENV"
+        env:
+          FLATPAK_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+          FLATPAK_GPG_KEY_ID: ${{ vars.FLATPAK_GPG_KEY_ID }}
+
+      - name: Import the checked bundle, sign and verify the repository
+        run: |
+          if [ ! -f pages/repo/config ]; then
+            ostree init --repo=pages/repo --mode=archive-z2
+          fi
+          flatpak build-import-bundle --gpg-sign="$FLATPAK_GPG_KEY_ID" --gpg-homedir="$GNUPGHOME" \
+            pages/repo scriba.flatpak
+          flatpak build-update-repo --generate-static-deltas --prune --prune-depth=3 \
+            --gpg-sign="$FLATPAK_GPG_KEY_ID" --gpg-homedir="$GNUPGHOME" pages/repo
+          export LC_ALL=C
+          verification="$(ostree show --repo=pages/repo --gpg-homedir="$GNUPGHOME" \
+            app/io.github.daniel_g_carrasco.scriba/x86_64/stable)"
+          printf '%s\n' "$verification"
+          printf '%s\n' "$verification" | grep -q 'Good signature'
+        env:
+          FLATPAK_GPG_KEY_ID: ${{ vars.FLATPAK_GPG_KEY_ID }}
+
+      - name: Write the .flatpakref, .flatpakrepo and index page
+        run: |
+          key="$(gpg --batch --export "$FLATPAK_GPG_KEY_ID" | base64 -w0)"
+          version="$(python3 -c 'import sys; sys.path.insert(0, "src"); import scriba as p; print(p.__version__)')"
+          python3 tools/flatpak_repo_files.py pages "$BASE_URL" "$key" "$version"
+          cp data/icons/hicolor/256x256/apps/io.github.daniel_g_carrasco.scriba.png pages/icon.png
+          echo "version=$version" >> "$GITHUB_ENV"
+        env:
+          FLATPAK_GPG_KEY_ID: ${{ vars.FLATPAK_GPG_KEY_ID }}
+
+      - name: Publish
+        run: |
+          cd pages
+          git add -A
+          if git diff --cached --quiet; then echo "nothing new to publish"; exit 0; fi
+          git commit -q -m "Publish ${version} (${GITHUB_SHA::7})"
+          git push origin gh-pages
+          echo "published ${version} to ${BASE_URL}"

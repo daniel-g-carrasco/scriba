@@ -1,0 +1,310 @@
+name: Windows
+
+# Windows tests and development artifacts run on pushes and pull requests.
+# Signing is reserved for version tags, never pull requests. Complete release
+# publication requires the Linux and Windows assets and their signatures.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # Inno Setup, the official release checked by its SHA-256 (GitHub's digest)
+  INNO_VERSION: "6.7.3"
+  INNO_SHA256: "9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732"
+
+# read-only for every job: only "release" below can write, and it runs no
+# build tool, only uploads what "package" built
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e  # v2.33.0
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            gettext
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-libadwaita
+            mingw-w64-ucrt-x86_64-librsvg
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-python-gobject
+            mingw-w64-ucrt-x86_64-ruff
+            mingw-w64-ucrt-x86_64-ffmpeg
+            mingw-w64-ucrt-x86_64-whisper.cpp
+            mingw-w64-ucrt-x86_64-onnxruntime
+            mingw-w64-ucrt-x86_64-python-numpy
+            mingw-w64-ucrt-x86_64-python-scipy
+            mingw-w64-ucrt-x86_64-python-scikit-learn
+            mingw-w64-ucrt-x86_64-gstreamer
+            mingw-w64-ucrt-x86_64-gst-plugins-base
+            mingw-w64-ucrt-x86_64-gst-plugins-good
+            mingw-w64-ucrt-x86_64-gst-plugins-bad
+      - name: Versions
+        run: |
+          python --version
+          python -c "import gi; gi.require_version('Gtk', '4.0'); gi.require_version('Adw', '1'); from gi.repository import Gtk, Adw; print('GTK', Gtk.MAJOR_VERSION, Gtk.MINOR_VERSION, 'Adw', Adw.MAJOR_VERSION, Adw.MINOR_VERSION)"
+          # MSYS2's Python takes "/" as the separator when MSYSTEM is set; the
+          # installed app never has it, so the tests and the window run without
+          env -u MSYSTEM python -c "import os, tempfile; print(os.name, repr(os.sep), tempfile.gettempdir())"
+      - run: ruff check --select F,E9,B .
+      - run: python tools/compile_po.py
+      - name: Tests
+        # blocking: nothing is packaged, let alone released, from a build
+        # whose tests fail on Windows
+        run: |
+          set -o pipefail
+          env -u MSYSTEM python -W default -W "ignore::DeprecationWarning:gi.events" \
+            -m unittest discover -s tests -v 2>&1 | tee tests.log
+      - name: The window
+        continue-on-error: true
+        run: |
+          OUT="$(cygpath -w "$PWD/gui")"
+          mkdir -p gui/config gui/state gui/data
+          export XDG_CONFIG_HOME="$OUT\\config" XDG_STATE_HOME="$OUT\\state" XDG_DATA_HOME="$OUT\\data"
+          export SCRIBA_SCREENSHOT="$OUT\\window.png" SCRIBA_SCREENSHOT_DELAY=6
+          timeout 120 env -u MSYSTEM python bin/scriba 2>&1 | tee gui/run.log
+          ls -la gui
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        if: always()
+        with:
+          name: windows-probe
+          path: |
+            tests.log
+            gui/
+
+  package:
+    needs: probe        # nothing packaged from a build whose tests failed
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e  # v2.33.0
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            zip
+            gettext
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-libadwaita
+            mingw-w64-ucrt-x86_64-librsvg
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-python-gobject
+            mingw-w64-ucrt-x86_64-pyinstaller
+            mingw-w64-ucrt-x86_64-ca-certificates
+            mingw-w64-ucrt-x86_64-whisper.cpp
+            mingw-w64-ucrt-x86_64-onnxruntime
+            mingw-w64-ucrt-x86_64-python-numpy
+            mingw-w64-ucrt-x86_64-python-scipy
+            mingw-w64-ucrt-x86_64-python-scikit-learn
+            mingw-w64-ucrt-x86_64-gstreamer
+            mingw-w64-ucrt-x86_64-gst-plugins-base
+            mingw-w64-ucrt-x86_64-gst-plugins-good
+            mingw-w64-ucrt-x86_64-gst-plugins-bad
+            make
+            diffutils
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-nasm
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-zlib
+      # ffmpeg built from FFmpeg's release sources under the LGPL (the
+      # script pins the tarball's SHA-256 and refuses a GPL configuration);
+      # kept between runs while the script does not change
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: build/ffmpeg-lgpl
+          key: ffmpeg-lgpl-${{ runner.os }}-${{ hashFiles('tools/build_ffmpeg.sh') }}
+      - name: ffmpeg under the LGPL
+        run: |
+          bash tools/build_ffmpeg.sh
+          build/ffmpeg-lgpl/bin/ffmpeg.exe -hide_banner -L | head -3 | grep -q "Lesser General Public"
+          ! build/ffmpeg-lgpl/bin/ffmpeg.exe -hide_banner -buildconf | grep -E -- "--enable-(gpl|nonfree)"
+      - name: Build with PyInstaller
+        run: |
+          python tools/compile_po.py
+          python tools/make_ico.py
+          pyinstaller --noconfirm build-aux/windows/scriba.spec
+      - name: The bundle made whole and checked (themes, languages, licences, the files it must have)
+        # tools/finish_bundle.py: the same step as a build made by hand;
+        # it fails on any file missing (the app, the engines, GStreamer's
+        # plugins, the sample, the licences) and says the weight
+        run: python tools/finish_bundle.py dist/Scriba
+      - name: The command line of the build (engines found in the build, not in MSYS2)
+        run: |
+          # the build alone: a PATH with Windows only, as on a user's computer
+          export LANGUAGE=en  # check labels below are matched in English
+          bare="/c/Windows/System32:/c/Windows"
+          PATH="$bare" ./dist/Scriba/scriba-cli.exe --version
+          # no models on the runner, no graphics card: check says so and
+          # exits 1; what matters is that every engine is the build's own
+          PATH="$bare" ./dist/Scriba/scriba-cli.exe check > check.log 2>&1 || true
+          cat check.log
+          for engine in whisper-cli ffmpeg ffprobe onnxruntime whisper-bench; do
+            grep -E "^OK +$engine: .*dist.Scriba._internal" check.log
+          done
+          grep -E "^OK +sample of speech" check.log
+          grep -E "^OK +recorder" check.log
+          ./dist/Scriba/_internal/ffmpeg.exe -hide_banner -L | head -3 | grep -q "Lesser General Public"
+      - name: Smoke test (the real exe, a screenshot of its window, one instance)
+        run: |
+          mkdir -p smoke/config smoke/state smoke/data
+          OUT="$(cygpath -w "$PWD/smoke")"
+          export XDG_CONFIG_HOME="$OUT\\config" XDG_STATE_HOME="$OUT\\state" XDG_DATA_HOME="$OUT\\data"
+          export SCRIBA_SCREENSHOT="$OUT\\window.png" SCRIBA_SCREENSHOT_DELAY=8 SCRIBA_SCREENSHOT_QUIT=0
+          env -u MSYSTEM ./dist/Scriba/Scriba.exe &
+          sleep 12
+          # a second launch hands over to the first: still one process
+          env -u MSYSTEM ./dist/Scriba/Scriba.exe
+          sleep 4
+          count=$(tasklist //FI "IMAGENAME eq Scriba.exe" | grep -c "Scriba.exe" || true)
+          test "$count" -eq 1 || { echo "expected one instance, found $count"; exit 1; }
+          test -f smoke/window.png
+          taskkill //IM Scriba.exe //F >/dev/null 2>&1 || true
+      - name: Package
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          case "$VERSION" in v*) ;; *) VERSION=dev ;; esac
+          cd dist && zip -qr "scriba-${VERSION}-windows-x64-portable.zip" Scriba
+      - name: Installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $setup = "$env:RUNNER_TEMP\innosetup-$env:INNO_VERSION.exe"
+          Invoke-WebRequest "https://github.com/jrsoftware/issrc/releases/download/is-$($env:INNO_VERSION -replace '\.', '_')/innosetup-$env:INNO_VERSION.exe" -OutFile $setup
+          if ((Get-FileHash $setup -Algorithm SHA256).Hash -ne $env:INNO_SHA256) { Write-Error 'Inno Setup: SHA-256 mismatch'; exit 1 }
+          $dir = "$env:RUNNER_TEMP\inno"
+          Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/DIR=$dir" -Wait
+          $iscc = "$dir\ISCC.exe"
+          $version = if ($env:GITHUB_REF_NAME -like 'v*') { $env:GITHUB_REF_NAME.Substring(1) } else { 'dev' }
+          & $iscc "/DAppVersion=$version" "build-aux\windows\scriba.iss"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Update over a running app (Setup closes it, starts it again)
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem dist -Filter 'scriba-setup-*.exe' | Select-Object -First 1).FullName
+          $opts = '/VERYSILENT', '/CURRENTUSER', '/SUPPRESSMSGBOXES', '/NORESTART'
+          $p = Start-Process $setup -ArgumentList $opts -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "install: $($p.ExitCode)"; exit 1 }
+          Start-Process "$env:LOCALAPPDATA\Programs\Scriba\Scriba.exe"
+          Start-Sleep 15
+          if (-not (Get-Process Scriba -ErrorAction SilentlyContinue)) { Write-Error 'the app did not start'; exit 1 }
+          # the installer held open with read sharing only, as updates.hold
+          # keeps the verified one until the app exits: Setup must still read it
+          $held = [System.IO.File]::Open($setup, 'Open', 'Read', 'Read')
+          # Setup only (Start-Process -Wait would wait for the app it starts again too)
+          $p = Start-Process $setup -ArgumentList ($opts + '/LOG=update.log') -PassThru
+          if (-not $p.WaitForExit(300000)) { Write-Error 'Setup did not finish'; exit 1 }
+          $held.Dispose()
+          Get-Content update.log | Select-String 'RestartManager|CloseApplications|succeeded|Abort|Ending'
+          if ($p.ExitCode -ne 0) { Write-Error "update over a running app: $($p.ExitCode)"; exit 1 }
+          Start-Sleep 15
+          if (-not (Get-Process Scriba -ErrorAction SilentlyContinue)) { Write-Error 'the app was not started again'; exit 1 }
+          Get-Process Scriba | Stop-Process
+      - name: The tag matches __version__ (a v* tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          v="$(python -c 'import sys; sys.path.insert(0, "src"); import scriba; print(scriba.__version__)')"
+          if [ "v$v" != "${GITHUB_REF_NAME}" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match __version__ = $v"; exit 1
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: scriba-windows
+          path: |
+            dist/scriba-setup-*.exe
+            dist/scriba-*-windows-x64-portable.zip
+            smoke/window.png
+
+  release:
+    # a v* tag: the installer and the portable zip join the release, which
+    # build.yml creates with the Flatpak. The only job that can write, and
+    # it runs nothing of the build: it downloads the artifact and uploads.
+    needs: package
+    if: github.event_name != 'pull_request' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: scriba-windows
+          path: artifact
+      - name: Sign with the project's key (minisign), checked before anything is uploaded
+        # the installed app runs an update only with this signature
+        # (updates.py, the same public key); the comment names the file,
+        # so another release's installer is not taken for this one
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          PUBLIC_KEY: RWRF+AifJvn/zhz0o7MBObIYHgw9+sWoc4GaBK+qYnJY0AqeJm540y0a
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq minisign
+          key="$RUNNER_TEMP/minisign.key"
+          (umask 077
+           case "$MINISIGN_SECRET_KEY" in
+             "untrusted comment:"*) printf '%s\n' "$MINISIGN_SECRET_KEY" ;;
+             *) printf 'untrusted comment: releases\n%s\n' "$MINISIGN_SECRET_KEY" ;;
+           esac | tr -d '\r' > "$key")
+          for f in "artifact/dist/scriba-setup-${GITHUB_REF_NAME}-windows-x64.exe" \
+                   "artifact/dist/scriba-${GITHUB_REF_NAME}-windows-x64-portable.zip"; do
+            test -f "$f"
+            minisign -S -s "$key" -m "$f" -x "$f.minisig" \
+              -t "timestamp:$(date +%s) file:$(basename "$f") hashed" </dev/null
+            minisign -V -P "$PUBLIC_KEY" -m "$f" -x "$f.minisig"
+          done
+          rm -f "$key"
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          setup="artifact/dist/scriba-setup-${GITHUB_REF_NAME}-windows-x64.exe"
+          zip="artifact/dist/scriba-${GITHUB_REF_NAME}-windows-x64-portable.zip"
+          test -f "$setup" && test -f "$zip" && test -f "$setup.minisig" && test -f "$zip.minisig"
+          for i in $(seq 1 80); do
+            gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 && break
+            sleep 30
+          done
+          gh release upload "${GITHUB_REF_NAME}" "$setup" "$zip" "$setup.minisig" "$zip.minisig" \
+            --repo "${GITHUB_REPOSITORY}" --clobber
+      - name: Published when every file is there
+        # release-complete: the same step, word for word, in build.yml and in
+        # windows.yml (tests/test_release.py compares them and runs it). The
+        # release is a draft until the Flatpak, the installer and the zip are
+        # all there with their signatures: the installed app asks GitHub for
+        # the latest release, and a draft is never that. Whichever workflow
+        # ends last finds every file and publishes.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          names="$(gh release view "$tag" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')"
+          missing=""
+          for wanted in '\.flatpak$' '\.flatpak\.minisig$' \
+                        "-setup-${tag}-windows-x64\.exe$" "-setup-${tag}-windows-x64\.exe\.minisig$" \
+                        "-${tag}-windows-x64-portable\.zip$" "-${tag}-windows-x64-portable\.zip\.minisig$"; do
+            echo "$names" | grep -Eq -- "$wanted" || missing="$missing $wanted"
+          done
+          if [ -n "$missing" ]; then
+            echo "the release stays a draft, still missing:$missing"
+          else
+            gh release edit "$tag" --repo "${GITHUB_REPOSITORY}" --draft=false --latest
+            echo "release $tag published: every file is there"
+          fi

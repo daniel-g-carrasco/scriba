@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scriba, local meeting transcription in development</title>
+  <meta name="description" content="Scriba records meetings and transcribes them locally, with speaker names and subtitles. Early development on Windows; no public download yet.">
+  <link rel="icon" href="icon.png">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f6f5f4; --fg: #2e3436; --dim: #5e5c64; --card: #ffffff; --line: #d8d4cf;
+      --accent: #1a5fb4; --accent-fg: #ffffff;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #242424; --fg: #eeeeec; --dim: #a8a7a3; --card: #303030; --line: #3a3a3a; --accent: #78aeed; --accent-fg: #1a1a1a; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.6 system-ui, "Segoe UI", Cantarell, sans-serif; }
+    main { max-width: 680px; margin: 0 auto; padding: 56px 20px 72px; }
+    header { display: flex; align-items: center; gap: 22px; margin-bottom: 12px; }
+    header img { width: 92px; height: 92px; }
+    h1 { margin: 0; font-size: 2.1rem; letter-spacing: -0.01em; }
+    h2 { margin: 44px 0 8px; font-size: 1.25rem; }
+    .tagline { margin: 2px 0 0; color: var(--dim); font-size: 1.1rem; }
+    p { margin: 14px 0; }
+    .buttons { display: flex; flex-wrap: wrap; gap: 12px; margin: 26px 0 6px; }
+    .btn { display: inline-block; padding: 10px 18px; border-radius: 9px; text-decoration: none; font-weight: 600;
+           background: var(--card); color: var(--fg); border: 1px solid var(--line); }
+    .btn.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+    code { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: .05rem .35rem; font-size: .9em; }
+    figure { margin: 28px 0; }
+    figure img { width: 100%; height: auto; display: block; border-radius: 12px; border: 1px solid var(--line); }
+    figcaption { color: var(--dim); font-size: .93rem; margin-top: 8px; }
+    .small { color: var(--dim); font-size: .95rem; }
+    footer { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--dim); font-size: .92rem; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="icon.png" alt="">
+    <div>
+      <h1>Scriba</h1>
+      <p class="tagline">Record a meeting and transcribe it on your own computer, with speakers and subtitles.</p>
+    </div>
+  </header>
+
+  <p>
+    Scriba records the microphone and computer sound on separate tracks, or opens an existing recording,
+    and transcribes it locally. It writes text, subtitles and speaker names. Names can be corrected by
+    reopening the meeting file, without transcribing again, and listening balance is saved as a new copy.
+  </p>
+  <h2>Early development</h2>
+  <p>
+    Windows is the current development target. There is no public installer or portable download yet.
+    Linux Flatpak development builds are being verified; a public Flatpak repository is not available yet.
+  </p>
+  <p>
+    Automatic device selection uses system information and sound levels. Check the microphone, output
+    and meters before recording. Live Bluetooth-headset call testing is still pending.
+  </p>
+  <div class="buttons">
+    <a class="btn primary" href="https://github.com/daniel-g-carrasco/scriba">Source and development notes on GitHub</a>
+  </div>
+  <p class="small">
+    Audio and text are processed on your computer. Speech models are downloaded once and checked;
+    Windows can also check for updates. Future release signing is described in the
+    <a href="https://github.com/daniel-g-carrasco/scriba/blob/main/CODE_SIGNING.md">code signing policy</a>.
+  </p>
+
+  <footer>
+    Made by <a href="https://github.com/daniel-g-carrasco">Daniel Grasso</a>. MIT licence.
+  </footer>
+</main>
+
+</body>
+</html>

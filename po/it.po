@@ -1,0 +1,1787 @@
+# Italian translation of Scriba.
+msgid ""
+msgstr ""
+"Project-Id-Version: scriba\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-11-11 10:01+0200\n"
+"PO-Revision-Date: 2026-11-11 10:00+0200\n"
+"Last-Translator: Daniel Grasso <code@danielgrasso.com>\n"
+"Language-Team: Italian\n"
+"Language: it\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: src/scriba/gui/application.py:35
+#, python-brace-format
+msgid "The settings file was damaged: the previous save was used. The damaged file is kept at {path}."
+msgstr "Il file delle impostazioni era danneggiato: è stato usato il salvataggio precedente. Il file danneggiato è conservato in {path}."
+
+#: src/scriba/gui/application.py:38
+#, python-brace-format
+msgid "The settings file was damaged and there was no previous save: the app starts with its defaults. The damaged file is kept at {path}."
+msgstr "Il file delle impostazioni era danneggiato e non c'era un salvataggio precedente: l'app parte con le impostazioni predefinite. Il file danneggiato è conservato in {path}."
+
+#: src/scriba/gui/application.py:41
+msgid "The settings file was missing: the previous save was used."
+msgstr "Il file delle impostazioni mancava: è stato usato il salvataggio precedente."
+
+#: src/scriba/gui/application.py:43
+#, python-brace-format
+msgid "The settings were saved by a newer version ({version}): what this version does not know is kept untouched."
+msgstr "Le impostazioni sono state salvate da una versione più recente ({version}): ciò che questa versione non conosce resta com'è."
+
+#: src/scriba/gui/application.py:201
+#, python-brace-format
+msgid "The settings could not be saved: {error}"
+msgstr "Impossibile salvare le impostazioni: {error}"
+
+#: src/scriba/gui/application.py:247
+#, python-brace-format
+msgid "The check for updates failed: {error}"
+msgstr "Il controllo degli aggiornamenti non è riuscito: {error}"
+
+#: src/scriba/gui/application.py:251
+#, python-brace-format
+msgid "{app} {version} is up to date"
+msgstr "{app} {version} è aggiornata"
+
+#: src/scriba/gui/application.py:256 src/scriba/gui/update_dialog.py:32
+#, python-brace-format
+msgid "{app} {version} is available"
+msgstr "È disponibile {app} {version}"
+
+#: src/scriba/gui/application.py:257
+msgid "Click to see what is new and update."
+msgstr "Fai clic per vedere le novità e aggiornare."
+
+#: src/scriba/gui/window.py:71
+msgid "Update…"
+msgstr "Aggiorna…"
+
+#: src/scriba/gui/update_dialog.py:22
+msgid "Update Available"
+msgstr "Aggiornamento disponibile"
+
+#: src/scriba/gui/update_dialog.py:35
+#, python-brace-format
+msgid "You are using version {version}."
+msgstr "Stai usando la versione {version}."
+
+#: src/scriba/gui/update_dialog.py:50
+msgid "Later"
+msgstr "Più tardi"
+
+#: src/scriba/gui/update_dialog.py:54
+msgid "Download and Install"
+msgstr "Scarica e installa"
+
+#: src/scriba/gui/update_dialog.py:56
+#, python-brace-format
+msgid "{app} closes while the new version is installed, and opens again."
+msgstr "{app} si chiude mentre la nuova versione viene installata, e si riapre."
+
+#: src/scriba/gui/update_dialog.py:59
+msgid "Open the Release Page"
+msgstr "Apri la pagina della versione"
+
+#: src/scriba/gui/update_dialog.py:78
+msgid "Downloading…"
+msgstr "Scaricamento…"
+
+#: src/scriba/gui/update_dialog.py:88
+#, python-brace-format
+msgid "Download failed: {error}"
+msgstr "Scaricamento non riuscito: {error}"
+
+#: src/scriba/gui/update_dialog.py:113
+msgid "Starting the installer…"
+msgstr "Avvio dell'installer…"
+
+#: src/scriba/gui/update_dialog.py:122
+#, python-brace-format
+msgid "Cannot start the installer: {error}"
+msgstr "Impossibile avviare l'installer: {error}"
+
+#: src/scriba/app/updates.py:126 src/scriba/app/updates.py:148
+msgid "unexpected answer from GitHub"
+msgstr "risposta inattesa da GitHub"
+
+#: src/scriba/app/updates.py:151
+#, python-brace-format
+msgid "GitHub answered {code}"
+msgstr "GitHub ha risposto {code}"
+
+#: src/scriba/app/updates.py:231
+msgid "the release gives no checksum for the installer: not downloaded"
+msgstr "la versione pubblicata non indica il checksum dell'installer: non scaricato"
+
+#: src/scriba/app/updates.py:233
+msgid "the release gives no signature for the installer: not downloaded"
+msgstr "la versione pubblicata non indica la firma dell'installer: non scaricato"
+
+#: src/scriba/app/updates.py:245
+msgid "cancelled"
+msgstr "annullato"
+
+#: src/scriba/app/updates.py:250 src/scriba/app/updates.py:259
+msgid "the file downloaded does not match the release: not started"
+msgstr "il file scaricato non corrisponde alla versione pubblicata: non avviato"
+
+#: src/scriba/app/updates.py:267
+msgid "the installer is not signed by the project: not started"
+msgstr "l'installer non è firmato dal progetto: non avviato"
+
+#: src/scriba/app/updates.py:272
+#, python-brace-format
+msgid "download failed ({code})"
+msgstr "scaricamento non riuscito ({code})"
+
+#: src/scriba/gui/window.py:60
+msgid "Check for Updates…"
+msgstr "Controlla aggiornamenti…"
+
+#: src/scriba/gui/window.py:61 src/scriba/gui/window.py:236
+msgid "Preferences"
+msgstr "Preferenze"
+
+#: src/scriba/gui/window.py:62
+#, python-brace-format
+msgid "About {app}"
+msgstr "Informazioni su {app}"
+
+#: src/scriba/gui/window.py:65
+msgid "Main Menu"
+msgstr "Menu principale"
+
+#: src/scriba/gui/window.py:99
+msgid "Files"
+msgstr "File"
+
+#: src/scriba/gui/window.py:111
+msgid "Cancel"
+msgstr "Annulla"
+
+#: src/scriba/gui/window.py:241
+msgid "Appearance"
+msgstr "Aspetto"
+
+#: src/scriba/gui/window.py:242
+msgid "Follow the System"
+msgstr "Come il sistema"
+
+#: src/scriba/gui/window.py:242
+msgid "Light"
+msgstr "Chiaro"
+
+#: src/scriba/gui/window.py:242
+msgid "Dark"
+msgstr "Scuro"
+
+#: src/scriba/gui/window.py:243
+msgid "Theme"
+msgstr "Tema"
+
+#: src/scriba/gui/window.py:248
+msgid "Desktop language"
+msgstr "Lingua del sistema"
+
+#: src/scriba/gui/window.py:249
+msgid "Language"
+msgstr "Lingua"
+
+#: src/scriba/gui/window.py:249
+msgid "Applied at the next start"
+msgstr "Vale dal prossimo avvio"
+
+#: src/scriba/gui/window.py:257
+msgid "Updates"
+msgstr "Aggiornamenti"
+
+#: src/scriba/gui/window.py:258
+msgid "Check for updates at start-up"
+msgstr "Controlla gli aggiornamenti all'avvio"
+
+#: src/scriba/gui/window.py:259
+msgid "Once a day, from the project's releases on GitHub; nothing about you or your files is sent"
+msgstr "Una volta al giorno, dalle versioni pubblicate su GitHub; non viene inviato nulla su di te o sui tuoi file"
+
+#: src/scriba/gui/window.py:287
+msgid "Measuring the space taken by the app's files…"
+msgstr "Misura dello spazio occupato dai file dell'app…"
+
+#: src/scriba/core/speakers.py:33
+#, python-brace-format
+msgid "Speaker {number}"
+msgstr "Parlante {number}"
+
+#: src/scriba/data/markdown.py:37
+msgid "probably no speech"
+msgstr "forse non è parlato"
+
+#: src/scriba/data/markdown.py:38
+msgid "words uncertain"
+msgstr "parole incerte"
+
+#: src/scriba/data/markdown.py:39
+msgid "repeated many times"
+msgstr "ripetuta molte volte"
+
+#: src/scriba/data/markdown.py:40
+msgid "doubtful"
+msgstr "dubbia"
+
+#: src/scriba/data/markdown.py:73
+#, python-brace-format
+msgid "Duration: {duration}"
+msgstr "Durata: {duration}"
+
+#: src/scriba/data/markdown.py:78
+#, python-brace-format
+msgid "language: {language}"
+msgstr "lingua: {language}"
+
+#: src/scriba/data/markdown.py:80
+#, python-brace-format
+msgid "model: {model} on {device}"
+msgstr "modello: {model} su {device}"
+
+#: src/scriba/data/markdown.py:81
+#, python-brace-format
+msgid "model: {model}"
+msgstr "modello: {model}"
+
+#: src/scriba/data/markdown.py:84
+msgid "none"
+msgstr "nessuno"
+
+#: src/scriba/data/markdown.py:85
+#, python-brace-format
+msgid "Transcript: {name}"
+msgstr "Trascrizione: {name}"
+
+#: src/scriba/data/markdown.py:86
+#, python-brace-format
+msgid "File: {path}"
+msgstr "File: {path}"
+
+#: src/scriba/data/markdown.py:88
+#, python-brace-format
+msgid "Terms given: {terms}"
+msgstr "Termini forniti: {terms}"
+
+#: src/scriba/data/markdown.py:91
+#, python-brace-format
+msgid "{n} voice"
+msgid_plural "{n} voices"
+msgstr[0] "{n} voce"
+msgstr[1] "{n} voci"
+
+#: src/scriba/data/markdown.py:93
+#, python-brace-format
+msgid "Speakers: {count} told apart automatically, with the names given by hand; the attributions are to be checked against the audio."
+msgstr "Parlanti: {count}, riconoscimento automatico, con i nomi dati a mano; le attribuzioni vanno ricontrollate sull'audio."
+
+#: src/scriba/data/markdown.py:97
+#, python-brace-format
+msgid "Speakers: {count} told apart automatically{engine}, anonymous labels in order of appearance; the names are to be matched by listening. The attributions are to be checked against the audio."
+msgstr "Parlanti: {count}, riconoscimento automatico{engine}; etichette anonime in ordine di comparsa, i nomi vanno associati ascoltando. Le attribuzioni vanno ricontrollate sull'audio."
+
+#: src/scriba/data/markdown.py:100
+msgid "Automatic transcription: names, acronyms and numbers are to be checked against the audio."
+msgstr "Trascrizione automatica: nomi, sigle e numeri vanno ricontrollati sull'audio."
+
+#: src/scriba/data/markdown.py:102
+msgid "Automatic transcription: who speaks is not told apart; names, acronyms and numbers are to be checked against the audio."
+msgstr "Trascrizione automatica: chi parla non è distinto; nomi, sigle e numeri vanno ricontrollati sull'audio."
+
+#: src/scriba/data/markdown.py:105
+#, python-brace-format
+msgid "Lines marked {mark} are doubtful (the engine heard no clear speech, was unsure of the words, wrote the same words over and over, or the voice was very faint): check them against the audio."
+msgstr "Le righe segnate {mark} sono dubbie (il motore non ha sentito parlato chiaro, era incerto sulle parole, ha scritto le stesse parole più volte o la voce era molto debole): vanno ricontrollate sull'audio."
+
+#: src/scriba/data/session.py:133
+#, python-brace-format
+msgid "This meeting was saved by a newer version of the app (format {found}; this one reads up to {known}): update the app to open it."
+msgstr "Questa riunione è stata salvata da una versione più nuova dell'app (formato {found}; questa legge fino al {known}): aggiorna l'app per aprirla."
+
+#: src/scriba/data/session.py:154
+#, python-brace-format
+msgid "The meeting file could not be read: {reason}"
+msgstr "Non è stato possibile leggere il file della riunione: {reason}"
+
+#: src/scriba/data/session.py:164
+#, python-brace-format
+msgid "The meeting file is damaged and cannot be opened: {name}"
+msgstr "Il file della riunione è danneggiato e non si può aprire: {name}"
+
+#: src/scriba/data/srt.py:118
+msgid "This is not a subtitle file: there is text before the first time line."
+msgstr "Questo non è un file di sottotitoli: c'è del testo prima della prima riga dei tempi."
+
+#: src/scriba/data/srt.py:122
+msgid "This is not a subtitle file: no time line was found."
+msgstr "Questo non è un file di sottotitoli: non c'è nessuna riga dei tempi."
+
+#: src/scriba/data/srt.py:144
+msgid "The subtitle file is not in UTF-8, the only encoding read."
+msgstr "Il file dei sottotitoli non è in UTF-8, l'unica codifica che si legge."
+
+#: src/scriba/app/models.py
+msgid "Speech to text, fast (whisper large-v3-turbo)"
+msgstr "Dal parlato al testo, veloce (whisper large-v3-turbo)"
+
+#: src/scriba/app/models.py
+msgid "Speech to text, precise and slower (whisper large-v3)"
+msgstr "Dal parlato al testo, preciso e più lento (whisper large-v3)"
+
+#: src/scriba/app/models.py
+msgid "Finds where somebody speaks (Silero)"
+msgstr "Trova dove qualcuno parla (Silero)"
+
+#: src/scriba/app/models.py
+msgid "Tells the voices apart (WeSpeaker)"
+msgstr "Distingue le voci (WeSpeaker)"
+
+#: src/scriba/app/models.py
+#, python-brace-format
+msgid "{n} MB"
+msgstr "{n} MB"
+
+#: src/scriba/app/models.py
+#, python-brace-format
+msgid "The download of {name} was sent to another site ({host}): refused."
+msgstr "Il download di {name} è stato mandato a un altro sito ({host}): rifiutato."
+
+#: src/scriba/app/models.py
+#, python-brace-format
+msgid "The download of {name} stopped at {done} of {total}: try again, it goes on from there."
+msgstr "Il download di {name} si è fermato a {done} su {total}: riprova, riparte da lì."
+
+#: src/scriba/app/models.py
+#, python-brace-format
+msgid "The address of {name} is not one of its publisher's: refused."
+msgstr "L'indirizzo di {name} non è di chi lo pubblica: rifiutato."
+
+#: src/scriba/app/models.py
+#, python-brace-format
+msgid "There is not enough room on the disk for {name}: it needs {needed}, {free} are free."
+msgstr "Sul disco non c'è abbastanza spazio per {name}: servono {needed}, liberi {free}."
+
+#: src/scriba/app/models.py
+#, python-brace-format
+msgid "The server answered in a way that cannot be read ({code})."
+msgstr "Il server ha risposto in un modo che non si sa leggere ({code})."
+
+#: src/scriba/app/models.py
+#, python-brace-format
+msgid "The download of {name} failed: the server answered {code}."
+msgstr "Il download di {name} non è riuscito: il server ha risposto {code}."
+
+#: src/scriba/app/models.py
+#, python-brace-format
+msgid "The file downloaded is not {name} as published (its checksum differs): thrown away."
+msgstr "Il file scaricato non è {name} come pubblicato (l'impronta è diversa): scartato."
+
+#: src/scriba/app/models.py
+#, python-brace-format
+msgid "The server sends more than {name} weighs ({size}): refused."
+msgstr "Il server manda più di quanto pesa {name} ({size}): rifiutato."
+
+#: src/scriba/app/engines/audio.py
+msgid "The audio prepared for the engines cannot be read."
+msgstr "L'audio preparato per i motori non si riesce a leggere."
+
+#: src/scriba/app/engines/audio.py
+msgid "The audio prepared for the engines is not 16 kHz mono."
+msgstr "L'audio preparato per i motori non è a 16 kHz mono."
+
+#: src/scriba/app/engines/ffmpeg.py
+msgid "ffprobe could not be started."
+msgstr "Non è stato possibile avviare ffprobe."
+
+#: src/scriba/app/engines/ffmpeg.py
+msgid "ffmpeg could not be started."
+msgstr "Non è stato possibile avviare ffmpeg."
+
+#: src/scriba/app/engines/ffmpeg.py
+msgid "Transcript"
+msgstr "Trascrizione"
+
+#: src/scriba/app/engines/ffmpeg.py
+msgid "ffmpeg could not make the video with the subtitles."
+msgstr "ffmpeg non è riuscito a fare il video con i sottotitoli."
+
+#: src/scriba/app/engines/ffmpeg.py
+#, python-brace-format
+msgid "{program} is missing: Scriba needs it to read audio and video files."
+msgstr "Manca {program}: a Scriba serve per leggere i file audio e video."
+
+#: src/scriba/app/engines/ffmpeg.py
+#, python-brace-format
+msgid "{name} cannot be read as audio or video."
+msgstr "{name} non si riesce a leggere come audio o video."
+
+#: src/scriba/app/engines/ffmpeg.py
+#, python-brace-format
+msgid "ffmpeg could not read the sound of {name}."
+msgstr "ffmpeg non è riuscito a leggere l'audio di {name}."
+
+#: src/scriba/app/engines/onnx.py
+msgid "The installed onnxruntime is too old for Scriba."
+msgstr "L'onnxruntime installato è troppo vecchio per Scriba."
+
+#: src/scriba/app/engines/onnx.py
+msgid "The speech engine (onnxruntime) failed."
+msgstr "Il motore del parlato (onnxruntime) non è riuscito."
+
+#: src/scriba/app/engines/onnx.py
+msgid "onnxruntime is missing: Scriba needs it to find speech and tell the voices apart."
+msgstr "Manca onnxruntime: a Scriba serve per trovare il parlato e distinguere le voci."
+
+#: src/scriba/app/engines/onnx.py
+msgid "onnxruntime cannot be loaded."
+msgstr "Non è stato possibile caricare onnxruntime."
+
+#: src/scriba/app/engines/whisper.py
+msgid "whisper-cli is missing: Scriba needs it to turn speech into text."
+msgstr "Manca whisper-cli: a Scriba serve per passare dal parlato al testo."
+
+#: src/scriba/app/engines/whisper.py
+msgid "whisper-cli could not transcribe the audio."
+msgstr "whisper-cli non è riuscito a trascrivere l'audio."
+
+#: src/scriba/app/engines/whisper.py
+msgid "whisper-cli could not be started."
+msgstr "Non è stato possibile avviare whisper-cli."
+
+#: src/scriba/app/engines/whisper.py
+#, python-brace-format
+msgid "The installed whisper-cli is too old for Scriba (it lacks {options})."
+msgstr "Il whisper-cli installato è troppo vecchio per Scriba (gli manca {options})."
+
+#: src/scriba/__main__.py
+#, python-brace-format
+msgid "without a window: {command} transcribe FILE, {command} models, {command} benchmark [FILE] (each with --help)"
+msgstr "senza finestra: {command} transcribe FILE, {command} models, {command} benchmark [FILE] (ciascuno con --help)"
+
+#: src/scriba/app/engines/ffmpeg.py src/scriba/app/jobs.py
+#, python-brace-format
+msgid "{name} has no sound track."
+msgstr "{name} non ha una traccia audio."
+
+#: src/scriba/app/jobs.py
+msgid "No speech was found in the recording."
+msgstr "Nella registrazione non è stato trovato parlato."
+
+#. TRANSLATORS: the end of a transcript's file name: <recording>_transcript.md
+#: src/scriba/app/jobs.py
+msgid "transcript"
+msgstr "trascrizione"
+
+#. TRANSLATORS: the end of the name of the video with subtitles: <recording>_subtitles.mkv
+#: src/scriba/app/jobs.py
+msgid "subtitles"
+msgstr "sottotitoli"
+
+#: src/scriba/app/jobs.py
+#, python-brace-format
+msgid "{name} is not there."
+msgstr "{name} non c'è."
+
+#: src/scriba/app/jobs.py
+#, python-brace-format
+msgid "Unknown model {model}: turbo or large."
+msgstr "Modello sconosciuto {model}: turbo o large."
+
+#: src/scriba/app/jobs.py src/scriba/cli.py
+#, python-brace-format
+msgid "Models to download first: {names}."
+msgstr "Prima vanno scaricati i modelli: {names}."
+
+#: src/scriba/app/jobs.py
+msgid "The graphics card did not work: the text was made on the processor (slower)."
+msgstr "La scheda video non ha funzionato: il testo è stato fatto con il processore (più lento)."
+
+#: src/scriba/app/jobs.py
+msgid "The file has no video track: no video with subtitles was made."
+msgstr "Il file non ha una traccia video: il video con i sottotitoli non è stato fatto."
+
+#: src/scriba/cli.py
+msgid "Reading the audio"
+msgstr "Lettura dell'audio"
+
+#: src/scriba/cli.py
+msgid "Finding the speech"
+msgstr "Ricerca del parlato"
+
+#: src/scriba/cli.py
+msgid "Transcribing"
+msgstr "Trascrizione"
+
+#: src/scriba/cli.py
+msgid "Telling the voices apart"
+msgstr "Riconoscimento delle voci"
+
+#: src/scriba/cli.py
+msgid "Writing the files"
+msgstr "Scrittura dei file"
+
+#: src/scriba/cli.py
+msgid "Making the video with subtitles"
+msgstr "Video con i sottotitoli"
+
+#: src/scriba/cli.py
+msgid "the number of speakers cannot be negative"
+msgstr "il numero dei parlanti non può essere negativo"
+
+#: src/scriba/cli.py
+msgid "Transcribe meetings on this computer."
+msgstr "Trascrive le riunioni su questo computer."
+
+#: src/scriba/cli.py
+msgid "COMMAND"
+msgstr "COMANDO"
+
+#: src/scriba/cli.py
+msgid "transcribe a recording"
+msgstr "trascrive una registrazione"
+
+#: src/scriba/cli.py
+msgid "Transcribe a recording: Markdown, plain text and subtitles next to it (or in --out), never over a file that is there."
+msgstr "Trascrive una registrazione: Markdown, testo semplice e sottotitoli accanto al file (o in --out), mai sopra un file che c'è già."
+
+#: src/scriba/cli.py
+msgid "the recording (audio or video)"
+msgstr "la registrazione (audio o video)"
+
+#: src/scriba/cli.py
+msgid "tell the voices apart; N fixes how many there are"
+msgstr "distingue le voci; N fissa quante sono"
+
+#: src/scriba/cli.py
+msgid "also a copy of the video with the subtitles inside"
+msgstr "anche una copia del video con i sottotitoli dentro"
+
+#: src/scriba/cli.py
+msgid "the language spoken"
+msgstr "la lingua parlata"
+
+#: src/scriba/cli.py
+msgid "turbo is fast, large is more precise and slower"
+msgstr "turbo è veloce, large è più preciso e più lento"
+
+#: src/scriba/cli.py
+msgid "names and acronyms to write right, separated by commas"
+msgstr "nomi e sigle da scrivere giusti, separati da virgole"
+
+#: src/scriba/cli.py
+msgid "the folder for the files"
+msgstr "la cartella per i file"
+
+#: src/scriba/cli.py
+msgid "work on the processor only"
+msgstr "lavora solo con il processore"
+
+#: src/scriba/cli.py
+msgid "the models: which are there, and their download"
+msgstr "i modelli: quali ci sono, e il loro download"
+
+#: src/scriba/cli.py
+msgid "download the models that are missing"
+msgstr "scarica i modelli che mancano"
+
+#: src/scriba/cli.py
+msgid "how fast each graphics card and the processor transcribe"
+msgstr "quanto sono veloci a trascrivere ogni scheda video e il processore"
+
+#: src/scriba/cli.py
+msgid "a recording, 30 seconds of which are used (by default the app's sample of speech, whose words are known)"
+msgstr "una registrazione, di cui si usano 30 secondi (in mancanza, il campione di parlato dell'app, di cui si conoscono le parole)"
+
+#: src/scriba/cli.py
+#, python-brace-format
+msgid "{duration:.0f} s of audio in {total:.0f} s ({speed:.1f} times real time), on {device}"
+msgstr "{duration:.0f} s di audio in {total:.0f} s ({speed:.1f} volte il tempo reale), su {device}"
+
+#: src/scriba/cli.py
+msgid "processor"
+msgstr "processore"
+
+#: src/scriba/cli.py
+#, python-brace-format
+msgid "Error: {reason}"
+msgstr "Errore: {reason}"
+
+#: src/scriba/cli.py
+msgid "Cancelled: no file is left half written."
+msgstr "Annullato: nessun file è rimasto scritto a metà."
+
+#: src/scriba/cli.py
+#, python-brace-format
+msgid "Models folder: {path}"
+msgstr "Cartella dei modelli: {path}"
+
+#: src/scriba/cli.py
+#, python-brace-format
+msgid "Downloading {name}..."
+msgstr "Download di {name}..."
+
+#: src/scriba/cli.py
+msgid "Cancelled: the part downloaded is kept and the next download goes on from there."
+msgstr "Annullato: la parte scaricata resta e il prossimo download riparte da lì."
+
+#: src/scriba/cli.py
+msgid "Stopping..."
+msgstr "Arresto in corso..."
+
+#: src/scriba/cli.py
+#, python-brace-format
+msgid "{where}: {speed:.1f} times real time (first copy {first:.1f} s)"
+msgstr "{where}: {speed:.1f} volte il tempo reale (prima copia {first:.1f} s)"
+
+#: src/scriba/cli.py
+msgid "loading the model"
+msgstr "caricamento del modello"
+
+#: src/scriba/data/markdown.py
+msgid "voice very faint"
+msgstr "voce molto debole"
+
+#: src/scriba/__main__.py
+#, python-brace-format
+msgid "usage: {command} [RECORDING]"
+msgstr "uso: {command} [REGISTRAZIONE]"
+
+#: src/scriba/app/jobs.py
+msgid "names"
+msgstr "nomi"
+
+#: src/scriba/app/jobs.py
+msgid "Give a name to at least one voice first."
+msgstr "Prima dai un nome ad almeno una voce."
+
+#: src/scriba/app/jobs.py
+msgid "This transcript cannot be saved again."
+msgstr "Impossibile salvare di nuovo questa trascrizione."
+
+#: src/scriba/app/jobs.py
+#, python-brace-format
+msgid "The files are written, but the meeting file could not keep the names: {reason}"
+msgstr "I file sono scritti, ma il file della riunione non ha potuto conservare i nomi: {reason}"
+
+#: src/scriba/app/jobs.py
+msgid "The recording is too short to test the graphics cards on."
+msgstr "La registrazione è troppo corta per provarci le schede video."
+
+#: src/scriba/app/jobs.py
+msgid "whisper did not work on any graphics card nor on the processor."
+msgstr "whisper non ha funzionato su nessuna scheda video né sul processore."
+
+#: src/scriba/core/estimate.py
+msgid "less than a minute"
+msgstr "meno di un minuto"
+
+#: src/scriba/core/estimate.py
+#, python-brace-format
+msgid "about {n} minute"
+msgid_plural "about {n} minutes"
+msgstr[0] "circa {n} minuto"
+msgstr[1] "circa {n} minuti"
+
+#: src/scriba/core/estimate.py
+#, python-brace-format
+msgid "about {hours} h {minutes:02d} min"
+msgstr "circa {hours} h {minutes:02d} min"
+
+#: src/scriba/core/estimate.py
+#, python-brace-format
+msgid "{s} s"
+msgstr "{s} s"
+
+#: src/scriba/core/estimate.py
+#, python-brace-format
+msgid "{m} min {s:02d} s"
+msgstr "{m} min {s:02d} s"
+
+#: src/scriba/core/estimate.py
+#, python-brace-format
+msgid "{h} h {m:02d} min"
+msgstr "{h} h {m:02d} min"
+
+#: src/scriba/gui/application.py
+#, python-brace-format
+msgid "One recording at a time: {name} is open."
+msgstr "Una registrazione alla volta: è aperta {name}."
+
+#: src/scriba/gui/models_page.py
+msgid "Download the Speech Models"
+msgstr "Scarica i modelli di trascrizione"
+
+#: src/scriba/gui/models_page.py src/scriba/gui/preferences.py
+msgid "Download"
+msgstr "Scarica"
+
+#: src/scriba/gui/models_page.py
+#, python-brace-format
+msgid "{size}, from {site}, licence {licence}"
+msgstr "{size}, da {site}, licenza {licence}"
+
+#: src/scriba/gui/models_page.py
+msgid "Downloaded"
+msgstr "Scaricato"
+
+#: src/scriba/gui/models_page.py
+#, python-brace-format
+msgid "Scriba works on this computer and sends nothing anywhere. To understand speech it needs these models: {size} to download once, from their authors' own pages, each checked before it is used."
+msgstr "Scriba lavora su questo computer e non invia nulla a nessuno. Per capire il parlato servono questi modelli: {size} da scaricare una volta sola, dalle pagine dei loro autori, ciascuno controllato prima dell'uso."
+
+#: src/scriba/gui/models_page.py
+#, python-brace-format
+msgid "{done} of {total}"
+msgstr "{done} di {total}"
+
+#: src/scriba/gui/models_page.py src/scriba/gui/transcribe.py
+msgid "Stopping…"
+msgstr "Interruzione…"
+
+#: src/scriba/gui/models_page.py
+msgid "Download cancelled: what arrived is kept, and the next download goes on from there."
+msgstr "Download annullato: ciò che è arrivato resta, e il prossimo download riparte da lì."
+
+#: src/scriba/gui/models_page.py
+#, python-brace-format
+msgid "The download failed: {error}"
+msgstr "Il download non è riuscito: {error}"
+
+#: src/scriba/gui/models_page.py
+msgid "Try Again"
+msgstr "Riprova"
+
+#: src/scriba/gui/preferences.py src/scriba/gui/transcribe.py
+msgid "Transcription"
+msgstr "Trascrizione"
+
+#: src/scriba/gui/preferences.py src/scriba/gui/transcribe.py
+msgid "Graphics Card"
+msgstr "Scheda video"
+
+#: src/scriba/gui/preferences.py
+msgid "Usual Quality"
+msgstr "Qualità abituale"
+
+#: src/scriba/gui/preferences.py src/scriba/gui/transcribe.py
+msgid "Fast"
+msgstr "Veloce"
+
+#: src/scriba/gui/preferences.py src/scriba/gui/transcribe.py
+msgid "Precise, slower"
+msgstr "Precisa, più lenta"
+
+#: src/scriba/gui/preferences.py
+msgid "Precise Model"
+msgstr "Modello preciso"
+
+#: src/scriba/gui/preferences.py
+msgid "Usual Folder for the Files"
+msgstr "Cartella abituale dei file"
+
+#: src/scriba/gui/preferences.py
+msgid "Next to the Recording"
+msgstr "Accanto alla registrazione"
+
+#: src/scriba/gui/preferences.py src/scriba/gui/transcribe.py
+msgid "Choose a Folder…"
+msgstr "Scegli una cartella…"
+
+#: src/scriba/gui/preferences.py
+msgid "Choose the Usual Folder for the Files"
+msgstr "Scegli la cartella abituale dei file"
+
+#: src/scriba/gui/preferences.py src/scriba/gui/transcribe.py
+msgid "Automatic"
+msgstr "Automatica"
+
+#: src/scriba/gui/preferences.py
+#, python-brace-format
+msgid "{name} (not found)"
+msgstr "{name} (non trovata)"
+
+#: src/scriba/gui/preferences.py
+msgid "Processor Only"
+msgstr "Solo processore"
+
+#: src/scriba/gui/preferences.py
+msgid "the processor"
+msgstr "il processore"
+
+#: src/scriba/gui/preferences.py
+msgid "the card with memory of its own, until the test"
+msgstr "la scheda con memoria propria, finché non si fa la prova"
+
+#: src/scriba/gui/preferences.py
+#, python-brace-format
+msgid "Automatic uses the fastest in the test: {now}"
+msgstr "Automatica usa la più veloce nella prova: {now}"
+
+#: src/scriba/gui/preferences.py
+msgid "Downloaded: “Precise” can be chosen for a transcription"
+msgstr "Scaricato: per una trascrizione si può scegliere «Precisa»"
+
+#: src/scriba/gui/preferences.py
+#, python-brace-format
+msgid "Not downloaded: {size}, from Hugging Face"
+msgstr "Non scaricato: {size}, da Hugging Face"
+
+#: src/scriba/gui/preferences.py
+#, python-brace-format
+msgid "Downloading: {percent} %"
+msgstr "Download: {percent} %"
+
+#: src/scriba/gui/preferences.py
+msgid "Next to the recording (the documents folder for a recording on a server)"
+msgstr "Accanto alla registrazione (la cartella Documenti per una registrazione su un server)"
+
+#: src/scriba/gui/preferences.py
+msgid "Transcribes recordings of meetings on your own computer, with speakers and subtitles. Nothing leaves the computer: the models are downloaded once, and checked."
+msgstr "Trascrive le registrazioni delle riunioni sul tuo computer, con le voci e i sottotitoli. Niente esce dal computer: i modelli si scaricano una volta sola, e si controllano."
+
+#: src/scriba/gui/result.py
+msgid "Transcript (Markdown)"
+msgstr "Trascrizione (Markdown)"
+
+#: src/scriba/gui/result.py
+msgid "Transcript (plain text)"
+msgstr "Trascrizione (testo semplice)"
+
+#: src/scriba/gui/result.py
+msgid "Subtitles"
+msgstr "Sottotitoli"
+
+#: src/scriba/gui/result.py
+msgid "Video with subtitles"
+msgstr "Video con i sottotitoli"
+
+#: src/scriba/gui/result.py
+msgid "Transcript with the names (Markdown)"
+msgstr "Trascrizione con i nomi (Markdown)"
+
+#: src/scriba/gui/result.py
+msgid "Transcript with the names (plain text)"
+msgstr "Trascrizione con i nomi (testo semplice)"
+
+#: src/scriba/gui/result.py
+msgid "Subtitles with the names"
+msgstr "Sottotitoli con i nomi"
+
+#: src/scriba/gui/result.py
+msgid "on the processor"
+msgstr "sul processore"
+
+#: src/scriba/gui/result.py
+#, python-brace-format
+msgid "on {device}"
+msgstr "su {device}"
+
+#: src/scriba/gui/result.py
+#, python-brace-format
+msgid "Written in {folder}"
+msgstr "Scritti in {folder}"
+
+#: src/scriba/gui/result.py
+msgid "New Transcription"
+msgstr "Nuova trascrizione"
+
+#: src/scriba/gui/result.py
+#, python-brace-format
+msgid "{duration} of audio in {time}"
+msgstr "{duration} di audio in {time}"
+
+#: src/scriba/gui/result.py
+#, python-brace-format
+msgid "{n} doubtful line"
+msgid_plural "{n} doubtful lines"
+msgstr[0] "{n} battuta dubbia"
+msgstr[1] "{n} battute dubbie"
+
+#: src/scriba/gui/result.py
+msgid "no doubtful line"
+msgstr "nessuna battuta dubbia"
+
+#: src/scriba/gui/result.py
+msgid "Transcript Ready"
+msgstr "Trascrizione pronta"
+
+#: src/scriba/gui/result.py
+msgid "Doubtful lines are marked (?) in the files and faded here: the engine was unsure of them. Check them against the audio."
+msgstr "Le battute dubbie sono segnate (?) nei file e attenuate qui: il motore non ne era sicuro. Vanno controllate con l'audio."
+
+#: src/scriba/gui/result.py
+msgid "Open"
+msgstr "Apri"
+
+#: src/scriba/gui/result.py
+msgid "Show in Folder"
+msgstr "Mostra nella cartella"
+
+#: src/scriba/gui/result.py
+msgid "Voices"
+msgstr "Voci"
+
+#: src/scriba/gui/result.py
+msgid "Give each voice the name of who speaks: “Save with the Names” writes new files, and the automatic ones stay as they are."
+msgstr "Dai a ogni voce il nome di chi parla: «Salva con i nomi» scrive file nuovi, e quelli automatici restano come sono."
+
+#: src/scriba/gui/result.py
+#, python-brace-format
+msgid "{voice}: {n} lines, the first at {time}"
+msgstr "{voice}: {n} battute, la prima a {time}"
+
+#: src/scriba/gui/result.py
+#, python-brace-format
+msgid "{voice}: 1 line, at {time}"
+msgstr "{voice}: 1 battuta, a {time}"
+
+#: src/scriba/gui/result.py
+#, python-brace-format
+msgid "Listen from {time}"
+msgstr "Ascolta da {time}"
+
+#: src/scriba/gui/result.py
+msgid "Save with the Names"
+msgstr "Salva con i nomi"
+
+#: src/scriba/gui/result.py
+#, python-brace-format
+msgid "Saved with the names: {n} new file"
+msgid_plural "Saved with the names: {n} new files"
+msgstr[0] "Salvato con i nomi: {n} file nuovo"
+msgstr[1] "Salvato con i nomi: {n} file nuovi"
+
+#: src/scriba/gui/result.py
+#, python-brace-format
+msgid "This recording cannot be played here ({error}): the times are in the text."
+msgstr "Impossibile riprodurre qui questa registrazione ({error}): gli orari sono nel testo."
+
+#: src/scriba/gui/result.py
+msgid "Text"
+msgstr "Testo"
+
+#: src/scriba/gui/result.py
+msgid "The rest is in the files."
+msgstr "Il resto è nei file."
+
+#: src/scriba/gui/transcribe.py
+msgid "Italian"
+msgstr "Italiano"
+
+#: src/scriba/gui/transcribe.py
+msgid "English"
+msgstr "Inglese"
+
+#: src/scriba/gui/transcribe.py
+msgid "The models are ready: open a recording to transcribe it."
+msgstr "I modelli sono pronti: apri una registrazione per trascriverla."
+
+#: src/scriba/gui/transcribe.py
+msgid "Transcribe a Recording"
+msgstr "Trascrivi una registrazione"
+
+#: src/scriba/gui/transcribe.py
+msgid "Open an audio or video file, or drop it here: a Teams mp4, an OBS mkv, a phone's m4a, an mp3 or a wav. Nothing leaves this computer."
+msgstr "Apri un file audio o video, o trascinalo qui: un mp4 di Teams, un mkv di OBS, un m4a del telefono, un mp3 o un wav. Niente esce da questo computer."
+
+#: src/scriba/gui/transcribe.py
+msgid "Open…"
+msgstr "Apri…"
+
+#: src/scriba/gui/transcribe.py
+msgid "Open Another Recording…"
+msgstr "Apri un'altra registrazione…"
+
+#: src/scriba/gui/transcribe.py
+msgid "Expected Time"
+msgstr "Tempo previsto"
+
+#: src/scriba/gui/transcribe.py
+msgid "Quality"
+msgstr "Qualità"
+
+#: src/scriba/gui/transcribe.py
+msgid "Tell the Voices Apart"
+msgstr "Riconosci le voci"
+
+#: src/scriba/gui/transcribe.py
+msgid "Speaker 1, 2, 3…: the names are given afterwards"
+msgstr "Parlante 1, 2, 3…: i nomi si danno dopo"
+
+#: src/scriba/gui/transcribe.py
+msgid "How Many People"
+msgstr "Quante persone"
+
+#: src/scriba/gui/transcribe.py
+msgid "Counted by the App"
+msgstr "Le conta l'app"
+
+#: src/scriba/gui/transcribe.py
+msgid "If you know how many, the voices come out better"
+msgstr "Se sai quante sono, le voci escono meglio"
+
+#: src/scriba/gui/transcribe.py
+msgid "Video with Subtitles"
+msgstr "Video con i sottotitoli"
+
+#: src/scriba/gui/transcribe.py
+msgid "A copy of the video with the subtitles inside (mkv)"
+msgstr "Una copia del video con i sottotitoli dentro (mkv)"
+
+#: src/scriba/gui/transcribe.py
+msgid "Terms and Names"
+msgstr "Termini e nomi"
+
+#: src/scriba/gui/transcribe.py
+msgid "Names, acronyms and words of the trade to be written right, separated by commas: the client, the project's code, the people in the call."
+msgstr "Nomi, sigle e parole del mestiere da scrivere giusti, separati da virgole: il cliente, il codice del progetto, le persone della call."
+
+#: src/scriba/gui/transcribe.py
+msgid "Terms, separated by commas"
+msgstr "Termini, separati da virgole"
+
+#: src/scriba/gui/transcribe.py
+msgid "Folder for the Files"
+msgstr "Cartella dei file"
+
+#: src/scriba/gui/transcribe.py
+msgid "Back to the Usual Folder"
+msgstr "Torna alla cartella abituale"
+
+#: src/scriba/gui/transcribe.py
+msgid "Choose the Folder for the Files"
+msgstr "Scegli la cartella dei file"
+
+#: src/scriba/gui/transcribe.py src/scriba/gui/window.py
+msgid "Transcribe"
+msgstr "Trascrivi"
+
+#: src/scriba/gui/transcribe.py src/scriba/gui/window.py
+msgid "A transcription is in progress: cancel it first."
+msgstr "C'è una trascrizione in corso: prima annullala."
+
+#: src/scriba/gui/transcribe.py
+#, python-brace-format
+msgid "“{name}” is not a file that can be transcribed."
+msgstr "«{name}» non è un file che si possa trascrivere."
+
+#: src/scriba/gui/transcribe.py
+msgid "Reading the recording…"
+msgstr "Lettura della registrazione…"
+
+#: src/scriba/gui/transcribe.py
+#, python-brace-format
+msgid "The recording cannot be read: {error}"
+msgstr "Impossibile leggere la registrazione: {error}"
+
+#: src/scriba/gui/transcribe.py
+msgid "video"
+msgstr "video"
+
+#: src/scriba/gui/transcribe.py
+msgid "audio"
+msgstr "audio"
+
+#: src/scriba/gui/transcribe.py
+#, python-brace-format
+msgid "{about} for {duration} of audio"
+msgstr "{about} per {duration} di audio"
+
+#: src/scriba/gui/transcribe.py
+msgid "Testing the graphics cards on a sample of speech, to choose the fastest that writes it right…"
+msgstr "Prova delle schede video su un campione di parlato, per scegliere la più veloce che lo scrive giusto…"
+
+#: src/scriba/gui/transcribe.py
+#, python-brace-format
+msgid "The test of the graphics cards failed: {reason}"
+msgstr "La prova delle schede video non è riuscita: {reason}"
+
+#: src/scriba/gui/transcribe.py
+msgid "Not tested yet: the test runs once the models are there."
+msgstr "Non ancora provate: la prova parte appena ci sono i modelli."
+
+#: src/scriba/gui/transcribe.py
+#, python-brace-format
+msgid "We will use the processor: an hour of audio in {about}."
+msgstr "Useremo il processore: un'ora di audio in {about}."
+
+#: src/scriba/gui/transcribe.py
+#, python-brace-format
+msgid "We will use the {card}: an hour of audio in {about}."
+msgstr "Useremo la {card}: un'ora di audio in {about}."
+
+#: src/scriba/gui/transcribe.py
+msgid "(chosen in the preferences)"
+msgstr "(scelta nelle preferenze)"
+
+#: src/scriba/gui/transcribe.py
+#, python-brace-format
+msgid "Transcribing {name}"
+msgstr "Trascrizione di {name}"
+
+#: src/scriba/gui/transcribe.py
+msgid "Starting…"
+msgstr "Avvio…"
+
+#: src/scriba/gui/transcribe.py
+msgid "Not needed"
+msgstr "Non serve"
+
+#: src/scriba/gui/transcribe.py
+msgid "Loading the model"
+msgstr "Caricamento del modello"
+
+#: src/scriba/gui/transcribe.py
+#, python-brace-format
+msgid "{step}: {about} to go"
+msgstr "{step}: mancano {about}"
+
+#: src/scriba/gui/transcribe.py
+msgid "Cancelled: no file was written."
+msgstr "Annullato: nessun file è stato scritto."
+
+#: src/scriba/gui/transcribe.py
+#, python-brace-format
+msgid "Something went wrong: {error}"
+msgstr "Qualcosa non ha funzionato: {error}"
+
+#: src/scriba/gui/transcribe.py
+msgid "Could Not Transcribe"
+msgstr "Impossibile trascrivere"
+
+#: src/scriba/gui/transcribe.py
+msgid "Back"
+msgstr "Indietro"
+
+#: src/scriba/gui/window.py
+msgid "Only a file on this computer can be transcribed."
+msgstr "Si può trascrivere solo un file che sta su questo computer."
+
+#: src/scriba/gui/window.py
+msgid "Open a Recording…"
+msgstr "Apri una registrazione…"
+
+#: src/scriba/gui/window.py
+msgid "Open a Recording"
+msgstr "Apri una registrazione"
+
+#: src/scriba/gui/window.py
+msgid "Audio and video"
+msgstr "Audio e video"
+
+#: src/scriba/gui/window.py
+msgid "All files"
+msgstr "Tutti i file"
+
+#: src/scriba/gui/window.py
+msgid "Stop the Transcription?"
+msgstr "Fermare la trascrizione?"
+
+#: src/scriba/gui/window.py
+msgid "The work done so far is lost, and no file is written."
+msgstr "Il lavoro fatto finora va perso, e nessun file viene scritto."
+
+#: src/scriba/gui/window.py
+msgid "Keep Working"
+msgstr "Continua"
+
+#: src/scriba/gui/window.py
+msgid "Stop and Close"
+msgstr "Ferma e chiudi"
+
+#: src/scriba/app/engines/ffmpeg.py
+msgid "ffmpeg could not measure the loudness of {name}."
+msgstr "ffmpeg non riesce a misurare il volume di {name}."
+
+#: src/scriba/app/jobs.py
+msgid "together"
+msgstr "insieme"
+
+#: src/scriba/app/recorder.py
+msgid "The sound devices cannot be listed."
+msgstr "Non si riesce a elencare i dispositivi audio."
+
+#: src/scriba/app/recorder.py
+msgid "The disk is almost full: the recording was stopped and its files closed."
+msgstr "Il disco è quasi pieno: la registrazione è stata fermata e i suoi file chiusi."
+
+#: src/scriba/app/recorder.py
+msgid "Nothing to record: switch on the microphone or the computer's sound."
+msgstr "Niente da registrare: accendi il microfono o l'audio del computer."
+
+#: src/scriba/app/recorder.py
+msgid "There is not enough room on the disk for ten minutes of recording."
+msgstr "Sul disco non c'è spazio per dieci minuti di registrazione."
+
+#: src/scriba/app/recorder.py
+msgid "GStreamer's {element} is missing: Scriba needs it to record."
+msgstr "Manca {element} di GStreamer: a Scriba serve per registrare."
+
+#: src/scriba/app/recorder.py
+msgid "Windows does not list its sound devices."
+msgstr "Windows non elenca i suoi dispositivi audio."
+
+#: src/scriba/app/recorder.py
+msgid "The recording could not be set up."
+msgstr "Non si riesce a preparare la registrazione."
+
+#: src/scriba/app/recorder.py
+msgid "The files took too long to close: they were cut where they were."
+msgstr "I file ci hanno messo troppo a chiudersi: sono stati interrotti dove erano arrivati."
+
+#: src/scriba/app/recorder.py
+msgid "The device cannot be opened."
+msgstr "Il dispositivo non si apre."
+
+#: src/scriba/app/recorder.py
+msgid "The recording could not start: {reason}"
+msgstr "La registrazione non è partita: {reason}"
+
+#: src/scriba/app/recorder.py
+msgid "The recording stopped: {reason}"
+msgstr "La registrazione si è fermata: {reason}"
+
+#: src/scriba/app/recording.py
+msgid "recording"
+msgstr "registrazione"
+
+#: src/scriba/app/recording.py
+msgid "microphone"
+msgstr "microfono"
+
+#: src/scriba/app/recording.py
+msgid "output"
+msgstr "uscita"
+
+#: src/scriba/app/recording.py
+msgid "The tracks could not be joined in one file."
+msgstr "Non si riesce a unire le tracce in un file solo."
+
+#: src/scriba/app/recording.py
+msgid "The mix to listen to could not be made."
+msgstr "Non si riesce a preparare il file da ascoltare con tutte le tracce insieme."
+
+#: src/scriba/app/recording.py
+msgid "Nothing was heard on any track: the recording is kept as it is."
+msgstr "Su nessuna traccia si sente qualcosa: la registrazione resta com'è."
+
+#: src/scriba/app/recording.py
+msgid "Nothing was recorded."
+msgstr "Non è stato registrato niente."
+
+#: src/scriba/app/recording.py
+msgid "Microphone: {device}"
+msgstr "Microfono: {device}"
+
+#: src/scriba/app/recording.py
+msgid "Output: {device}"
+msgstr "Uscita: {device}"
+
+#: src/scriba/app/recording.py
+msgid "{device}: silent from start to end, not kept."
+msgstr "{device}: muta dall'inizio alla fine, non tenuta."
+
+#: src/scriba/app/recording.py
+msgid "{folder} is one of Scriba's own folders: an update could take the recordings away. Choose a folder of yours."
+msgstr "{folder} è una delle cartelle di Scriba: un aggiornamento potrebbe portarsi via le registrazioni. Scegli una cartella tua."
+
+#: src/scriba/app/recording.py
+msgid "{reason} The tracks are kept as separate files."
+msgstr "{reason} Le tracce restano in file separati."
+
+#: src/scriba/app/recording.py
+msgid "{name} could not be removed ({error}): its sound is in {joined} as well."
+msgstr "Non si riesce a togliere {name} ({error}): il suo audio è anche in {joined}."
+
+#: src/scriba/cli.py
+msgid "bring each track to the same loudness (EBU R128) before the engines hear it (off: on faint recordings whisper invented more)"
+msgstr "porta ogni traccia allo stesso volume (EBU R128) prima di darla ai motori (spento: sulle registrazioni deboli whisper inventava di più)"
+
+#: src/scriba/gui/preferences.py
+msgid "Recording"
+msgstr "Registrazione"
+
+#: src/scriba/gui/preferences.py
+msgid "Folder for the Recordings"
+msgstr "Cartella delle registrazioni"
+
+#: src/scriba/gui/preferences.py
+msgid "Choose the Folder for the Recordings"
+msgstr "Scegli la cartella delle registrazioni"
+
+#: src/scriba/gui/record.py
+msgid "The microphone is clipping (peaks at 0 dB): turn its level down in the system's sound settings."
+msgstr "Il microfono satura (picchi a 0 dB): abbassane il livello nelle impostazioni audio del sistema."
+
+#: src/scriba/gui/record.py
+msgid "default"
+msgstr "predefinito"
+
+#: src/scriba/gui/record.py
+msgid "default for calls"
+msgstr "predefinito per le chiamate"
+
+#: src/scriba/gui/record.py
+msgid "No sound from the computer for {seconds:.0f} s: if the others are speaking, the call plays on another device."
+msgstr "Da {seconds:.0f} s non arriva nessun suono dal computer: se gli altri stanno parlando, la call suona su un altro dispositivo."
+
+#: src/scriba/gui/record.py
+msgid "The app chooses the device where the call is"
+msgstr "L'app sceglie il dispositivo dove c'è la call"
+
+#: src/scriba/gui/record.py
+msgid "Record"
+msgstr "Registra"
+
+#: src/scriba/gui/record.py
+msgid "Pause"
+msgstr "Pausa"
+
+#: src/scriba/gui/record.py
+msgid "Stop"
+msgstr "Ferma"
+
+#: src/scriba/gui/record.py
+msgid "Press the button to record: nothing starts by itself."
+msgstr "Premi il pulsante per registrare: non parte niente da solo."
+
+#: src/scriba/gui/record.py
+msgid "Recording in progress"
+msgstr "Registrazione in corso"
+
+#: src/scriba/gui/record.py
+msgid "Paused"
+msgstr "In pausa"
+
+#: src/scriba/gui/record.py
+msgid "Closing the files…"
+msgstr "Chiusura dei file…"
+
+#: src/scriba/gui/record.py
+msgid "Stopped"
+msgstr "Ferma"
+
+#: src/scriba/gui/record.py
+msgid "Go On"
+msgstr "Riprendi"
+
+#: src/scriba/gui/record.py
+msgid "sound playing now"
+msgstr "c'è suono adesso"
+
+#: src/scriba/gui/record.py
+msgid "hears you loudest"
+msgstr "ti sente più forte"
+
+#: src/scriba/gui/record.py
+msgid "the system's default"
+msgstr "il predefinito del sistema"
+
+#: src/scriba/gui/record.py
+msgid "the only one"
+msgstr "l'unico"
+
+#: src/scriba/gui/record.py
+msgid "The microphone hears you faintly ({level:.0f} dB): is it the one you speak into? A headset has its own."
+msgstr "Il microfono ti sente poco ({level:.0f} dB): è quello in cui parli? Le cuffie hanno il loro."
+
+#: src/scriba/gui/record.py
+msgid "No device found"
+msgstr "Nessun dispositivo trovato"
+
+#: src/scriba/gui/record.py
+msgid "Looking for the devices…"
+msgstr "Ricerca dei dispositivi…"
+
+#: src/scriba/gui/record.py
+msgid "Not recorded"
+msgstr "Non registrato"
+
+#: src/scriba/gui/record.py
+msgid "Recording Is Not Possible Here"
+msgstr "Qui non si può registrare"
+
+#: src/scriba/gui/record.py
+msgid "Closing the Files…"
+msgstr "Chiusura dei file…"
+
+#: src/scriba/gui/record.py
+msgid "What Is Recorded"
+msgstr "Cosa si registra"
+
+#: src/scriba/gui/record.py
+msgid "Tracks"
+msgstr "Tracce"
+
+#: src/scriba/gui/record.py
+msgid "Open the Folder"
+msgstr "Apri la cartella"
+
+#: src/scriba/gui/record.py
+msgid "Switch on the microphone or the computer's sound to record."
+msgstr "Accendi il microfono o l'audio del computer per registrare."
+
+#: src/scriba/gui/record.py
+msgid "Microphone: your voice"
+msgstr "Microfono: la tua voce"
+
+#: src/scriba/gui/record.py
+msgid "Computer sound: the others"
+msgstr "Audio del computer: gli altri"
+
+#: src/scriba/gui/record.py
+msgid "in use by {programs}"
+msgstr "in uso da {programs}"
+
+#: src/scriba/gui/record.py
+msgid "Microphone"
+msgstr "Microfono"
+
+#: src/scriba/gui/record.py
+msgid "Computer Sound"
+msgstr "Audio del computer"
+
+#: src/scriba/gui/record.py
+msgid "Automatic Choice"
+msgstr "Scelta automatica"
+
+#: src/scriba/gui/record.py
+msgid "Chosen now: {device} ({why})"
+msgstr "Scelto ora: {device} ({why})"
+
+#: src/scriba/gui/record.py
+msgid "Every output is recorded, and the silent ones are left out at the end."
+msgstr "Si registrano tutte le uscite, e alla fine si lasciano fuori quelle mute."
+
+#: src/scriba/gui/record.py
+msgid "The tracks are joined in one file and the mix to listen to is made."
+msgstr "Le tracce vengono unite in un file solo e si prepara il file da ascoltare."
+
+#: src/scriba/gui/record.py
+msgid "Your voice from the microphone and the others' from the computer, on separate tracks."
+msgstr "La tua voce dal microfono e quella degli altri dal computer, su tracce separate."
+
+#: src/scriba/gui/record.py
+msgid "same device as {device}"
+msgstr "stesso apparecchio di {device}"
+
+#: src/scriba/gui/record.py
+msgid "{device} went away at {time}: what it recorded is kept, the rest goes on."
+msgstr "{device} è sparito alle {time}: quello che ha registrato resta, il resto continua."
+
+#: src/scriba/gui/record.py
+msgid "From {time} the microphone is {device}."
+msgstr "Dalle {time} il microfono è {device}."
+
+#: src/scriba/gui/record.py
+msgid "{device} appeared at {time}: it is recorded on a track of its own."
+msgstr "{device} è comparso alle {time}: viene registrato in una traccia sua."
+
+#: src/scriba/gui/record.py
+msgid "The disk is filling up: about {minutes} minutes are left."
+msgstr "Il disco si sta riempiendo: restano circa {minutes} minuti."
+
+#: src/scriba/gui/record.py
+msgid "The disk is almost full: the recording was stopped at {time}."
+msgstr "Il disco è quasi pieno: la registrazione è stata fermata alle {time}."
+
+#: src/scriba/gui/record.py
+msgid "The recording stopped at {time}: {detail}"
+msgstr "La registrazione si è fermata alle {time}: {detail}"
+
+#: src/scriba/gui/record.py
+msgid "Automatic: every output"
+msgstr "Automatico: tutte le uscite"
+
+#: src/scriba/gui/record.py
+msgid "room on the disk for about {minutes} minutes"
+msgstr "spazio sul disco per circa {minutes} minuti"
+
+#: src/scriba/gui/record.py
+msgid "GStreamer lacks {pieces}: Scriba can still transcribe recordings made elsewhere."
+msgstr "A GStreamer manca {pieces}: Scriba può comunque trascrivere le registrazioni fatte altrove."
+
+#: src/scriba/gui/record.py
+msgid "The folder cannot be made: {error}"
+msgstr "Non si riesce a creare la cartella: {error}"
+
+#: src/scriba/gui/record.py
+msgid "from {time}"
+msgstr "dalle {time}"
+
+#: src/scriba/gui/record.py
+msgid "went away at {time}"
+msgstr "sparito alle {time}"
+
+#: src/scriba/gui/record.py
+msgid "The recording could not be finished: {error}"
+msgstr "Non si riesce a completare la registrazione: {error}"
+
+#: src/scriba/gui/record.py
+msgid "its level shows once a program uses it: opening it would switch the headset to telephone quality"
+msgstr "il livello si vede quando un programma lo usa: aprirlo adesso metterebbe le cuffie in qualità telefonica"
+
+#: src/scriba/gui/record.py
+msgid "Automatic: every output; the call is on {device}, {why}"
+msgstr "Automatico: tutte le uscite; la call è su {device}, {why}"
+
+#: src/scriba/gui/record.py
+msgid "Automatic: {device}, {why}"
+msgstr "Automatico: {device}, {why}"
+
+#: src/scriba/gui/record.py
+msgid "{device}, chosen by hand"
+msgstr "{device}, scelto a mano"
+
+#: src/scriba/gui/result.py
+msgid "Me"
+msgstr "Io"
+
+#: src/scriba/gui/transcribe.py
+msgid "{n} tracks: your microphone and the computer's sound"
+msgstr "{n} tracce: il tuo microfono e l'audio del computer"
+
+#: src/scriba/gui/transcribe.py
+msgid "{n} tracks"
+msgstr "{n} tracce"
+
+#: src/scriba/gui/window.py
+msgid "Keep Recording"
+msgstr "Continua a registrare"
+
+#: src/scriba/gui/window.py
+msgid "Stop the Recording?"
+msgstr "Fermare la registrazione?"
+
+#: src/scriba/gui/window.py
+msgid "What was recorded so far is kept: the files are closed properly before the window goes."
+msgstr "Quello che è stato registrato finora resta: i file vengono chiusi per bene prima che la finestra si chiuda."
+
+#: src/scriba/gui/window.py
+msgid "Recorded in {path}: open it once the transcription in progress is done."
+msgstr "Registrato in {path}: aprilo quando la trascrizione in corso è finita."
+
+#: src/scriba/app/jobs.py
+#, python-brace-format
+msgid "{card} was faster, but wrote {percent} of the sample's words wrong: it is not used."
+msgstr "{card} era più veloce, ma ha scritto sbagliato il {percent} delle parole del campione: non si usa."
+
+#: src/scriba/app/jobs.py
+#, python-brace-format
+msgid "No card wrote the sample's words right: {card} came closest ({percent} wrong)."
+msgstr "Nessuna scheda ha scritto giuste le parole del campione: la più vicina è {card} ({percent} sbagliate)."
+
+#: src/scriba/cli.py
+#, python-brace-format
+msgid "{percent} of the words differ from the sample's"
+msgstr "il {percent} delle parole diverso dal campione"
+
+#: src/scriba/cli.py
+#, python-brace-format
+msgid "Chosen: {card}; an hour of audio with the voices in {about}."
+msgstr "Scelta: {card}; un'ora di audio con le voci in {about}."
+
+#: src/scriba/gui/preferences.py
+msgid "Test of the Graphics Cards"
+msgstr "Prova delle schede video"
+
+#: src/scriba/gui/preferences.py
+msgid "Test Again"
+msgstr "Prova di nuovo"
+
+#: src/scriba/gui/preferences.py
+msgid "Testing each card and the processor on a sample of speech the app carries (Collodi's Pinocchio, read for LibriVox)…"
+msgstr "Prova di ogni scheda e del processore su un campione di parlato che l'app porta con sé (il Pinocchio di Collodi, letto per LibriVox)…"
+
+#: src/scriba/gui/preferences.py
+#, python-brace-format
+msgid "The test failed: {reason}"
+msgstr "La prova non è riuscita: {reason}"
+
+#: src/scriba/gui/preferences.py
+#, python-brace-format
+msgid "The fastest that writes the sample of speech right: {card}."
+msgstr "La più veloce che scrive giusto il campione di parlato: {card}."
+
+#: src/scriba/gui/preferences.py
+msgid "The test runs once the models are downloaded."
+msgstr "La prova parte appena i modelli sono scaricati."
+
+#: src/scriba/gui/preferences.py
+msgid "Not tested yet."
+msgstr "Non ancora provate."
+
+#: src/scriba/gui/preferences.py
+msgid "A transcription is in progress: the test waits for its end."
+msgstr "C'è una trascrizione in corso: la prova aspetta che finisca."
+
+#: src/scriba/cli.py
+msgid "record the microphone and the computer's sound"
+msgstr "registra il microfono e l'audio del computer"
+
+#: src/scriba/cli.py
+msgid "Record for the seconds given (Ctrl+C stops sooner), with the devices the window would choose by itself, then make the recording whole: one .mka with a track each, and a mix to listen to."
+msgstr "Registra per i secondi indicati (Ctrl+C ferma prima), con i dispositivi che la finestra sceglierebbe da sola, poi completa la registrazione: un .mka con una traccia ciascuno e un mix da ascoltare."
+
+#: src/scriba/cli.py
+msgid "how long to record"
+msgstr "quanto registrare"
+
+#: src/scriba/cli.py
+msgid "the folder for the recording"
+msgstr "la cartella della registrazione"
+
+#: src/scriba/cli.py
+msgid "leave the microphone out"
+msgstr "lascia fuori il microfono"
+
+#: src/scriba/cli.py
+msgid "leave the computer's sound out"
+msgstr "lascia fuori l'audio del computer"
+
+#: src/scriba/cli.py
+msgid "what Scriba finds on this computer: engines, models, recorder"
+msgstr "cosa trova Scriba su questo computer: motori, modelli, registratore"
+
+#: src/scriba/cli.py
+msgid "Say where each engine is, which models are there and whether the recorder has what it needs; each file given is opened, muted, by the player of Listen."
+msgstr "Dice dove sta ogni motore, quali modelli ci sono e se al registratore non manca nulla; ogni file indicato viene aperto, muto, dal lettore di Ascolta."
+
+#: src/scriba/cli.py
+msgid "recordings to open with the player"
+msgstr "registrazioni da aprire con il lettore"
+
+#: src/scriba/cli.py
+msgid "Nothing to record: both the microphone and the sound are left out."
+msgstr "Niente da registrare: sono esclusi sia il microfono sia l'audio."
+
+#: src/scriba/cli.py
+msgid "GStreamer is missing: Scriba needs it to record."
+msgstr "Manca GStreamer: a Scriba serve per registrare."
+
+#: src/scriba/cli.py
+#, python-brace-format
+msgid "The recorder lacks GStreamer's {names}."
+msgstr "Al registratore mancano questi pezzi di GStreamer: {names}."
+
+#: src/scriba/cli.py
+msgid "No sound device to record from."
+msgstr "Nessun dispositivo audio da cui registrare."
+
+#: src/scriba/cli.py
+#, python-brace-format
+msgid "Recording {device}"
+msgstr "Registro {device}"
+
+#: src/scriba/cli.py
+msgid "not found"
+msgstr "non trovato"
+
+#: src/scriba/cli.py
+msgid "integrated"
+msgstr "integrata"
+
+#: src/scriba/cli.py
+msgid "sample of speech"
+msgstr "campione di parlato"
+
+#: src/scriba/cli.py
+msgid "recorder"
+msgstr "registratore"
+
+#: src/scriba/cli.py
+#, python-brace-format
+msgid "ready {ready}, seekable {seekable}, {duration:.1f} s long, from {start:.1f} s to {reached:.1f} s"
+msgstr "pronto {ready}, ricercabile {seekable}, lungo {duration:.1f} s, da {start:.1f} s a {reached:.1f} s"
+
+msgid "My Name"
+msgstr "Il mio nome"
+
+msgid "My Voice"
+msgstr "La mia voce"
+
+msgid "Choose which voice is yours"
+msgstr "Scegli quale voce è la tua"
+
+msgid "Not Chosen"
+msgstr "Non scelta"
+
+msgid "Previous Names"
+msgstr "Nomi già usati"
+
+msgid "Meeting File (reopen to change the names)"
+msgstr "File della riunione (riaprilo per correggere i nomi)"
+
+msgid "Open a Recording or Meeting"
+msgstr "Apri una registrazione o una riunione"
+
+msgid "Open a Recording or Meeting…"
+msgstr "Apri una registrazione o una riunione…"
+
+msgid "Recordings and saved meetings"
+msgstr "Registrazioni e riunioni salvate"
+
+msgid "This older meeting was reopened from its automatic subtitles; detailed confidence and the original header were not saved."
+msgstr "Questa riunione precedente è stata riaperta dai sottotitoli automatici: i dettagli di affidabilità e l’intestazione originale non erano salvati."
+
+msgid "This meeting cannot be reopened: its saved transcript or automatic subtitles are missing or damaged."
+msgstr "La riunione non può essere riaperta: la trascrizione salvata o i sottotitoli automatici mancano o sono danneggiati."
+
+msgid "Listening copy with the balance"
+msgstr "File di ascolto con il bilanciamento"
+
+msgid "Listening Balance"
+msgstr "Bilanciamento di ascolto"
+
+msgid "Save a new listening file from the original tracks. The centre repeats the automatic balance."
+msgstr "Salva un nuovo file di ascolto dalle tracce originali. Al centro il bilanciamento è quello automatico."
+
+msgid "More Others"
+msgstr "Più gli altri"
+
+msgid "More Me"
+msgstr "Più io"
+
+msgid "More others on the left, more me on the right"
+msgstr "Più gli altri a sinistra, più io a destra"
+
+msgid "Save Listening Copy"
+msgstr "Salva il file di ascolto"
+
+msgid "A new listening copy was saved."
+msgstr "È stato salvato un nuovo file di ascolto."
+
+msgid "The original recording is missing: a new listening copy cannot be made."
+msgstr "La registrazione originale manca: non si può creare un nuovo file di ascolto."
+
+msgid "A listening balance needs separate microphone and output tracks."
+msgstr "Il bilanciamento richiede tracce separate del microfono e dell’uscita audio."
+
+msgid "Nothing was heard on any track: a new listening copy cannot be made."
+msgstr "Non si sente nulla in nessuna traccia: non si può creare un nuovo file di ascolto."
+
+msgid "The listening copy is written, but the meeting file could not keep it: {reason}"
+msgstr "Il file di ascolto è stato scritto, ma non è stato possibile salvarlo nel file della riunione: {reason}"
+
+msgid "balanced"
+msgstr "bilanciato"
+
+msgid "Install"
+msgstr "Installa"
+
+msgid "The update waits until the recording or transcription has finished."
+msgstr "L’aggiornamento aspetta che la registrazione o la trascrizione sia terminata."
+
+msgid "An update is starting: wait for {app} to open again."
+msgstr "Sta partendo un aggiornamento: aspetta che {app} si riapra."
+
+msgid "No audio was found at this point in the recording."
+msgstr "In questo punto della registrazione non è stato trovato audio."

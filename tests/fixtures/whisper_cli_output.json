@@ -1,0 +1,71 @@
+{
+  "systeminfo": "Synthetic parser fixture",
+  "params": {
+    "model": "models/ggml-large-v3-turbo-q5_0.bin",
+    "language": "it",
+    "translate": false
+  },
+  "result": {
+    "language": "it"
+  },
+  "transcription": [
+    {
+      "timestamps": {
+        "from": "00:00:00,000",
+        "to": "00:00:29,080"
+      },
+      "offsets": {
+        "from": 0,
+        "to": 29080
+      },
+      "text": " Oggi proviamo una riunione inventata e controlliamo la trascrizione.",
+      "tokens": [
+        {
+          "text": "[_BEG_]",
+          "id": 50365,
+          "p": 0.94,
+          "offsets": {
+            "from": 0,
+            "to": 0
+          }
+        },
+        {
+          "text": " Oggi",
+          "id": 100,
+          "p": 0.95,
+          "offsets": {
+            "from": 0,
+            "to": 1000
+          }
+        },
+        {
+          "text": " proviamo",
+          "id": 101,
+          "p": 0.75,
+          "offsets": {
+            "from": 1000,
+            "to": 1000
+          }
+        },
+        {
+          "text": " una riunione inventata e controlliamo la trascrizione.",
+          "id": 102,
+          "p": 0.9,
+          "offsets": {
+            "from": 1000,
+            "to": 29080
+          }
+        },
+        {
+          "text": "[_TT_1454]",
+          "id": 51819,
+          "p": 0.55,
+          "offsets": {
+            "from": 29080,
+            "to": 29080
+          }
+        }
+      ]
+    }
+  ]
+}
