@@ -62,6 +62,8 @@ class GstPlayWorkflowTest(unittest.TestCase):
         self.assertEqual(text.count('python tools/build_gstplay.py --output build/gstplay'), 2)
         self.assertEqual(text.count('gstplay-v1-${{ runner.os }}-'), 2)
         self.assertIn('mingw-w64-ucrt-x86_64-meson', text)
+        self.assertEqual(text.count('test -x "/c/Program Files/Git/cmd/git.exe"'), 2)
+        self.assertEqual(text.count('export PATH="/c/Program Files/Git/cmd:$PATH"'), 2)
 
     def test_ubuntu_tests_load_the_custom_library(self):
         text = (ROOT / '.github/workflows/test.yml').read_text()

@@ -117,6 +117,10 @@ modules:
 
   - name: scriba
     buildsystem: simple
+    build-options:
+      # Builder scans earlier modules too; keep GstPlay matching its receipt.
+      strip: false
+      no-debuginfo: true
     build-commands:
       - install -d /app/share/scriba
       - cp -r src/scriba /app/share/scriba/scriba

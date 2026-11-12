@@ -91,6 +91,10 @@ jobs:
           key: gstplay-v1-${{ runner.os }}-${{ steps.gstplay-inputs.outputs.key }}
       - name: Backport the upstream GstPlay dispose fix
         run: |
+          # Native Python passes native paths; match actions/checkout's Git.
+          test -x "/c/Program Files/Git/cmd/git.exe"
+          export PATH="/c/Program Files/Git/cmd:$PATH"
+          git --version
           env -u MSYSTEM python tools/build_gstplay.py --output build/gstplay
           echo "SCRIBA_GSTPLAY_BUILD=$(cygpath -w "$PWD/build/gstplay")" >> "$GITHUB_ENV"
       - name: Package unless the complete diff is safe documentation
@@ -208,6 +212,10 @@ jobs:
           key: gstplay-v1-${{ runner.os }}-${{ steps.gstplay-inputs.outputs.key }}
       - name: Backport the upstream GstPlay dispose fix
         run: |
+          # Native Python passes native paths; match actions/checkout's Git.
+          test -x "/c/Program Files/Git/cmd/git.exe"
+          export PATH="/c/Program Files/Git/cmd:$PATH"
+          git --version
           env -u MSYSTEM python tools/build_gstplay.py --output build/gstplay
           echo "SCRIBA_GSTPLAY_BUILD=$(cygpath -w "$PWD/build/gstplay")" >> "$GITHUB_ENV"
       # ffmpeg built from FFmpeg's release sources under the LGPL (the
