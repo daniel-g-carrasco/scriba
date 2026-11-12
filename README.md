@@ -6,7 +6,9 @@
 
 Record meetings and transcribe them on your own computer, with speakers and subtitles.
 
-Scriba is in early development. Windows and Linux packages are being verified; no public installer, portable download or Flatpak release is available yet. The Linux Flatpak uses GNOME Platform 50 with CPU and Vulkan transcription.
+**[Download Scriba 0.1.0 for Windows](https://github.com/daniel-g-carrasco/scriba/releases/download/v0.1.0/scriba-setup-v0.1.0-windows-x64.exe)**. Install it once; Scriba checks for newer stable releases and offers signed updates. Windows may show a SmartScreen warning because the installer has no Authenticode certificate.
+
+[All downloads and corresponding sources](https://github.com/daniel-g-carrasco/scriba/releases/tag/v0.1.0) include the Windows portable ZIP and Linux Flatpak. Extract the entire portable ZIP before opening `Scriba.exe`. The Linux Flatpak uses GNOME Platform 50 with CPU and Vulkan transcription.
 
 Scriba records the microphone and computer sound on separate tracks, or opens an existing audio or video recording. It writes Markdown, plain text and subtitles, and can add subtitles to a copy of a video. Audio and text are processed locally. Network access is used to download speech models and check for updates.
 
@@ -62,4 +64,4 @@ Windows and Linux CI check pushes and pull requests and build development artifa
 
 ## Licence
 
-Scriba is licensed under GPL-3.0-or-later; see [COPYRIGHT](COPYRIGHT), [LICENSE](LICENSE) and [distribution notes](docs/licensing.md). Third-party engines, models and libraries retain their own licences and credits. The intended signing process for a future release is described in [CODE_SIGNING.md](CODE_SIGNING.md).
+Scriba is licensed under GPL-3.0-or-later; see [COPYRIGHT](COPYRIGHT), [LICENSE](LICENSE) and [distribution notes](docs/licensing.md). Third-party engines, models and libraries retain their own licences and credits. Release signatures and verification are described in [CODE_SIGNING.md](CODE_SIGNING.md).
