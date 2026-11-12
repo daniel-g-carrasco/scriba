@@ -267,24 +267,65 @@ jobs:
         shell: pwsh
         run: |
           $setup = (Get-ChildItem dist -Filter 'scriba-setup-*.exe' | Select-Object -First 1).FullName
-          $opts = '/VERYSILENT', '/CURRENTUSER', '/SUPPRESSMSGBOXES', '/NORESTART'
-          $p = Start-Process $setup -ArgumentList $opts -Wait -PassThru
-          if ($p.ExitCode -ne 0) { Write-Error "install: $($p.ExitCode)"; exit 1 }
-          Start-Process "$env:LOCALAPPDATA\Programs\Scriba\Scriba.exe"
-          Start-Sleep 15
-          if (-not (Get-Process Scriba -ErrorAction SilentlyContinue)) { Write-Error 'the app did not start'; exit 1 }
-          # the installer held open with read sharing only, as updates.hold
-          # keeps the verified one until the app exits: Setup must still read it
-          $held = [System.IO.File]::Open($setup, 'Open', 'Read', 'Read')
-          # Setup only (Start-Process -Wait would wait for the app it starts again too)
-          $p = Start-Process $setup -ArgumentList ($opts + '/LOG=update.log') -PassThru
-          if (-not $p.WaitForExit(300000)) { Write-Error 'Setup did not finish'; exit 1 }
-          $held.Dispose()
-          Get-Content update.log | Select-String 'RestartManager|CloseApplications|succeeded|Abort|Ending'
-          if ($p.ExitCode -ne 0) { Write-Error "update over a running app: $($p.ExitCode)"; exit 1 }
-          Start-Sleep 15
-          if (-not (Get-Process Scriba -ErrorAction SilentlyContinue)) { Write-Error 'the app was not started again'; exit 1 }
-          Get-Process Scriba | Stop-Process
+          $diagnostics = Join-Path $env:GITHUB_WORKSPACE 'installer-diagnostics'
+          [System.IO.Directory]::CreateDirectory($diagnostics) | Out-Null
+          $initialLog = Join-Path $diagnostics 'initial-install.log'
+          $updateLog = Join-Path $diagnostics 'running-update.log'
+          $opts = '/VERYSILENT', '/CURRENTUSER', '/SUPPRESSMSGBOXES', '/NORESTART', '/LOGCLOSEAPPLICATIONS'
+          function Save-Processes([string]$stage) {
+            try {
+              $records = @(Get-CimInstance Win32_Process | Where-Object {
+                $_.Name -in @('Scriba.exe', 'gdbus.exe', 'dbus-daemon.exe', 'dbus-launch.exe',
+                              'whisper-bench.exe', 'whisper-cli.exe', 'ffmpeg.exe') -or
+                $_.Name -like 'scriba-setup-*'
+              } | Select-Object Name, ProcessId, ParentProcessId, ExecutablePath)
+              ConvertTo-Json -InputObject $records -Depth 3 |
+                Set-Content -LiteralPath (Join-Path $diagnostics "processes-$stage.json") -Encoding utf8
+              Write-Output "Process inventory: $stage"
+              $records | Format-Table -AutoSize | Out-String | Write-Output
+            } catch {
+              Write-Warning "Process inventory unavailable: $($_.Exception.Message)"
+            }
+          }
+          $held = $null
+          try {
+            Save-Processes 'before-install'
+            $p = Start-Process $setup -ArgumentList ($opts + "/LOG=`"$initialLog`"") -Wait -PassThru
+            if ($p.ExitCode -ne 0) { Write-Error "install: $($p.ExitCode)"; exit 1 }
+            Start-Process "$env:LOCALAPPDATA\Programs\Scriba\Scriba.exe"
+            Start-Sleep 15
+            if (-not (Get-Process Scriba -ErrorAction SilentlyContinue)) { Write-Error 'the app did not start'; exit 1 }
+            Save-Processes 'before-update'
+            # Keep the verified installer readable, as updates.hold does.
+            $held = [System.IO.File]::Open($setup, 'Open', 'Read', 'Read')
+            # Wait only for Setup, not the application it starts again.
+            $p = Start-Process $setup -ArgumentList ($opts + "/LOG=`"$updateLog`"") -PassThru
+            if (-not $p.WaitForExit(300000)) { Write-Error 'Setup did not finish'; exit 1 }
+            $held.Dispose()
+            $held = $null
+            if ($p.ExitCode -ne 0) { Write-Error "update over a running app: $($p.ExitCode)"; exit 1 }
+            Start-Sleep 15
+            if (-not (Get-Process Scriba -ErrorAction SilentlyContinue)) { Write-Error 'the app was not started again'; exit 1 }
+            Save-Processes 'after-update'
+            Get-Process Scriba | Stop-Process
+          } finally {
+            if ($null -ne $held) { $held.Dispose() }
+            Save-Processes 'finally'
+            foreach ($log in @($initialLog, $updateLog)) {
+              if (Test-Path -LiteralPath $log) {
+                Write-Output "Complete Setup log: $(Split-Path $log -Leaf)"
+                Get-Content -LiteralPath $log
+              } else {
+                Write-Output "Setup did not produce: $(Split-Path $log -Leaf)"
+              }
+            }
+          }
+      - name: Preserve installer diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: windows-installer-diagnostics
+          path: installer-diagnostics/
       - name: Corresponding sources for this exact bundle
         run: |
           sources="$RUNNER_TEMP/scriba-windows-sources"
