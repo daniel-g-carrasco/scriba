@@ -1,6 +1,11 @@
 """Linux builds include their prerequisites; pull requests cannot publish."""
 
 import re
+import os
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 import unittest
 
 import _setup
@@ -111,3 +116,67 @@ class PackagingOptimisationTest(unittest.TestCase):
         self.assertNotIn("--ccache=false", flatpak)
         self.assertNotIn("--disable-cache", flatpak)
         self.assertNotIn("restore-keys:", flatpak)
+
+
+class FlatpakSourceReliabilityTest(unittest.TestCase):
+    def package(self):
+        return jobs((WORKFLOWS / "build.yml").read_text(encoding="utf-8"))["flatpak"]
+
+    def test_all_source_git_commands_trust_only_the_expected_checkout(self):
+        package = self.package()
+        collector = package.split("- name: Collect the corresponding sources", 1)[1]
+        commands = re.findall(r"(?:^\s+|\$\()(git [^\n)]*)", collector, re.M)
+        self.assertEqual(len(commands), 3)
+        for command in commands:
+            self.assertIn('-c safe.directory="$GITHUB_WORKSPACE"', command)
+        self.assertNotIn("--global", collector)
+        self.assertNotIn("safe.directory=*", collector)
+
+    @unittest.skipIf(os.name == "nt", "the container ownership failure is on Linux")
+    def test_the_archive_command_works_without_global_trust_for_a_different_owner(self):
+        git, bash = shutil.which("git"), shutil.which("bash")
+        if not git or not bash:
+            self.skipTest("Git and bash are needed for the container ownership regression")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            subprocess.run([git, "init", "-q", str(root)], check=True, capture_output=True)
+            (root / "README.md").write_text("public fixture\n", encoding="utf-8")
+            subprocess.run([git, "-C", str(root), "add", "README.md"], check=True, capture_output=True)
+            subprocess.run([git, "-C", str(root), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                            "-c", "commit.gpgsign=false", "-c", "core.hooksPath=" + str(root / "no-hooks"),
+                            "commit", "-qm", "Public fixture"], check=True, capture_output=True)
+            config = root / "empty-global-config"
+            config.write_text("")
+            environment = dict(os.environ, GITHUB_WORKSPACE=str(root), RUNNER_TEMP=str(root),
+                               GIT_TEST_ASSUME_DIFFERENT_OWNER="1", GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(config))
+            environment.pop("GIT_CONFIG_COUNT", None)
+            blocked = subprocess.run([git, "-C", str(root), "rev-parse", "HEAD"], env=environment,
+                                     capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(blocked.returncode, 0)
+            self.assertIn("dubious ownership", blocked.stderr)
+            collector = self.package().split("- name: Collect the corresponding sources", 1)[1]
+            archive = next(line.strip() for line in collector.splitlines() if line.strip().startswith("git "))
+            completed = subprocess.run([bash, "-c", archive], cwd=root, env=environment,
+                                       capture_output=True, text=True, timeout=10)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertTrue((root / "app-source.tar").is_file())
+
+    def test_builder_cache_is_saved_after_validation_before_source_collection(self):
+        package = self.package()
+        pin = "55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
+        restore = package.index("uses: actions/cache/restore@" + pin)
+        build = package.index("- name: Build\n")
+        validated = package.index("- name: Check the package with Platform")
+        save = package.index("uses: actions/cache/save@" + pin)
+        collector = package.index("- name: Collect the corresponding sources")
+        self.assertLess(restore, build)
+        self.assertLess(build, validated)
+        self.assertLess(validated, save)
+        self.assertLess(save, collector)
+        self.assertIn("id: flatpak-state", package[restore:build])
+        after_validation = package[validated:collector]
+        self.assertIn("if: steps.flatpak-state.outputs.cache-hit != 'true'", after_validation)
+        self.assertIn("path: .flatpak-builder", after_validation)
+        self.assertIn("key: ${{ steps.flatpak-cache.outputs.key }}", after_validation)
+        self.assertIn("uses: actions/cache@" + pin, after_validation)
+        self.assertIn("path: ${{ runner.temp }}/linux-source-cache", after_validation)

@@ -346,7 +346,7 @@ class SourceWorkflowTest(unittest.TestCase):
     def test_each_packaged_linux_bundle_has_strict_sources_from_the_public_checkout(self):
         text = (_setup.ROOT / '.github/workflows/build.yml').read_text(encoding='utf-8')
         package = text.split('  flatpak:\n', 1)[1].split('\n  release:\n', 1)[0]
-        self.assertIn('git archive --format=tar --prefix=scriba/', package)
+        self.assertIn('git -c safe.directory="$GITHUB_WORKSPACE" archive --format=tar --prefix=scriba/', package)
         self.assertIn('tools/collect_linux_sources.py', package)
         for option in ('--app-archive', '--app-commit', '--resolved-manifest', '--build-root',
                        '--builder-state', '--bundle', '--runtime-commit', '--sdk-commit'):

@@ -875,6 +875,16 @@ class PlayCheckTest(unittest.TestCase):
         self.assertAlmostEqual(played.duration, 40.0, delta=0.1)
         self.assertEqual(played.started, JUMP)
         self.assertGreater(played.reached, JUMP)
+        # GTK clears the stream before its native playback worker necessarily
+        # releases the Windows file handle. Exercise that completion instead
+        # of racing TemporaryDirectory's synchronous cleanup.
+        def release_finished():
+            try:
+                wav.unlink()
+                return True
+            except PermissionError:
+                return False
+        self.assertTrue(_setup.spin(release_finished, 5), "the player retained the recording after clear")
         broken = tmp / "broken.m4a"
         broken.write_bytes(b"not a recording at all")
         self.assertFalse(try_playing(str(broken), timeout=10).prepared)

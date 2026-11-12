@@ -35,15 +35,13 @@ def docs_only(paths):
 
 
 def git_binary():
-    found = shutil.which("git")
-    if found:
-        return found
     if os.name == "nt":
-        # MSYS2's strict PATH can hide the Git used by checkout/developers.
+        # Match actions/checkout and its system configuration. MSYS Git can be
+        # first on PATH but uses different defaults for the same CRLF checkout.
         candidate = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/cmd/git.exe"
         if candidate.is_file():
             return str(candidate)
-    return "git"  # Missing executable is handled by the conservative decision.
+    return shutil.which("git") or "git"  # Fail closed if no executable exists.
 
 
 def packaging_needed(event_name, ref, event, head, root):
@@ -71,8 +69,13 @@ def packaging_needed(event_name, ref, event, head, root):
         if clean.returncode:
             return True, "tracked checkout files changed or cannot be checked"
         for commit in (base, head):
-            subprocess.run([git, "-C", str(root), "cat-file", "-e", commit + "^{commit}"],
-                           check=True, capture_output=True, timeout=30)
+            # Native Windows callers of MSYS Git undergo argument globbing:
+            # SHA^{commit} loses its braces. A validated literal SHA and its
+            # object type provide the same check without revision syntax.
+            kind = subprocess.run([git, "-C", str(root), "cat-file", "-t", commit],
+                                  check=True, capture_output=True, timeout=30).stdout.strip()
+            if kind != b"commit":
+                return True, "comparison object is not a commit"
         done = subprocess.run([git, "-C", str(root), "diff", "--no-ext-diff", "--no-textconv",
                                "--no-renames", "--name-only", "-z", base, head, "--"],
                               check=True, capture_output=True, timeout=30)

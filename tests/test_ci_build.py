@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -15,6 +16,27 @@ SPEC = importlib.util.spec_from_file_location("ci_build", _setup.ROOT / "tools" 
 ci = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = ci
 SPEC.loader.exec_module(ci)
+
+
+class GitSelectionTest(unittest.TestCase):
+    def test_windows_uses_the_checkout_git_before_an_msys_executable_on_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            candidate = root / "Git/cmd/git.exe"
+            candidate.parent.mkdir(parents=True)
+            candidate.write_bytes(b"fixture executable")
+            with mock.patch.object(ci.os, "name", "nt"), mock.patch.object(ci, "Path", type(root)), \
+                    mock.patch.dict(os.environ, {"ProgramFiles": str(root)}), \
+                    mock.patch.object(ci.shutil, "which", return_value="msys-git"):
+                self.assertEqual(ci.git_binary(), str(candidate))
+
+    def test_git_on_path_remains_available_without_a_windows_checkout_git(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with mock.patch.object(ci.os, "name", "nt"), mock.patch.object(ci, "Path", type(root)), \
+                    mock.patch.dict(os.environ, {"ProgramFiles": str(root)}), \
+                    mock.patch.object(ci.shutil, "which", return_value="available-git"):
+                self.assertEqual(ci.git_binary(), "available-git")
 
 
 class ScopeTest(unittest.TestCase):
@@ -98,6 +120,29 @@ class ScopeTest(unittest.TestCase):
         docs = self.commit("docs/help.md", "more help")
         (self.root / "src/example.py").write_text("uncommitted code")
         self.assertTrue(self.decision(docs))
+
+    def test_git_receives_literal_commit_ids_without_msys_glob_syntax(self):
+        head = self.commit("docs/help.md", "help")
+        run = ci.subprocess.run
+        calls = []
+
+        def checked(args, **kwargs):
+            calls.append(args)
+            if "cat-file" in args:
+                self.assertEqual(args[-2], "-t")
+                self.assertIn(args[-1], (self.base, head))
+            return run(args, **kwargs)
+
+        with mock.patch.object(ci.subprocess, "run", side_effect=checked):
+            self.assertFalse(self.decision(head))
+        self.assertEqual(sum("cat-file" in args for args in calls), 2)
+
+    def test_a_literal_object_id_must_name_a_commit_before_comparing_paths(self):
+        head = self.commit("docs/help.md", "help")
+        blob = self.git("ls-tree", "HEAD", "src/example.py").split()[2]
+        needed, reason = ci.packaging_needed("push", "refs/heads/main", {"before": blob}, head, self.root)
+        self.assertTrue(needed)
+        self.assertEqual(reason, "comparison object is not a commit")
 
     def test_git_failure_never_produces_a_skip(self):
         with mock.patch.object(ci.subprocess, "run", side_effect=OSError("git unavailable")):
