@@ -1,8 +1,31 @@
 <!doctype html>
-<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>Scriba</title><main><h1>Scriba</h1>
-<p>Record meetings and transcribe them on your own computer, with speakers and subtitles.</p>
-<p>Development builds are being tested. No public package has been released yet.</p>
-<p><a href="https://github.com/daniel-g-carrasco/scriba">Source code and development notes</a></p>
-<p><a href="scriba-flatpak-public.asc">Prepared Flatpak repository signing key</a><br>
-Fingerprint: <code>2A17 1ED4 30D6 082E DED4 73B5 DFA3 8180 5867 7201</code></p></main></html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scriba, Flatpak repository</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 17px/1.6 system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
+  code, pre { background: rgba(127, 127, 127, .14); border-radius: 6px; padding: .1rem .35rem; }
+  pre { padding: .75rem .9rem; overflow-x: auto; }
+  a.btn { display: inline-block; background: #1a5fb4; color: #fff; padding: .7rem 1.2rem; border-radius: 8px; text-decoration: none; font-weight: 600; }
+  .dim { opacity: .75; font-size: .95rem; }
+</style>
+</head>
+<body>
+<h1>Scriba, Flatpak repository</h1>
+<p>This is where the Flatpak of <a href="https://github.com/daniel-g-carrasco/scriba">Scriba</a> lives. Current version: <strong>0.1.0</strong>.</p>
+<p><a class="btn" href="https://daniel-g-carrasco.github.io/scriba/scriba.flatpakref">Install Scriba</a></p>
+<p>Or from a terminal:</p>
+<pre>flatpak install https://daniel-g-carrasco.github.io/scriba/scriba.flatpakref</pre>
+<p>Updates arrive on their own, through GNOME Software or <code>flatpak update</code>. The GNOME runtime comes from Flathub.</p>
+<p>Scriba is free software under GPL-3.0-or-later. Download the
+<a href="https://github.com/daniel-g-carrasco/scriba/releases/download/v0.1.0/scriba-v0.1.0-linux-x86_64-sources.tar.xz">corresponding sources for this Linux package</a>,
+including the collected dependency sources and build information, from the
+<a href="https://github.com/daniel-g-carrasco/scriba/releases/tag/v0.1.0">signed release files</a>.</p>
+<p class="dim">The repository is signed. The key's fingerprint is in the
+<a href="https://github.com/daniel-g-carrasco/scriba/blob/main/docs/linux.md#repository-signing-key">Linux documentation</a>.
+<a href="https://github.com/daniel-g-carrasco/scriba">Source and issues</a> are on GitHub.</p>
+</body>
+</html>
