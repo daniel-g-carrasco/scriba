@@ -6,9 +6,9 @@
 
 Record meetings and transcribe them on your own computer, with speakers and subtitles.
 
-**[Download Scriba 0.1.0 for Windows](https://github.com/daniel-g-carrasco/scriba/releases/download/v0.1.0/scriba-setup-v0.1.0-windows-x64.exe)**. Install it once; Scriba checks for newer stable releases and offers signed updates. Windows may show a SmartScreen warning because the installer has no Authenticode certificate.
+**[Download Scriba 0.1.1 for Windows](https://github.com/daniel-g-carrasco/scriba/releases/download/v0.1.1/scriba-setup-v0.1.1-windows-x64.exe)**. Install it once; Scriba checks for newer stable releases and offers signed updates. Windows may show a SmartScreen warning because the installer has no Authenticode certificate.
 
-[All downloads and corresponding sources](https://github.com/daniel-g-carrasco/scriba/releases/tag/v0.1.0) include the Windows portable ZIP and Linux Flatpak. Extract the entire portable ZIP before opening `Scriba.exe`. The Linux Flatpak uses GNOME Platform 50 with CPU and Vulkan transcription.
+[All downloads and corresponding sources](https://github.com/daniel-g-carrasco/scriba/releases/tag/v0.1.1) include the Windows portable ZIP and Linux Flatpak. Extract the entire portable ZIP before opening `Scriba.exe`. The Linux Flatpak uses GNOME Platform 50 with CPU and Vulkan transcription.
 
 Scriba records the microphone and computer sound on separate tracks, or opens an existing audio or video recording. It writes Markdown, plain text and subtitles, and can add subtitles to a copy of a video. Audio and text are processed locally. Network access is used to download speech models and check for updates.
 

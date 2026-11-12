@@ -247,7 +247,7 @@ class TranscribePage(Adw.Bin):
         self.folder_row.add_suffix(self.folder_reset)
         folder = Gtk.Button(icon_name="folder-open-symbolic", tooltip_text=_("Choose a Folder…"),
                             valign=Gtk.Align.CENTER, css_classes=["flat"])
-        folder.connect("clicked", lambda *_: choose_folder(self.window, _("Choose the Folder for the Files"),
+        folder.connect("clicked", lambda *_args: choose_folder(self.window, _("Choose the Folder for the Files"),
                                                            str(self.out_folder()), lambda p: self._set_out(Path(p))))
         self.folder_row.add_suffix(folder)
         group.add(self.folder_row)

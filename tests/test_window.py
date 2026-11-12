@@ -93,6 +93,47 @@ class WindowTest(unittest.TestCase):
     def state(self, window) -> str:
         return window.transcribe.stack.get_visible_child_name()
 
+    def test_both_downloaded_models_remain_selectable(self):
+        self.engines.precise = True
+        window = self.opened()
+        page = window.transcribe
+        preferences = PreferencesDialog(window, self.app)
+        for index, quality in ((1, "large"), (0, "turbo")):
+            with self.subTest(quality=quality):
+                preferences.quality_row.set_selected(index)
+                self.assertEqual(self.app.cfg.quality, quality)
+                page.quality_row.set_selected(index)
+                self.assertEqual(page.cfg.quality, quality)
+                self.assertTrue(page.quality_row.get_visible())
+
+    def test_folder_buttons_reach_the_picker_with_a_translated_title(self):
+        window = self.window()
+        preferences = PreferencesDialog(window, self.app)
+
+        def buttons(widget):
+            if isinstance(widget, Gtk.Button):
+                yield widget
+            child = widget.get_first_child()
+            while child is not None:
+                yield from buttons(child)
+                child = child.get_next_sibling()
+
+        targets = [("record", window.record.choose_button, "scriba.gui.record")]
+        for name, row, module in (
+            ("transcription", window.transcribe.folder_row, "scriba.gui.transcribe"),
+            ("usual folder", preferences.folder_row, "scriba.gui.preferences"),
+            ("recordings preference", preferences.recordings_row, "scriba.gui.preferences"),
+        ):
+            button = next(b for b in buttons(row) if b.get_icon_name() == "folder-open-symbolic")
+            targets.append((name, button, module))
+        for name, button, module in targets:
+            with self.subTest(button=name), mock.patch(module + ".choose_folder") as picker:
+                button.emit("clicked")
+                picker.assert_called_once()
+                self.assertIs(picker.call_args.args[0], window)
+                self.assertIsInstance(picker.call_args.args[1], str)
+                self.assertTrue(picker.call_args.args[1])
+
     # -- the first start ---------------------------------------------------------------
 
     def test_with_models_missing_record_stays_available_and_the_models_page_downloads(self):

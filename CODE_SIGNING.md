@@ -2,9 +2,8 @@
 
 ## Signature of the releases (minisign)
 
-No public release has been published yet. When releases are enabled, the
-Windows installer, portable zip and Flatpak bundle are intended to carry
-[minisign](https://jedisct1.github.io/minisign/) signatures. The workflow
+The Windows installer, portable ZIP, Flatpak bundle and corresponding-source
+archives carry [minisign](https://jedisct1.github.io/minisign/) signatures. The workflow
 expects the `MINISIGN_SECRET_KEY` repository secret, checks each signature
 with the public key and uploads `<file>.minisig` beside the file; its trusted
 comment names the file. The Windows updater already checks this signature
@@ -29,9 +28,8 @@ SmartScreen still warns when the installer is started from a download.
 - Committers and reviewers: [Daniel Grasso](https://github.com/daniel-g-carrasco)
 - Approvers: [Daniel Grasso](https://github.com/daniel-g-carrasco)
 
-Future releases require maintainer approval and a version tag. The build
-scripts and signing workflow are included here for review; their presence
-does not mean that a release or download is already available.
+Releases require maintainer approval and a version tag. Published packages
+and signatures are available on [GitHub Releases](https://github.com/daniel-g-carrasco/scriba/releases).
 
 ## Privacy policy
 

@@ -2,10 +2,18 @@
 
 What changed in Scriba, version by version, the newest first. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
-are `0.x` while the app is in development. No public release has been
-published yet; 0.1.0 is the current development version. Linux Flatpak builds and runtime checks use GNOME Platform 50. The app's metainfo carries a shorter description.
+are `0.x` while the app evolves. Stable Windows and Linux packages are
+available from GitHub Releases. Linux Flatpak builds and runtime checks use GNOME Platform 50. The app's metainfo carries a shorter description.
 
 ## [Unreleased]
+
+## [0.1.1] - 2026-11-12
+
+### Fixed
+- Folder selection buttons now open the folder picker from Recording,
+  Transcription and both folder settings in Preferences.
+
+## [0.1.0] - 2026-11-12
 
 ### Changed
 - Scriba uses GPL-3.0-or-later. Distribution tooling collects dependency
@@ -56,10 +64,8 @@ published yet; 0.1.0 is the current development version. Linux Flatpak builds an
   each engine is, which models are there, whether the recorder has what
   it needs, and tests each file with the native diagnostic player, muted.
 
-## [0.1.0] - 2026-11-11
-
-### Added
-- Initial development version: a meeting recorded (the microphone and the
+### Initial capabilities
+- Initial version: a meeting recorded (the microphone and the
   computer's sound on separate tracks, with automatic device selection
   that the user checks against the meters, and warnings while recording; FLAC
   files that stay readable after a crash, joined at the end in one .mka

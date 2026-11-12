@@ -50,6 +50,11 @@
   </requires>
 
   <releases>
+    <release version="0.1.1" date="2026-11-12" type="stable">
+      <description>
+        <p>Fix folder selection buttons in recording, transcription and preferences.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-11-11" type="development">
       <description>
         <p>Initial development version: meetings recorded (the microphone and the computer's sound on separate tracks, with automatic device selection to check before recording) and transcribed on the computer, with the voices told apart and named, the subtitles and the video with subtitles.</p>

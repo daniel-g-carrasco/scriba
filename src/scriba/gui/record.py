@@ -370,7 +370,7 @@ class RecordPage(Adw.Bin):
         self.folder_row.add_suffix(show)
         self.choose_button = Gtk.Button(label=_("Change…"), tooltip_text=_("Choose a Folder…"),
                                         valign=Gtk.Align.CENTER, css_classes=["flat"])
-        self.choose_button.connect("clicked", lambda *_: choose_folder(
+        self.choose_button.connect("clicked", lambda *_args: choose_folder(
             self.window, _("Choose the Folder for the Recordings"), str(recordings_folder(self.cfg)),
             self._chose_folder))
         self.folder_row.add_suffix(self.choose_button)

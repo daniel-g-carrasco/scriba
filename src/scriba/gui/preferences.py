@@ -135,7 +135,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self.folder_row.add_suffix(self.folder_reset)
         choose = Gtk.Button(icon_name="folder-open-symbolic", tooltip_text=_("Choose a Folder…"),
                             valign=Gtk.Align.CENTER, css_classes=["flat"])
-        choose.connect("clicked", lambda *_: choose_folder(self.window, _("Choose the Usual Folder for the Files"),
+        choose.connect("clicked", lambda *_args: choose_folder(self.window, _("Choose the Usual Folder for the Files"),
                                                            cfg.output_folder or None, self._set_folder, owner_widget=self))
         self.folder_row.add_suffix(choose)
         group.add(self.folder_row)
@@ -150,7 +150,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self.recordings_row.add_suffix(self.recordings_reset)
         choose = Gtk.Button(icon_name="folder-open-symbolic", tooltip_text=_("Choose a Folder…"),
                             valign=Gtk.Align.CENTER, css_classes=["flat"])
-        choose.connect("clicked", lambda *_: choose_folder(self.window, _("Choose the Folder for the Recordings"),
+        choose.connect("clicked", lambda *_args: choose_folder(self.window, _("Choose the Folder for the Recordings"),
                                                            str(recordings_folder(self.app.cfg)),
                                                            self._set_recordings, owner_widget=self))
         self.recordings_row.add_suffix(choose)
