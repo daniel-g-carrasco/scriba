@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "package": "mingw-w64-ucrt-x86_64-p11-kit",
+  "version": "0.26.5-2",
+  "base": "mingw-w64-p11-kit",
+  "source_url": "https://repo.msys2.org/mingw/sources/mingw-w64-p11-kit-0.26.5-2.src.tar.zst",
+  "source_archive_sha256": "e9571a521f30abd18c7f1a332ef208c830a25ad2801cef7830d538692a069877",
+  "source_signature_fingerprint": "5F944B027F7FE2091985AA2EFA11531AA0AA7F57",
+  "recipe_sha256": "1ff1256fc755d45769082d750e974e477301b92d17de6a495c8623cc4df9ebe2",
+  "binary_url": "https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-p11-kit-0.26.5-2-any.pkg.tar.zst",
+  "binary_archive_sha256": "a130002cc5c0d629ff9414b23207c7280f20a8093e0b7bdaa20684185902f5e4",
+  "binary_signature_fingerprint": "5F944B027F7FE2091985AA2EFA11531AA0AA7F57",
+  "payloads": [
+    {
+      "source": "https://github.com/p11-glue/p11-kit/releases/download/0.26.5/p11-kit-0.26.5.tar.xz",
+      "member": "mingw-w64-p11-kit/p11-kit-0.26.5.tar.xz",
+      "sha256": "f2cc09111e44bf3fea58f023180b33acea90aa82d042d6fbb623fbc5ba033bb7",
+      "status": "verified"
+    },
+    {
+      "source": "https://github.com/p11-glue/p11-kit/releases/download/0.26.5/p11-kit-0.26.5.tar.xz.sig",
+      "member": "mingw-w64-p11-kit/p11-kit-0.26.5.tar.xz.sig",
+      "sha256": "2f944993892b3acf74cccdba99a60176b4ca9518b9adecc578031dc1075d09cb",
+      "status": "skipped"
+    },
+    {
+      "source": "0002-fix-includes.patch",
+      "member": "mingw-w64-p11-kit/0002-fix-includes.patch",
+      "sha256": "aa92f986d3f7dfc119e86f9a8f3987e6ac2562149921820eadbe09218c4df99c",
+      "status": "verified"
+    },
+    {
+      "source": "0004-fix-abspath-check.all.patch",
+      "member": "mingw-w64-p11-kit/0004-fix-abspath-check.all.patch",
+      "sha256": "ea4593324db6d2d193733561f0352c6d679d1fb00aed0a2bae0d28aecbe92721",
+      "status": "verified"
+    },
+    {
+      "source": "pathtools.c",
+      "member": "mingw-w64-p11-kit/pathtools.c",
+      "sha256": "ebf471173f5ee9c4416c10a78760cea8afaf1a4a6e653977321e8547ce7bf3c0",
+      "status": "verified"
+    },
+    {
+      "source": "pathtools.h",
+      "member": "mingw-w64-p11-kit/pathtools.h",
+      "sha256": "1585ef1b61cf53a2ca27049c11d49e0834683dfda798f03547761375df482a90",
+      "status": "verified"
+    },
+    {
+      "source": "0006-p11-kit-relocation.patch",
+      "member": "mingw-w64-p11-kit/0006-p11-kit-relocation.patch",
+      "sha256": "59f320862821ac83aab707cc99e064e934d94c9791fc0fea87648aec93ec3721",
+      "status": "verified"
+    },
+    {
+      "source": "0007-mmap-CreateFile-with-FILE_SHARE_READ.patch",
+      "member": "mingw-w64-p11-kit/0007-mmap-CreateFile-with-FILE_SHARE_READ.patch",
+      "sha256": "2b0fc5c54776aca54e306315338323075e7412d8d800f490a31870008c34f8d1",
+      "status": "verified"
+    },
+    {
+      "source": "0011-p11-kit-spawn-external.patch",
+      "member": "mingw-w64-p11-kit/0011-p11-kit-spawn-external.patch",
+      "sha256": "3c4821c36f76fd45c0d1ec83474773e45ccefde4ac92ca88b8493425f7553cb9",
+      "status": "verified"
+    },
+    {
+      "source": "0012-no-version-script.patch",
+      "member": "mingw-w64-p11-kit/0012-no-version-script.patch",
+      "sha256": "15a2729f39e260f7fe8d55a91a399f2512854da626a69bc215470f902fc178cd",
+      "status": "verified"
+    },
+    {
+      "source": "0013-fix-reallocarray-decl.patch",
+      "member": "mingw-w64-p11-kit/0013-fix-reallocarray-decl.patch",
+      "sha256": "83ecf11aaf9a1c6f617790048e80febd7320edae6ba203958349264170956911",
+      "status": "verified"
+    }
+  ],
+  "files": [
+    {
+      "file": "AUTHORS",
+      "sha256": "cde5ccbf5083e28d1b38333b5817be06c158fb3218f21ee5594b6125a9372591",
+      "source_member": "mingw-w64-p11-kit/p11-kit-0.26.5.tar.xz!/p11-kit-0.26.5/AUTHORS"
+    },
+    {
+      "file": "COPYING",
+      "sha256": "2e1ba993904df807a10c3eda1e5c272338edc35674b679773a8b3ad460731054",
+      "source_member": "mingw-w64-p11-kit/p11-kit-0.26.5.tar.xz!/p11-kit-0.26.5/COPYING"
+    }
+  ]
+}

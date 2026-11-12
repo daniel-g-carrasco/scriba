@@ -185,7 +185,8 @@ jobs:
       # ffmpeg built from FFmpeg's release sources under the LGPL (the
       # script pins the tarball's SHA-256 and refuses a GPL configuration);
       # kept between runs while the script does not change
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        id: ffmpeg-cache
         with:
           path: |
             build/ffmpeg-lgpl
@@ -196,6 +197,14 @@ jobs:
           bash tools/build_ffmpeg.sh
           build/ffmpeg-lgpl/bin/ffmpeg.exe -hide_banner -L | head -3 | grep -q "Lesser General Public"
           ! build/ffmpeg-lgpl/bin/ffmpeg.exe -hide_banner -buildconf | grep -E -- "--enable-(gpl|nonfree)"
+      # Preserve the validated dependency even when later bundle checks fail.
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            build/ffmpeg-lgpl
+            build/ffmpeg-src/ffmpeg-9.0.2.tar.xz
+          key: ${{ steps.ffmpeg-cache.outputs.cache-primary-key }}
       - name: Build with PyInstaller
         run: |
           python tools/compile_po.py

@@ -316,7 +316,7 @@ class InventoryTest(unittest.TestCase):
         self.build_inventory()
         self.write(self.root / "LICENSE", "GNU GPL version 3")
         self.write(self.root / "COPYRIGHT", "Scriba attribution")
-        folder = self.root / "LICENSES/upstream/python-example"
+        folder = self.root / "LICENSES/upstream/python-example/versions/1.0-2"
         self.write(folder / "COPYING", "Exact upstream notice")
         evidence = {"schema_version": 1, "package": package, "version": "1.0-2", "files": [
             {"file": "COPYING", "source_member": "example-1.0/COPYING",
@@ -324,13 +324,37 @@ class InventoryTest(unittest.TestCase):
         self.write(folder / "PROVENANCE.json", json.dumps(evidence))
         finish.licences(self.internal, prefix=self.prefix, root=self.root, toc_dir=self.tocs)
         out = self.internal / "licenses"
-        self.assertEqual((out / "upstream/python-example/COPYING").read_text(), "Exact upstream notice")
+        self.assertEqual((out / "upstream/python-example/versions/1.0-2/COPYING").read_text(), "Exact upstream notice")
         data = json.loads((out / "PACKAGES.json").read_text())
         self.assertEqual(data["missing_licence_files"], [])
-        self.assertIn("upstream/python-example/COPYING", data["packages"][0]["upstream_licence_files"])
+        self.assertIn("upstream/python-example/versions/1.0-2/COPYING",
+                      data["packages"][0]["upstream_licence_files"])
+        self.assertIn("(upstream/python-example/versions/1.0-2/)", (out / "THIRD-PARTY.md").read_text())
         self.write(folder / "COPYING", "unverified replacement")
         with self.assertRaisesRegex(ValueError, "upstream notice hash mismatch"):
             finish.licences(self.internal, prefix=self.prefix, root=self.root, toc_dir=self.tocs)
+
+    def test_notices_for_multiple_verified_versions_select_only_the_exact_input(self):
+        package = "mingw-w64-ucrt-x86_64-example"
+        folder = self.root / "LICENSES/upstream/example"
+        def notice(destination, version, text):
+            self.write(destination / "COPYING", text)
+            self.write(destination / "PROVENANCE.json", json.dumps({
+                "schema_version": 1, "package": package, "version": version,
+                "files": [{"file": "COPYING", "sha256": hashlib.sha256(text.encode()).hexdigest()}]}))
+        notice(folder, "1.0-1", "old verified text")
+        current = folder / "versions/2.0-1"
+        notice(current, "2.0-1", "current verified text")
+        self.assertEqual(finish.upstream_notices({"package": package, "version": "1.0-1"}, self.root),
+                         [folder / "PROVENANCE.json", folder / "COPYING"])
+        self.assertEqual(finish.upstream_notices({"package": package, "version": "2.0-1"}, self.root),
+                         [current / "PROVENANCE.json", current / "COPYING"])
+        with self.assertRaisesRegex(ValueError, "package/version mismatch"):
+            finish.upstream_notices({"package": package, "version": "3.0-1"}, self.root)
+        self.assertEqual((folder / "COPYING").read_text(), "old verified text")
+        self.write(current / "COPYING", "different unverified text")
+        with self.assertRaisesRegex(ValueError, "notice hash mismatch"):
+            finish.upstream_notices({"package": package, "version": "2.0-1"}, self.root)
 
     def test_generated_schema_cache_records_xml_inputs_instead_of_a_false_owner(self):
         xml = "share/glib-2.0/schemas/example.gschema.xml"

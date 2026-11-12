@@ -51,13 +51,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 xvfb gettext python3-numpy python3-scipy python3-sklearn ffmpeg \
             gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gstreamer1.0-pulseaudio \
-            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad libgtk-4-media-gstreamer
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad libgtk-4-media-gstreamer \
+            pulseaudio pulseaudio-utils
       - run: python3 tools/compile_po.py
       - name: The full suite with a display and isolated settings
         run: |
           export XDG_CONFIG_HOME="$RUNNER_TEMP/scriba-test/config" XDG_CACHE_HOME="$RUNNER_TEMP/scriba-test/cache"
           export XDG_STATE_HOME="$RUNNER_TEMP/scriba-test/state" XDG_DATA_HOME="$RUNNER_TEMP/scriba-test/data"
-          xvfb-run -a python3 -W default -W "ignore::DeprecationWarning:gi.events" -m unittest discover -s tests -v
+          xvfb-run -a python3 tools/ci_audio.py --log full-audio.log -- \
+            python3 -W default -W "ignore::DeprecationWarning:gi.events" -m unittest discover -s tests -v
       - name: The window tests, and that they really ran
         run: |
           cd tests
@@ -67,8 +69,8 @@ jobs:
           # PIPESTATUS test). Under discover the same module would be a
           # ModuleSkipped entry and an OK (the grep). A Windows-only test
           # inside skips on its own and is fine.
-          xvfb-run -a python3 -W default -W "ignore::DeprecationWarning:gi.events" \
-            -m unittest -v test_window 2>&1 | tee ../gtk-tests.log
+          xvfb-run -a python3 ../tools/ci_audio.py --log ../window-audio.log -- \
+            python3 -W default -W "ignore::DeprecationWarning:gi.events" -m unittest -v test_window 2>&1 | tee ../gtk-tests.log
           test "${PIPESTATUS[0]}" -eq 0
           if grep -q "ModuleSkipped" ../gtk-tests.log; then echo "the GTK tests were skipped"; exit 1; fi
       - name: The window itself, a screenshot (the sources, on xvfb)
@@ -76,7 +78,7 @@ jobs:
           mkdir -p gui
           export SCRIBA_SCREENSHOT="$PWD/gui/window.png" SCRIBA_SCREENSHOT_DELAY=4
           export XDG_CONFIG_HOME="$PWD/gui/config" XDG_STATE_HOME="$PWD/gui/state" XDG_DATA_HOME="$PWD/gui/data"
-          xvfb-run -a timeout 60 python3 bin/scriba
+          xvfb-run -a python3 tools/ci_audio.py --timeout 60 --log gui/audio.log -- python3 bin/scriba
           test -f gui/window.png
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         if: always()
@@ -84,4 +86,7 @@ jobs:
           name: linux-gui
           path: |
             gtk-tests.log
+            full-audio.log
+            window-audio.log
+            gui/audio.log
             gui/window.png

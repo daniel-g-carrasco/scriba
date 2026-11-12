@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "package": "mingw-w64-ucrt-x86_64-ca-certificates",
+  "version": "20260816-3",
+  "base": "mingw-w64-ca-certificates",
+  "source_url": "https://repo.msys2.org/mingw/sources/mingw-w64-ca-certificates-20260816-3.src.tar.zst",
+  "source_archive_sha256": "fe6b17eea64afccd14e0f70f5e45742374934f646fc9f7a5a175595a1ef88d5a",
+  "source_signature_fingerprint": "5F944B027F7FE2091985AA2EFA11531AA0AA7F57",
+  "recipe_sha256": "4053b8af3146b70ffe55a6d3a41aa7edf51c85f9ba6d6b2506d22c935cf4a6e1",
+  "binary_url": "https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-ca-certificates-20260816-3-any.pkg.tar.zst",
+  "binary_archive_sha256": "037d3bf0b4eb004e2b3586baa29e526db70013dfe3118a2a86748acb46ee07b4",
+  "binary_signature_fingerprint": "5F944B027F7FE2091985AA2EFA11531AA0AA7F57",
+  "payloads": [
+    {
+      "source": "https://ftp.debian.org/debian/pool/main/c/ca-certificates/ca-certificates_20260816+nmu1.tar.xz",
+      "member": "mingw-w64-ca-certificates/ca-certificates_20260816+nmu1.tar.xz",
+      "sha256": "914416a1e44a25733aff51092fe4e27fdec1c9f6e8d1db0b8364922486153134",
+      "status": "verified"
+    },
+    {
+      "source": "certdata2pem.py",
+      "member": "mingw-w64-ca-certificates/certdata2pem.py",
+      "sha256": "9508738b61cc89bfc1f42580b1091a650f0acbf5c1b49edc2aa4e0313276ea0d",
+      "status": "verified"
+    },
+    {
+      "source": "certdata2pem.patch",
+      "member": "mingw-w64-ca-certificates/certdata2pem.patch",
+      "sha256": "5736cc3a73ff9bceed43bafad85100a2fcfdfae1cf2cb7e201b5fa6f1421fc2e",
+      "status": "verified"
+    },
+    {
+      "source": "update-ca-trust",
+      "member": "mingw-w64-ca-certificates/update-ca-trust",
+      "sha256": "ad9fd7ba5c304521128a0a15f3c3ccd79480d9414de08c93bca8bbb7a942f1b0",
+      "status": "verified"
+    },
+    {
+      "source": "update-ca-trust.8",
+      "member": "mingw-w64-ca-certificates/update-ca-trust.8",
+      "sha256": "b052972dd118a3e25f785b6caa141599f0db6fc1d943e9ebcd6ca0e1f0421f60",
+      "status": "verified"
+    }
+  ],
+  "files": [
+    {
+      "file": "debian/copyright",
+      "sha256": "1ae033c4679e4440848d2fcf6bc8e57d4da2644662775f401e2fede57862674c",
+      "source_member": "mingw-w64-ca-certificates/ca-certificates_20260816+nmu1.tar.xz!/ca-certificates/debian/copyright"
+    }
+  ]
+}

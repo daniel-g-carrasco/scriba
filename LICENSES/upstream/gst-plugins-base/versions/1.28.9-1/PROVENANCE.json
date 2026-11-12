@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "package": "mingw-w64-ucrt-x86_64-gst-plugins-base",
+  "version": "1.28.9-1",
+  "base": "mingw-w64-gst-plugins-base",
+  "source_url": "https://repo.msys2.org/mingw/sources/mingw-w64-gst-plugins-base-1.28.9-1.src.tar.zst",
+  "source_archive_sha256": "ec8f2f718adea7b097332a50a4e7b7081933c8929552b347d4c5468342b6257e",
+  "source_signature_fingerprint": "5F944B027F7FE2091985AA2EFA11531AA0AA7F57",
+  "recipe_sha256": "4ef6006852951a64ae0d5ee6cb80f8b88d36e558349e0eabfc7e25e1f65407dd",
+  "binary_url": "https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-gst-plugins-base-1.28.9-1-any.pkg.tar.zst",
+  "binary_archive_sha256": "9418fdedcfd4c10a0ab7d76e8e4feb4cc6eb655743112734af19a06dfb3c7b14",
+  "binary_signature_fingerprint": "5F944B027F7FE2091985AA2EFA11531AA0AA7F57",
+  "payloads": [
+    {
+      "source": "https://gstreamer.freedesktop.org//src/gst-plugins-base/gst-plugins-base-1.28.9.tar.xz",
+      "member": "mingw-w64-gst-plugins-base/gst-plugins-base-1.28.9.tar.xz",
+      "sha256": "c1fda668b520e6aef763c0eb962c032c9fe52bce322e8b00c69b4e9e847bddc1",
+      "status": "verified"
+    },
+    {
+      "source": "https://gstreamer.freedesktop.org//src/gst-plugins-base/gst-plugins-base-1.28.9.tar.xz.asc",
+      "member": "mingw-w64-gst-plugins-base/gst-plugins-base-1.28.9.tar.xz.asc",
+      "sha256": "38ceaf0e85b4acf63c15803055cf6a5041f1b4838946a55858632ffb8b902124",
+      "status": "skipped"
+    }
+  ],
+  "files": [
+    {
+      "file": "COPYING",
+      "sha256": "ad2eec519ebd4b5df86ea84dff24ae3bfa2edea846a703b58902dd221ae375db",
+      "source_member": "mingw-w64-gst-plugins-base/gst-plugins-base-1.28.9.tar.xz!/gst-plugins-base-1.28.9/COPYING"
+    }
+  ]
+}

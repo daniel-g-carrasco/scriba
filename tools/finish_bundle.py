@@ -40,6 +40,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path, PurePosixPath
+from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parent.parent
 PREFIX = Path(sys.prefix)                       # MSYS2: C:/msys64/ucrt64
@@ -487,6 +488,15 @@ def upstream_notices(record: dict, root: Path) -> list[Path]:
     folder = root / "LICENSES" / "upstream" / short
     if not folder.is_dir():
         return []
+    # Retain older verified supplements for local builds, while allowing
+    # explicitly verified rolling-package versions to coexist. Never select
+    # a latest version or accept a nearby version's notice as equivalent.
+    token = quote(record["version"], safe="")
+    if token in ("", ".", ".."):
+        raise ValueError(f"unsafe upstream notice version: {short}")
+    versioned = folder / "versions" / token
+    if versioned.is_dir():
+        folder = versioned
     provenance = folder / "PROVENANCE.json"
     evidence = json.loads(provenance.read_text(encoding="utf-8"))
     if (evidence.get("schema_version"), evidence.get("package"), evidence.get("version")) != \
@@ -556,7 +566,8 @@ def licences(internal: Path, *, prefix: Path = PREFIX, root: Path = ROOT, toc_di
         else:
             without_installed.append(package)
         if upstream_files:
-            statuses.append(f"[upstream notices and provenance](upstream/{short}/)")
+            notice_folder = PurePosixPath(upstream_files[0]).parent.as_posix()
+            statuses.append(f"[upstream notices and provenance]({notice_folder}/)")
         if not statuses:
             missing.append(package)
             statuses.append("No package licence files installed; source notices need review")
