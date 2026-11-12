@@ -83,7 +83,12 @@ class TranscribePage(Adw.Bin):
         self._unsubscribe_downloads = self.app.downloads.subscribe(self._models_changed)
         self.show_start()
         # the cards whisper sees, once: the estimate and the preferences name them
-        run_in_thread(lambda: self.backend.devices(), lambda _found, _error: self.refresh_estimate())
+        self._devices_cancel = threading.Event()
+        run_in_thread(lambda: self.backend.devices(cancelled=self._devices_cancel), self._devices_ready)
+
+    def _devices_ready(self, _found, error) -> None:
+        if not self._devices_cancel.is_set() and not self.app.closing and error is None:
+            self.refresh_estimate()
 
     @property
     def cfg(self):
@@ -148,6 +153,7 @@ class TranscribePage(Adw.Bin):
     def stop_all(self) -> None:
         """The window closes: the test of the cards and the work stop (their
         programs are terminated, their temporary folders go)."""
+        self._devices_cancel.set()
         self.cancel_inspection()
         self.cards.stop()
         # A failed recording/export can abort shutdown. Keep model updates

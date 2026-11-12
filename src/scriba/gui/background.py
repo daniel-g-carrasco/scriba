@@ -26,6 +26,7 @@ class Background:
                 APP_ID, APP_NAME, self.present, icon_theme_path=icon_theme_path,
                 cache=app.paths.cache_folder / "tray-icons",
                 on_quit=lambda: app.request_quit(system=True),
+                on_prepare_update=app.prepare_update_exit,
                 has_quit=lambda: app.exit_ready,
                 on_suspend=self._suspend,
                 on_availability=self._availability)

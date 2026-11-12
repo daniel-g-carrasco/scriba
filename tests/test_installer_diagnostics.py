@@ -60,3 +60,72 @@ class InstallerDiagnosticsTest(unittest.TestCase):
         self.assertNotIn('/FORCECLOSEAPPLICATIONS', body)
         self.assertNotIn('-Force', body)
         self.assertEqual(body.count('Get-Process Scriba | Stop-Process'), 1)
+
+
+class IdleInstallerProfileTest(unittest.TestCase):
+    def scripts(self):
+        import textwrap
+        names = ('An isolated idle profile for the installer checks',
+                 'The installer preserves the paused profile and model cache')
+        result = []
+        for name in names:
+            body = step(name)
+            match = re.search(r"python - <<'PY'\n(.*?)\n          PY", body, re.S)
+            self.assertIsNotNone(match)
+            result.append(textwrap.dedent(match.group(1)))
+        return result
+
+    def fixture(self, root, script):
+        import os
+        import subprocess
+        import sys
+        environment = dict(os.environ, PYTHONPATH=str(_setup.ROOT / 'src'))
+        environment.pop('MSYSTEM', None)
+        for kind in ('CONFIG', 'STATE', 'DATA', 'CACHE'):
+            environment['XDG_' + kind + '_HOME'] = str(root / kind.lower())
+        return subprocess.run([sys.executable, '-c', script], env=environment, cwd=root,
+                              capture_output=True, text=True, timeout=10)
+
+    def test_the_real_config_api_creates_a_paused_profile_and_preserves_a_non_model_sentinel(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        seed, verify = self.scripts()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            made = self.fixture(root, seed)
+            self.assertEqual(made.returncode, 0, made.stderr)
+            checked = self.fixture(root, verify)
+            self.assertEqual(checked.returncode, 0, checked.stderr)
+            after = json.loads((root / 'installer-diagnostics/profile-after.json').read_text())
+            self.assertIs(after['models_download_paused'], True)
+            self.assertIs(after['check_updates'], False)
+            self.assertEqual(after['measured_device'], 'cpu')
+            before = json.loads((root / 'installer-diagnostics/profile-before.json').read_text())
+            self.assertEqual(after['sentinel_sha256'], before['sentinel_sha256'])
+            self.assertIn('this is not a model', Path(before['sentinel']).read_text())
+
+    def test_a_changed_model_cache_sentinel_fails_the_preservation_check(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        seed, verify = self.scripts()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            made = self.fixture(root, seed)
+            self.assertEqual(made.returncode, 0, made.stderr)
+            before = json.loads((root / 'installer-diagnostics/profile-before.json').read_text())
+            Path(before['sentinel']).write_bytes(b'changed cache fixture')
+            checked = self.fixture(root, verify)
+            self.assertNotEqual(checked.returncode, 0)
+            self.assertIn('model cache sentinel changed', checked.stderr)
+
+    def test_the_profile_is_complete_and_is_reused_without_screenshot_mode(self):
+        seed = step('An isolated idle profile for the installer checks')
+        for kind in ('CONFIG', 'STATE', 'DATA', 'CACHE'):
+            self.assertIn('XDG_' + kind + '_HOME=', seed)
+        self.assertIn('GITHUB_ENV', seed)
+        self.assertIn('env -u MSYSTEM', seed)
+        self.assertNotIn('SCRIBA_SCREENSHOT', seed)
+        verify = step('The installer preserves the paused profile and model cache')
+        self.assertIn("if: always() && steps.installer-profile.outcome == 'success'", verify)

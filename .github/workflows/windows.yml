@@ -263,6 +263,36 @@ jobs:
           $version = if ($env:GITHUB_REF_NAME -like 'v*') { $env:GITHUB_REF_NAME.Substring(1) } else { 'dev' }
           & $iscc "/DAppVersion=$version" "build-aux\windows\scriba.iss"
           if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: An isolated idle profile for the installer checks
+        id: installer-profile
+        run: |
+          profile="$RUNNER_TEMP/scriba-installer-profile"
+          mkdir -p "$profile/config" "$profile/state" "$profile/data" "$profile/cache"
+          export XDG_CONFIG_HOME="$(cygpath -w "$profile/config")"
+          export XDG_STATE_HOME="$(cygpath -w "$profile/state")"
+          export XDG_DATA_HOME="$(cygpath -w "$profile/data")"
+          export XDG_CACHE_HOME="$(cygpath -w "$profile/cache")"
+          printf 'XDG_CONFIG_HOME=%s\nXDG_STATE_HOME=%s\nXDG_DATA_HOME=%s\nXDG_CACHE_HOME=%s\n' \
+            "$XDG_CONFIG_HOME" "$XDG_STATE_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME" >> "$GITHUB_ENV"
+          env -u MSYSTEM PYTHONPATH="$(cygpath -w "$PWD/src")" python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          from scriba.app import config
+          from scriba.app.services import app_paths
+          paths = app_paths()
+          config.save(config.Config(models_download_paused=True, check_updates=False, measured_device='cpu'), paths.config_file)
+          sentinel = paths.cache_folder / 'models' / 'installer-preservation-sentinel.txt'
+          sentinel.parent.mkdir(parents=True, exist_ok=True)
+          sentinel.write_bytes(b'Installer preservation fixture; this is not a model.\n')
+          diagnostics = Path('installer-diagnostics')
+          diagnostics.mkdir(exist_ok=True)
+          before = {'config': str(paths.config_file), 'sentinel': str(sentinel),
+                    'sentinel_sha256': hashlib.sha256(sentinel.read_bytes()).hexdigest()}
+          with (diagnostics / 'profile-before.json').open('x', encoding='utf-8') as output:
+              json.dump(before, output, indent=2)
+          print('An isolated profile pauses downloads and keeps a non-model cache sentinel.')
+          PY
       - name: Update over a running app (Setup closes it, starts it again)
         shell: pwsh
         run: |
@@ -320,6 +350,32 @@ jobs:
               }
             }
           }
+      - name: The installer preserves the paused profile and model cache
+        if: always() && steps.installer-profile.outcome == 'success'
+        run: |
+          env -u MSYSTEM PYTHONPATH="$(cygpath -w "$PWD/src")" python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          from scriba.app import config
+          from scriba.app.services import app_paths
+          diagnostics = Path('installer-diagnostics')
+          before = json.loads((diagnostics / 'profile-before.json').read_text(encoding='utf-8'))
+          paths = app_paths()
+          assert paths.config_file == Path(before['config']), 'the installer profile changed'
+          cfg = config.load(paths.config_file)
+          sentinel = Path(before['sentinel'])
+          after = {'models_download_paused': cfg.models_download_paused, 'check_updates': cfg.check_updates,
+                   'measured_device': cfg.measured_device,
+                   'sentinel_sha256': hashlib.sha256(sentinel.read_bytes()).hexdigest()}
+          with (diagnostics / 'profile-after.json').open('x', encoding='utf-8') as output:
+              json.dump(after, output, indent=2)
+          assert after['models_download_paused'] is True, 'the saved download pause was lost'
+          assert after['check_updates'] is False, 'the saved update preference was lost'
+          assert after['measured_device'] == 'cpu', 'the saved device preference was lost'
+          assert after['sentinel_sha256'] == before['sentinel_sha256'], 'the model cache sentinel changed'
+          print('The paused configuration and model-cache sentinel survived the installer checks.')
+          PY
       - name: Preserve installer diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2

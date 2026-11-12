@@ -29,6 +29,8 @@ gi.require_version("Gdk", "4.0")
 gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk  # noqa: E402
 
+from scriba.app.log import complain  # noqa: E402
+
 from .tray import MenuItem  # noqa: E402
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -87,6 +89,8 @@ class POINT(ctypes.Structure):
     _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
 
 
+kernel32.OutputDebugStringW.argtypes = [wintypes.LPCWSTR]
+kernel32.OutputDebugStringW.restype = None
 user32.DefWindowProcW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
 user32.DefWindowProcW.restype = LRESULT
 user32.RegisterClassExW.argtypes = [ctypes.POINTER(WNDCLASSEXW)]
@@ -156,8 +160,9 @@ def allow_dark_menus() -> None:
 class WinTray:
     """on_quit starts a graceful quit (tasks stopped, recordings finalised) and
     has_quit tells when it is over: Windows asks through the icon's window,
-    the window retained while the application is hidden. WM_CLOSE comes from Setup before an
-    update and from taskkill without /F; WM_ENDSESSION at sign-out, at
+    the window retained while the application is hidden. on_prepare_update
+    admits installer updates only while idle. WM_CLOSE requests an ordinary
+    shutdown, including taskkill without /F; WM_ENDSESSION at sign-out, at
     shutdown and from the Restart Manager, and the process may be ended as
     soon as it is answered, so the answer waits for the quit."""
 
@@ -165,11 +170,13 @@ class WinTray:
                  icon_theme_path: str = "", cache: Path | None = None,
                  on_quit: Callable[[], None] | None = None, has_quit: Callable[[], bool] | None = None,
                  on_suspend: Callable[[], None] | None = None, on_resume: Callable[[], None] | None = None,
-                 on_availability: Callable[[bool], None] | None = None):
+                 on_availability: Callable[[bool], None] | None = None,
+                 on_prepare_update: Callable[[], int] | None = None):
         self.available = False
         self.on_availability = on_availability
         self.app_id, self.title, self.on_activate = app_id, title, on_activate
         self.on_quit, self.has_quit = on_quit, has_quit
+        self.on_prepare_update = on_prepare_update
         self.on_suspend, self.on_resume = on_suspend, on_resume
         self.icon_theme_path = icon_theme_path
         self.cache = cache or Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "Scriba" / "icons"
@@ -183,6 +190,7 @@ class WinTray:
         self._added = False
         self._wndproc = WNDPROC(self._window_proc)      # kept: Windows calls it
         self._taskbar_created = user32.RegisterWindowMessageW("TaskbarCreated")
+        self._prepare_update_message = user32.RegisterWindowMessageW(f"{self.app_id}.prepare-update.v1")
 
     # -- the same interface as tray.TrayIcon ----------------------------------------
 
@@ -322,6 +330,21 @@ class WinTray:
         return path if path and path.endswith(".svg") else None
 
     def _window_proc(self, hwnd, message, wparam, lparam):
+        if self._prepare_update_message and message == self._prepare_update_message:
+            if self.on_prepare_update is None:
+                return 0
+            try:
+                # Synchronous: accepting must close the application's start gate
+                # before the installer receives its answer. Completion is async.
+                result = self.on_prepare_update()
+                return result if type(result) is int and result in (1, 2) else 0
+            except BaseException as error:
+                try:
+                    complain("preparing the application update", error)
+                except BaseException:
+                    # A closed console must not let an exception cross WNDPROC.
+                    kernel32.OutputDebugStringW("Scriba: prepare-update failed and stderr is unavailable")
+                return 0
         if message == CALLBACK_MESSAGE:
             event = lparam & 0xFFFF
             if event in (NIN_SELECT, NIN_KEYSELECT, WM_LBUTTONUP):

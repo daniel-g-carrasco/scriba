@@ -4,6 +4,8 @@ legal sections)."""
 
 from __future__ import annotations
 
+import threading
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -175,7 +177,22 @@ class PreferencesDialog(Adw.PreferencesDialog):
             group.add(updates)
             page.add(group)
         self.add(page)
-        run_in_thread(lambda: self.backend.devices(), lambda found, _error: self._fill_devices(found or []))
+        self._devices_cancel = threading.Event()
+        app._preferences_dialogs.add(self)
+        self.connect("closed", self._closed)
+        run_in_thread(lambda: self.backend.devices(cancelled=self._devices_cancel), self._devices_ready)
+
+    def _closed(self, *_args) -> None:
+        self.cancel_device_discovery()
+        self.app._preferences_dialogs.discard(self)
+
+    def cancel_device_discovery(self) -> None:
+        """Stop the owned discovery before the application waits for workers."""
+        self._devices_cancel.set()
+
+    def _devices_ready(self, found, error) -> None:
+        if not self._devices_cancel.is_set() and not self.app.closing and error is None:
+            self._fill_devices(found or [])
 
     def _set(self, name: str, value) -> None:
         setattr(self.app.cfg, name, value)

@@ -142,6 +142,7 @@ class App(Adw.Application):
         self._ignore_settings_error = False
         self._logout_cookie = 0
         self._quit_dialog = None
+        self._preferences_dialogs: set[PreferencesDialog] = set()
         self._drain_source = 0
         self._models_stopped_for_exit = False
         self.cfg: config.Config | None = None
@@ -279,6 +280,15 @@ class App(Adw.Application):
                 self.window, Gtk.ApplicationInhibitFlags.LOGOUT, _("Finishing the recording and saving files"))
         self.request_quit(system=True)
 
+    def prepare_update_exit(self) -> int:
+        """Installer protocol: accept idle shutdown, or leave active work untouched."""
+        if self.closing or self.exit_ready:
+            return 1
+        if self.work_busy or activities.active_count:
+            return 2
+        self.request_quit(system=True)
+        return 1 if self.closing or self.exit_ready else 0
+
     def request_quit(self, *, system=False):
         """Every explicit exit uses the same asynchronous completion barrier."""
         if self.closing or self.exit_ready:
@@ -329,6 +339,9 @@ class App(Adw.Application):
             self._drain_source = GLib.timeout_add(50, self._drain)
         window = self.window
         try:
+            for dialog in tuple(self._preferences_dialogs):
+                dialog.cancel_device_discovery()
+                dialog.close()
             if self._update_dialog is not None:
                 self._update_dialog.cancel_download()
                 self._update_dialog.close()
