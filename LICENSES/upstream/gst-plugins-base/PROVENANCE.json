@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "package": "mingw-w64-ucrt-x86_64-gst-plugins-base",
+  "version": "1.28.8-1",
+  "base": "mingw-w64-gst-plugins-base",
+  "source_url": "https://repo.msys2.org/mingw/sources/mingw-w64-gst-plugins-base-1.28.8-1.src.tar.zst",
+  "source_archive_sha256": "ffb5dbea35ff2e41018c519c84194f0ff7f9c63dd85e7fba6a2ce94dbeaad07a",
+  "source_signature_fingerprint": "5F944B027F7FE2091985AA2EFA11531AA0AA7F57",
+  "recipe_sha256": "c4fb77becd45045c66f3b2d4a718a961d67089a775e08590303e71f4913a97ec",
+  "payloads": [
+    {
+      "source": "https://gstreamer.freedesktop.org//src/gst-plugins-base/gst-plugins-base-1.28.8.tar.xz",
+      "member": "mingw-w64-gst-plugins-base/gst-plugins-base-1.28.8.tar.xz",
+      "sha256": "ade70e3381fcbb024f1f20aa9ede9b5654aeed39d5bd70b1a98f53015e501117",
+      "status": "verified"
+    }
+  ],
+  "files": [
+    {
+      "file": "COPYING",
+      "sha256": "ad2eec519ebd4b5df86ea84dff24ae3bfa2edea846a703b58902dd221ae375db",
+      "source_member": "mingw-w64-gst-plugins-base/gst-plugins-base-1.28.8.tar.xz!/gst-plugins-base-1.28.8/COPYING"
+    }
+  ]
+}

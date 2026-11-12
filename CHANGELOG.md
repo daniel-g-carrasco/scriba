@@ -8,6 +8,17 @@ published yet; 0.1.0 is the current development version. Linux Flatpak builds an
 ## [Unreleased]
 
 ### Changed
+- Scriba uses GPL-3.0-or-later. Distribution tooling collects dependency
+  licences and corresponding sources for Windows and Linux packages.
+- Required speech models download automatically with visible progress in
+  one Models page; recording remains available during the download.
+- Recording controls keep their positions as devices and recording states
+  change. Windows Preferences can be resized and scrolled on small screens.
+- Closing the window keeps Scriba in the notification area when available,
+  with activity icons and controls. Preferences can disable this behaviour;
+  quitting waits for recording finalisation and outstanding file writes.
+- CI reuses Flatpak dependency builds and skips packaging for documentation-only
+  changes while still running tests. Release tags retain the full build checks.
 - Voice names are configurable and kept in the meeting JSON. The microphone
   uses My Name from the first transcript; saved meetings reopen for name
   corrections without transcribing again, with previous names suggested.

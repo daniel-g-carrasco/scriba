@@ -23,6 +23,8 @@ permissions:
 
 jobs:
   probe:
+    outputs:
+      package: ${{ steps.scope.outputs.package }}
     runs-on: windows-latest
     defaults:
       run:
@@ -31,11 +33,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e  # v2.33.0
         with:
           msystem: UCRT64
           update: true
           install: >-
+            git
             gettext
             mingw-w64-ucrt-x86_64-gtk4
             mingw-w64-ucrt-x86_64-libadwaita
@@ -53,6 +57,30 @@ jobs:
             mingw-w64-ucrt-x86_64-gst-plugins-base
             mingw-w64-ucrt-x86_64-gst-plugins-good
             mingw-w64-ucrt-x86_64-gst-plugins-bad
+      - name: Compatible ONNX Runtime dependency versions
+        # ONNX Runtime 1.29.0-2 imports Abseil 2605. The rolling repository
+        # already ships Abseil 2608 and rebuilt protobuf/re2, but not ONNX.
+        # Keep this small ABI family together until ONNX is rebuilt too.
+        # The check below and finish_bundle's full import check are blocking.
+        run: |
+          test "$(pacman -Q mingw-w64-ucrt-x86_64-onnxruntime)" = "mingw-w64-ucrt-x86_64-onnxruntime 1.29.0-2"
+          mkdir -p build/onnx-dependencies
+          cd build/onnx-dependencies
+          cat > SHA256SUMS <<'CHECKSUMS'
+          89803dbb88b7e1a18169fd2ecefa2b85de3d99fcd5d6899b737e4451532b691f  mingw-w64-ucrt-x86_64-abseil-cpp-20260526.0-1-any.pkg.tar.zst
+          39446eb547ad14187dc6f126ea978ec49c9648db340e14c244da033a030502eb  mingw-w64-ucrt-x86_64-protobuf-36.2-1-any.pkg.tar.zst
+          42b02745d0725a58a0bd442ebc7bf82b28b42257e28c5459bd02ee80b2a2fa92  mingw-w64-ucrt-x86_64-re2-20251105-3-any.pkg.tar.zst
+          CHECKSUMS
+          while read -r checksum package; do
+            curl -fL --retry 3 -o "$package" "https://repo.msys2.org/mingw/ucrt64/$package"
+            curl -fL --retry 3 -o "$package.sig" "https://repo.msys2.org/mingw/ucrt64/$package.sig"
+          done < SHA256SUMS
+          sha256sum -c SHA256SUMS
+          pacman -U --noconfirm ./*.pkg.tar.zst
+          env -u MSYSTEM python -c "import ctypes, os, sys; from pathlib import Path; p = Path(sys.prefix) / 'bin'; h = os.add_dll_directory(str(p)); ctypes.CDLL(str(p / 'onnxruntime.dll')); print('ONNX Runtime loads with the pinned dependency family')"
+      - name: Package unless the complete diff is safe documentation
+        id: scope
+        run: env -u MSYSTEM python tools/ci_build.py scope
       - name: Versions
         run: |
           python --version
@@ -92,6 +120,7 @@ jobs:
 
   package:
     needs: probe        # nothing packaged from a build whose tests failed
+    if: needs.probe.outputs.package != 'false'
     runs-on: windows-latest
     defaults:
       run:
@@ -105,8 +134,11 @@ jobs:
           msystem: UCRT64
           update: true
           install: >-
+            git
             zip
             gettext
+            gnupg
+            zstd
             mingw-w64-ucrt-x86_64-gtk4
             mingw-w64-ucrt-x86_64-libadwaita
             mingw-w64-ucrt-x86_64-librsvg
@@ -129,13 +161,36 @@ jobs:
             mingw-w64-ucrt-x86_64-nasm
             mingw-w64-ucrt-x86_64-pkgconf
             mingw-w64-ucrt-x86_64-zlib
+      - name: Compatible ONNX Runtime dependency versions
+        # ONNX Runtime 1.29.0-2 imports Abseil 2605. The rolling repository
+        # already ships Abseil 2608 and rebuilt protobuf/re2, but not ONNX.
+        # Keep this small ABI family together until ONNX is rebuilt too.
+        # The check below and finish_bundle's full import check are blocking.
+        run: |
+          test "$(pacman -Q mingw-w64-ucrt-x86_64-onnxruntime)" = "mingw-w64-ucrt-x86_64-onnxruntime 1.29.0-2"
+          mkdir -p build/onnx-dependencies
+          cd build/onnx-dependencies
+          cat > SHA256SUMS <<'CHECKSUMS'
+          89803dbb88b7e1a18169fd2ecefa2b85de3d99fcd5d6899b737e4451532b691f  mingw-w64-ucrt-x86_64-abseil-cpp-20260526.0-1-any.pkg.tar.zst
+          39446eb547ad14187dc6f126ea978ec49c9648db340e14c244da033a030502eb  mingw-w64-ucrt-x86_64-protobuf-36.2-1-any.pkg.tar.zst
+          42b02745d0725a58a0bd442ebc7bf82b28b42257e28c5459bd02ee80b2a2fa92  mingw-w64-ucrt-x86_64-re2-20251105-3-any.pkg.tar.zst
+          CHECKSUMS
+          while read -r checksum package; do
+            curl -fL --retry 3 -o "$package" "https://repo.msys2.org/mingw/ucrt64/$package"
+            curl -fL --retry 3 -o "$package.sig" "https://repo.msys2.org/mingw/ucrt64/$package.sig"
+          done < SHA256SUMS
+          sha256sum -c SHA256SUMS
+          pacman -U --noconfirm ./*.pkg.tar.zst
+          env -u MSYSTEM python -c "import ctypes, os, sys; from pathlib import Path; p = Path(sys.prefix) / 'bin'; h = os.add_dll_directory(str(p)); ctypes.CDLL(str(p / 'onnxruntime.dll')); print('ONNX Runtime loads with the pinned dependency family')"
       # ffmpeg built from FFmpeg's release sources under the LGPL (the
       # script pins the tarball's SHA-256 and refuses a GPL configuration);
       # kept between runs while the script does not change
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
-          path: build/ffmpeg-lgpl
-          key: ffmpeg-lgpl-${{ runner.os }}-${{ hashFiles('tools/build_ffmpeg.sh') }}
+          path: |
+            build/ffmpeg-lgpl
+            build/ffmpeg-src/ffmpeg-9.0.2.tar.xz
+          key: ffmpeg-lgpl-sources-v1-${{ runner.os }}-${{ hashFiles('tools/build_ffmpeg.sh') }}
       - name: ffmpeg under the LGPL
         run: |
           bash tools/build_ffmpeg.sh
@@ -221,6 +276,23 @@ jobs:
           Start-Sleep 15
           if (-not (Get-Process Scriba -ErrorAction SilentlyContinue)) { Write-Error 'the app was not started again'; exit 1 }
           Get-Process Scriba | Stop-Process
+      - name: Corresponding sources for this exact bundle
+        run: |
+          sources="$RUNNER_TEMP/scriba-windows-sources"
+          env -u MSYSTEM python tools/collect_sources.py \
+            --inventory "$(cygpath -w "$PWD/dist/Scriba/_internal/licenses/PACKAGES.json")" \
+            --bundle "$(cygpath -w "$PWD/dist/Scriba")" \
+            --output "$(cygpath -w "$sources")" \
+            --pacman-root "$(cygpath -w /)" \
+            --ffmpeg-build "$(cygpath -w "$PWD/build/ffmpeg-lgpl/BUILD.txt")" \
+            --ffmpeg-source "$(cygpath -w "$PWD/build/ffmpeg-src/ffmpeg-9.0.2.tar.xz")" \
+            --ffmpeg-script "$(cygpath -w "$PWD/tools/build_ffmpeg.sh")"
+          # Only this public checkout is archived, never local work history.
+          git archive --format=tar --prefix=scriba/ --output="$sources/app-source.tar" HEAD
+          git rev-parse HEAD > "$sources/SOURCE_COMMIT"
+          VERSION="${GITHUB_REF_NAME}"
+          case "$VERSION" in v*) ;; *) VERSION=dev ;; esac
+          XZ_OPT='-T2 -1' tar -cJf "dist/scriba-${VERSION}-windows-x64-sources.tar.xz" -C "$sources" .
       - name: The tag matches __version__ (a v* tag)
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
@@ -235,6 +307,7 @@ jobs:
           path: |
             dist/scriba-setup-*.exe
             dist/scriba-*-windows-x64-portable.zip
+            dist/scriba-*-windows-x64-sources.tar.xz
             smoke/window.png
 
   release:
@@ -268,7 +341,8 @@ jobs:
              *) printf 'untrusted comment: releases\n%s\n' "$MINISIGN_SECRET_KEY" ;;
            esac | tr -d '\r' > "$key")
           for f in "artifact/dist/scriba-setup-${GITHUB_REF_NAME}-windows-x64.exe" \
-                   "artifact/dist/scriba-${GITHUB_REF_NAME}-windows-x64-portable.zip"; do
+                   "artifact/dist/scriba-${GITHUB_REF_NAME}-windows-x64-portable.zip" \
+                   "artifact/dist/scriba-${GITHUB_REF_NAME}-windows-x64-sources.tar.xz"; do
             test -f "$f"
             minisign -S -s "$key" -m "$f" -x "$f.minisig" \
               -t "timestamp:$(date +%s) file:$(basename "$f") hashed" </dev/null
@@ -281,17 +355,19 @@ jobs:
         run: |
           setup="artifact/dist/scriba-setup-${GITHUB_REF_NAME}-windows-x64.exe"
           zip="artifact/dist/scriba-${GITHUB_REF_NAME}-windows-x64-portable.zip"
+          sources="artifact/dist/scriba-${GITHUB_REF_NAME}-windows-x64-sources.tar.xz"
           test -f "$setup" && test -f "$zip" && test -f "$setup.minisig" && test -f "$zip.minisig"
+          test -f "$sources" && test -f "$sources.minisig"
           for i in $(seq 1 80); do
             gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 && break
             sleep 30
           done
-          gh release upload "${GITHUB_REF_NAME}" "$setup" "$zip" "$setup.minisig" "$zip.minisig" \
+          gh release upload "${GITHUB_REF_NAME}" "$setup" "$zip" "$setup.minisig" "$zip.minisig" "$sources" "$sources.minisig" \
             --repo "${GITHUB_REPOSITORY}" --clobber
       - name: Published when every file is there
         # release-complete: the same step, word for word, in build.yml and in
         # windows.yml (tests/test_release.py compares them and runs it). The
-        # release is a draft until the Flatpak, the installer and the zip are
+        # release is a draft until the binaries and both source archives are
         # all there with their signatures: the installed app asks GitHub for
         # the latest release, and a draft is never that. Whichever workflow
         # ends last finds every file and publishes.
@@ -301,10 +377,12 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           names="$(gh release view "$tag" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')"
           missing=""
-          for wanted in '\.flatpak$' '\.flatpak\.minisig$' \
-                        "-setup-${tag}-windows-x64\.exe$" "-setup-${tag}-windows-x64\.exe\.minisig$" \
-                        "-${tag}-windows-x64-portable\.zip$" "-${tag}-windows-x64-portable\.zip\.minisig$"; do
-            echo "$names" | grep -Eq -- "$wanted" || missing="$missing $wanted"
+          for wanted in "scriba.flatpak" "scriba.flatpak.minisig" \
+                        "scriba-setup-${tag}-windows-x64.exe" "scriba-setup-${tag}-windows-x64.exe.minisig" \
+                        "scriba-${tag}-windows-x64-portable.zip" "scriba-${tag}-windows-x64-portable.zip.minisig" \
+                        "scriba-${tag}-windows-x64-sources.tar.xz" "scriba-${tag}-windows-x64-sources.tar.xz.minisig" \
+                        "scriba-${tag}-linux-x86_64-sources.tar.xz" "scriba-${tag}-linux-x86_64-sources.tar.xz.minisig"; do
+            echo "$names" | grep -Fxq -- "$wanted" || missing="$missing $wanted"
           done
           if [ -n "$missing" ]; then
             echo "the release stays a draft, still missing:$missing"

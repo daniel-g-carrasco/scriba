@@ -6,10 +6,10 @@ Modelled on GNOME's Sound Recorder (the one big round button, red, that
 becomes Pause and Stop; the time in large figures; nothing starts by
 itself), with what a call needs on top: the microphone and the computer's
 sound, each an Adw.ExpanderRow whose switch says whether it is recorded,
-whose subtitle says what the automatic choice took and why, and whose rows
-are "Automatic" and every device, each with its Gtk.LevelBar, to choose by
-hand (core/devices.py decides; this page shows). While recording, the
-devices give way to the tracks, each with its meter, and the warnings of
+whose one-line summary identifies the choice, and whose details explain
+why and list "Automatic" and every device with its Gtk.LevelBar, to choose
+by hand (core/devices.py decides; this page shows). The two source rows
+stay in place while recording; their details show tracks with meters. The warnings of
 core/levels.py come in the banner at the top; what happens to the devices
 (earphones unplugged, a device that comes) is said in a toast and in the
 track's row.
@@ -23,6 +23,7 @@ only while the page is on screen.
 from __future__ import annotations
 
 import datetime
+import sys
 
 import gi
 
@@ -115,20 +116,26 @@ class Side:
         self.page, self.kind = page, kind
         is_input = kind == dev.INPUT
         self.row = Adw.ExpanderRow(title=_("Microphone") if is_input else _("Computer Sound"),
-                                   show_enable_switch=True, subtitle_lines=3)
+                                   subtitle=_("Looking for the devices…"), show_enable_switch=False,
+                                   subtitle_lines=1, title_lines=1)
         self.row.add_prefix(Gtk.Image(icon_name=ICONS[kind]))
         self.meter = meter()
         self.row.add_suffix(self.meter)
+        self.switch_button = Gtk.Switch(active=True, valign=Gtk.Align.CENTER)
+        self.switch_button.update_property([Gtk.AccessibleProperty.LABEL], [self.row.get_title()])
+        self.switch_button.connect("notify::active", lambda button, _p:
+                                   self.row.set_enable_expansion(button.get_active()))
+        self.row.add_suffix(self.switch_button)
         self.row.connect("notify::enable-expansion", lambda r, _p: self._switched(r.get_enable_expansion()))
-        self.auto = Adw.ActionRow(title=_("Automatic Choice"), subtitle_lines=3, activatable=True)
+        self.auto = Adw.ActionRow(title=_("Automatic Choice"), subtitle_lines=0, activatable=True)
         self.auto_check = Gtk.CheckButton(valign=Gtk.Align.CENTER)
         self.auto.add_prefix(self.auto_check)
         self.auto.set_activatable_widget(self.auto_check)
         self.auto_check.connect("toggled", lambda b: b.get_active() and self._chose(""))
         self.row.add_row(self.auto)
         self.rows: dict[str, tuple[Adw.ActionRow, Gtk.CheckButton, Gtk.LevelBar]] = {}
-        self._shown: tuple = ()
         self._loading = False
+        self._recording = False
 
     @property
     def setting(self) -> str:
@@ -142,11 +149,12 @@ class Side:
         self._loading = True
         try:
             self.row.set_enable_expansion(getattr(self.page.cfg, self.switch))
-            self.row.set_expanded(False)
         finally:
             self._loading = False
 
     def _switched(self, on: bool) -> None:
+        if self.switch_button.get_active() != on:
+            self.switch_button.set_active(on)
         if not self._loading:
             setattr(self.page.cfg, self.switch, on)
             self.page.app.save_config()
@@ -160,10 +168,7 @@ class Side:
 
     def show(self, meters: recording.Meters, plan: dev.Plan, call_output: dev.Device | None) -> None:
         found = [d for d in meters.devices if d.kind == self.kind]
-        shown = tuple((d.id, d.name, d.default, d.communications, d.bluetooth, d.programs) for d in found)
-        if shown != self._shown:
-            self._rebuild(found)
-            self._shown = shown
+        self._sync_devices(found)
         chosen = getattr(self.page.cfg, self.setting)
         self._loading = True
         try:
@@ -181,7 +186,10 @@ class Side:
                                                        "switch the headset to telephone quality")) if t)
             elif device.id in meters.failed:
                 tags = " · ".join(t for t in (tags, meters.failed[device.id]) if t)
-            row.set_subtitle(escape(tags))
+            if row.get_title() != escape(device.name):
+                row.set_title(escape(device.name))
+            if row.get_subtitle() != escape(tags):
+                row.set_subtitle(escape(tags))
             bar.set_value(self._value(meters, device.id))
             bar.set_sensitive(device.id not in meters.closed and device.id not in meters.failed)
         self._summary(meters, plan, call_output, found)
@@ -198,23 +206,22 @@ class Side:
         else:
             device, automatic = (plan.outputs[0] if plan.outputs else call_output), plan.automatic_output
             choice = dev.choose_output(list(meters.devices), meters.peaks) if automatic else None
-        why = first = ""
+        why = ""
         if choice is not None and choice.device is not None:
             # a call program and a browser on one device are one reason in words
             why = ", ".join(dict.fromkeys(reason_words(r, choice.device, call_output) for r in choice.reasons))
-            first = reason_words(choice.reasons[0], choice.device, call_output) if choice.reasons else ""
-        if not found:
-            text = _("No device found") if meters.listed else _("Looking for the devices…")
-        elif not on:
+        if not on:
             text = _("Not recorded")
+        elif not found:
+            text = _("No device found") if meters.listed else _("Looking for the devices…")
         elif self.kind == dev.OUTPUT and automatic:
-            text = _("Automatic: every output; the call is on {device}, {why}").format(
-                device=device.name, why=first) if device else _("Automatic: every output")
+            text = _("All outputs · {device}").format(device=device.name) if device else _("All outputs")
         elif automatic:
-            text = _("Automatic: {device}, {why}").format(device=device.name, why=first) if device else _("Automatic")
+            text = _("Automatic · {device}").format(device=device.name) if device else _("Automatic")
         else:
-            text = _("{device}, chosen by hand").format(device=device.name) if device else ""
+            text = _("Chosen · {device}").format(device=device.name) if device else _("No device found")
         self.row.set_subtitle(escape(text))
+        self.row.set_tooltip_text(text)
         auto = _("Chosen now: {device} ({why})").format(device=choice.device.name, why=why) \
             if choice is not None and choice.device is not None else _("The app chooses the device where the call is")
         if self.kind == dev.OUTPUT:
@@ -222,20 +229,51 @@ class Side:
         self.auto.set_subtitle(escape(auto))
         self.meter.set_value(self._value(meters, device.id) if device is not None and on else 0.0)
 
-    def _rebuild(self, found: list[dev.Device]) -> None:
-        for row, _check, _bar in self.rows.values():
+    def _sync_devices(self, found: list[dev.Device]) -> None:
+        """Only hardware coming or going changes the widget tree."""
+        present = {device.id for device in found}
+        for device_id in self.rows.keys() - present:
+            row, _check, _bar = self.rows.pop(device_id)
             self.row.remove(row)
-        self.rows = {}
         for device in found:
-            row = Adw.ActionRow(title=escape(device.name), subtitle_lines=3, activatable=True)
+            if device.id in self.rows:
+                continue
+            row = Adw.ActionRow(title=escape(device.name), title_lines=0, subtitle_lines=0, activatable=True)
             check = Gtk.CheckButton(valign=Gtk.Align.CENTER, group=self.auto_check)
             check.connect("toggled", lambda b, d=device.id: b.get_active() and self._chose(d))
             row.add_prefix(check)
             row.set_activatable_widget(check)
             bar = meter()
             row.add_suffix(bar)
+            row.set_visible(not self._recording)
             self.row.add_row(row)
             self.rows[device.id] = (row, check, bar)
+
+    def set_recording(self, active: bool) -> None:
+        """The source stays expandable; choices are frozen before recording starts."""
+        self._recording = active
+        self.switch_button.set_sensitive(not active)
+        self.auto.set_visible(not active)
+        self.auto_check.set_sensitive(not active)
+        for row, check, _bar in self.rows.values():
+            row.set_visible(not active)
+            check.set_sensitive(not active)
+
+    def show_recording(self, status: recording.Status) -> None:
+        role = "me" if self.kind == dev.INPUT else "others"
+        takes = [take for take in status.tracks if take.role == role and take.ended is None]
+        if not getattr(self.page.cfg, self.switch):
+            text = _("Not recorded")
+        elif self.kind == dev.OUTPUT and getattr(self.page.cfg, self.setting) == "":
+            text = _("All outputs · {count} active").format(count=len(takes))
+        elif takes:
+            text = _("Recording · {device}").format(device=takes[0].device)
+        else:
+            text = _("No active device")
+        self.row.set_subtitle(escape(text))
+        self.row.set_tooltip_text(text)
+        peaks = [levels.fraction(status.levels[take.key][1]) for take in takes if take.key in status.levels]
+        self.meter.set_value(max(peaks, default=0.0) if status.state == "recording" else 0.0)
 
 
 class RecordPage(Adw.Bin):
@@ -247,15 +285,18 @@ class RecordPage(Adw.Bin):
         self.folder = None
         self._tick_id = 0
         self._starting = self._stopping = False
+        self._stop_requested = False
+        self.last_error = ""
+        self.last_finished: recording.Finished | None = None
         self._events = 0
         self._then = None               # what to do once the recording is finished (the window's close)
         self._track_rows: dict[str, tuple[Adw.ActionRow, Gtk.LevelBar]] = {}
+        self._track_sides: dict[str, Side] = {}
         self.missing = self.backend.recorder_missing()
 
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
         self.stack.add_named(self._unavailable(), "unavailable")
         self.stack.add_named(self._page(), "page")
-        self.stack.add_named(self._finishing(), "finishing")
         self.stack.set_visible_child_name("unavailable" if self.missing else "page")
         self.set_child(self.stack)
         self._show_idle()
@@ -276,17 +317,10 @@ class RecordPage(Adw.Bin):
                                                    "recordings made elsewhere.").format(
                                   pieces=", ".join(self.missing) or "?")))
 
-    def _finishing(self) -> Gtk.Widget:
-        page = Adw.StatusPage(title=_("Closing the Files…"),
-                              description=escape(_("The tracks are joined in one file and the mix to listen to is "
-                                                   "made.")))
-        page.set_paintable(Adw.SpinnerPaintable(widget=page))
-        return page
-
     def _page(self) -> Gtk.Widget:
         view = Adw.ToolbarView()
         self.banner = Adw.Banner(revealed=False)
-        view.add_top_bar(self.banner)
+        view.add_bottom_bar(self.banner)
         page = Adw.PreferencesPage()
 
         group = Adw.PreferencesGroup()
@@ -295,14 +329,26 @@ class RecordPage(Adw.Bin):
         self.time_label = Gtk.Label(label=clock(0), css_classes=["title-1", "numeric"])
         hero.append(self.time_label)
         self.state_label = Gtk.Label(wrap=True, justify=Gtk.Justification.CENTER, css_classes=["dim-label"])
-        hero.append(self.state_label)
-        buttons = Gtk.Box(spacing=SPACE_XL, halign=Gtk.Align.CENTER, margin_top=SPACE_XS)
+        states = Gtk.Stack(vhomogeneous=True, hhomogeneous=True)
+        states.add_named(self.state_label, "state")
+        states.add_named(Gtk.Label(label=_("Press the button to record: nothing starts by itself."),
+                                   wrap=True, justify=Gtk.Justification.CENTER,
+                                   css_classes=["dim-label"]), "measure")
+        states.set_visible_child_name("state")
+        hero.append(states)
+        self.controls = Gtk.Stack(vhomogeneous=True, hhomogeneous=True, halign=Gtk.Align.CENTER,
+                                  margin_top=SPACE_XS)
+        idle_buttons = Gtk.Box(halign=Gtk.Align.CENTER)
+        recording_buttons = Gtk.Box(spacing=SPACE_XL, halign=Gtk.Align.CENTER)
         self.record_button = self._round("media-record-symbolic", _("Record"), ["destructive-action"], self.start)
         self.pause_button = self._round("media-playback-pause-symbolic", _("Pause"), [], self.pause)
         self.stop_button = self._round("media-playback-stop-symbolic", _("Stop"), ["suggested-action"], self.stop)
-        for button in (self.record_button, self.pause_button, self.stop_button):
-            buttons.append(button)
-        hero.append(buttons)
+        idle_buttons.append(self.record_button)
+        recording_buttons.append(self.pause_button)
+        recording_buttons.append(self.stop_button)
+        self.controls.add_named(idle_buttons, "idle")
+        self.controls.add_named(recording_buttons, "recording")
+        hero.append(self.controls)
         group.add(hero)
         page.add(group)
 
@@ -314,18 +360,15 @@ class RecordPage(Adw.Bin):
         self.sources.add(self.output_side.row)
         page.add(self.sources)
 
-        self.tracks = Adw.PreferencesGroup(title=_("Tracks"), visible=False)
-        page.add(self.tracks)
-
         group = Adw.PreferencesGroup()
         self.folder_row = Adw.ActionRow(title=_("Folder for the Recordings"), subtitle_lines=2)
         self.folder_row.add_prefix(Gtk.Image(icon_name="folder-music-symbolic"))
         # Open in words, as the Result page has it: the folder's icon is the choice's
-        show = Gtk.Button(label=_("Open"), tooltip_text=_("Open the Folder"), valign=Gtk.Align.CENTER,
+        show = Gtk.Button(label=_("Open Folder"), tooltip_text=_("Open the Folder"), valign=Gtk.Align.CENTER,
                           css_classes=["flat"])
         show.connect("clicked", lambda *_: self._open_folder())
         self.folder_row.add_suffix(show)
-        self.choose_button = Gtk.Button(icon_name="folder-open-symbolic", tooltip_text=_("Choose a Folder…"),
+        self.choose_button = Gtk.Button(label=_("Change…"), tooltip_text=_("Choose a Folder…"),
                                         valign=Gtk.Align.CENTER, css_classes=["flat"])
         self.choose_button.connect("clicked", lambda *_: choose_folder(
             self.window, _("Choose the Folder for the Recordings"), str(recordings_folder(self.cfg)),
@@ -349,6 +392,9 @@ class RecordPage(Adw.Bin):
     def shown(self, visible: bool) -> None:
         """The page came on screen (the meters start) or went off it (they
         stop: no device stays open for nothing)."""
+        if getattr(self.app, "closing", False):
+            self.stop_all()
+            return
         if self.missing:
             return
         if visible and self.recorder is None and not self._starting and self.monitor is None:
@@ -364,7 +410,12 @@ class RecordPage(Adw.Bin):
     def _stop_monitor(self) -> None:
         monitor, self.monitor = self.monitor, None
         if monitor is not None:
-            run_in_thread(monitor.stop, lambda _r, error: error and report("stopping the meters", error))
+            def stopped(_result, error):
+                if error is not None:
+                    report("stopping the meters", error)
+                    if getattr(self.app, "closing", False):
+                        self.app.block_exit(error)
+            run_in_thread(monitor.stop, stopped)
 
     def _ticking(self) -> None:
         wanted = self.monitor is not None or self.recorder is not None
@@ -375,14 +426,15 @@ class RecordPage(Adw.Bin):
             self._tick_id = 0
 
     def stop_all(self) -> None:
-        """The window closes: the meters stop (a recording is stopped first
-        by the window, through stop)."""
+        """Stop meter polling now; the registered worker owns monitor cleanup.
+
+        The application requests recording finalization separately with stop().
+        A monitor join must never block the GTK thread or escape the exit barrier.
+        """
         if self._tick_id:
             GLib.source_remove(self._tick_id)
             self._tick_id = 0
-        if self.monitor is not None:
-            self.monitor.stop()
-            self.monitor = None
+        self._stop_monitor()
 
     def refresh(self) -> None:
         if self.monitor is not None:
@@ -398,11 +450,14 @@ class RecordPage(Adw.Bin):
     def _show_idle(self) -> None:
         self.time_label.set_label(clock(0))
         self.state_label.set_label(_("Press the button to record: nothing starts by itself."))
-        self.record_button.set_visible(True)
-        self.pause_button.set_visible(False)
-        self.stop_button.set_visible(False)
+        self.controls.set_visible_child_name("idle")
+        self.pause_button.set_sensitive(True)
+        self.stop_button.set_sensitive(True)
         self.sources.set_visible(True)
-        self.tracks.set_visible(False)
+        self.input_side.set_recording(False)
+        self.output_side.set_recording(False)
+        for row, _bar in self._track_rows.values():
+            row.set_visible(False)
         self.choose_button.set_sensitive(True)
         self.banner.set_revealed(False)
         self._show_folder()
@@ -425,6 +480,8 @@ class RecordPage(Adw.Bin):
         self.folder_row.set_subtitle(escape(jobs.full_path(recordings_folder(self.cfg))))
 
     def _chose_folder(self, folder: str) -> None:
+        if getattr(self.app, "closing", False):
+            return
         refused = recording.unsuitable(folder, recording.own_folders(self.app.paths))
         if refused:
             self.window.toast(refused)
@@ -434,6 +491,8 @@ class RecordPage(Adw.Bin):
         self._show_folder()
 
     def _open_folder(self) -> None:
+        if getattr(self.app, "closing", False):
+            return
         folder = recordings_folder(self.cfg)
         try:
             folder.mkdir(parents=True, exist_ok=True)
@@ -445,6 +504,17 @@ class RecordPage(Adw.Bin):
     def _banner(self, text: str) -> None:
         self.banner.set_title(escape(text))
         self.banner.set_revealed(True)
+
+    def _remember_error(self, message: str) -> None:
+        changed = message != self.last_error
+        self.last_error = message
+        background = getattr(self.app, "background", None)
+        if changed and background is not None and background.hidden and not getattr(self.app, "closing", False):
+            try:
+                self.app.notify(_("Recording Needs Attention"), message, tag="recording-error",
+                                on_click=background.present)
+            except (GLib.Error, OSError) as error:
+                report("notifying about the recording", error)
 
     def _tick(self) -> bool:
         if self.recorder is not None:
@@ -459,6 +529,8 @@ class RecordPage(Adw.Bin):
     # -- recording ---------------------------------------------------------------------
 
     def start(self) -> None:
+        if getattr(self.app, "closing", False):
+            return
         if self.app.installing:
             self.window.toast(_("An update is starting: wait for {app} to open again.").format(app=APP_NAME))
             return
@@ -474,7 +546,12 @@ class RecordPage(Adw.Bin):
         stem = rec.stem(datetime.datetime.now(), recording.file_words()["recording"])
         monitor, self.monitor = self.monitor, None
         self._starting = True
+        self._stop_requested = False
+        self.last_error = ""
         self.window.page_changed()
+        self.input_side.set_recording(True)
+        self.output_side.set_recording(True)
+        self.choose_button.set_sensitive(False)
         self.record_button.set_sensitive(False)
         self.state_label.set_label(_("Starting…"))
 
@@ -488,48 +565,63 @@ class RecordPage(Adw.Bin):
 
     def _started(self, recorder, error, folder) -> None:
         self._starting = False
+        closing = getattr(self.app, "closing", False)
         if error is not None:
+            self._stop_requested, self._then = False, None
+            self._show_idle()
             report("starting the recording", error)
-            self._banner(str(error) if isinstance(error, Failure) else
-                         _("The recording could not start: {reason}").format(reason=error))
+            message = str(error) if isinstance(error, Failure) else \
+                _("The recording could not start: {reason}").format(reason=error)
+            self._remember_error(message)
+            self._banner(message)
             self.record_button.set_sensitive(True)
-            self.shown(self.window.views.get_visible_child_name() == "record")
+            if closing:
+                self.app.block_exit(error)
+            else:
+                self.shown(self.window.views.get_visible_child_name() == "record")
             self.window.page_changed()
             return
         self.recorder, self.folder = recorder, folder
         self._events = 0
         self.banner.set_revealed(False)
-        self.record_button.set_visible(False)
-        self.pause_button.set_visible(True)
-        self.stop_button.set_visible(True)
-        self.sources.set_visible(False)
+        self.controls.set_visible_child_name("recording")
+        self.input_side.set_recording(True)
+        self.output_side.set_recording(True)
         self.choose_button.set_sensitive(False)
         self._build_tracks(recorder.snapshot())
-        self.tracks.set_visible(True)
+        self._show_status(recorder.snapshot())
+        if self._stop_requested or closing:
+            self.stop()
+            return
         self._ticking()
         self.window.page_changed()
 
     def _build_tracks(self, status: recording.Status) -> None:
-        for row, _bar in self._track_rows.values():
-            self.tracks.remove(row)
+        for key, (row, _bar) in self._track_rows.items():
+            self._track_sides[key].row.remove(row)
         self._track_rows = {}
+        self._track_sides = {}
         for take in status.tracks:
             self._add_track(take)
 
     def _add_track(self, take: recording.Take) -> None:
-        row = Adw.ActionRow(title=escape(take.device), subtitle_lines=2)
+        row = Adw.ActionRow(title=escape(take.device), title_lines=0, subtitle_lines=0)
         row.add_prefix(Gtk.Image(icon_name=ICONS[dev.INPUT if take.role == "me" else dev.OUTPUT]))
         bar = meter()
         row.add_suffix(bar)
-        self.tracks.add(row)
+        side = self.input_side if take.role == "me" else self.output_side
+        side.row.add_row(row)
         self._track_rows[take.key] = (row, bar)
+        self._track_sides[take.key] = side
 
     def _show_status(self, status: recording.Status) -> None:
         self.time_label.set_label(clock(status.elapsed))
         words = {"recording": _("Recording in progress"), "paused": _("Paused"), "stopping": _("Closing the files…"),
                  "stopped": _("Stopped"), "failed": _("Stopped")}
         state = words.get(status.state, status.state)
-        if status.seconds_left < rec.WARN_MINUTES * 60:
+        if self._stopping:
+            state = _("Closing the files…")
+        elif status.seconds_left < rec.WARN_MINUTES * 60:
             state += " · " + _("room on the disk for about {minutes} minutes").format(
                 minutes=max(int(status.seconds_left // 60), 0))
         self.state_label.set_label(state)
@@ -553,6 +645,8 @@ class RecordPage(Adw.Bin):
             level = status.levels.get(take.key)
             # paused, nothing comes in: the meters say so
             bar.set_value(levels.fraction(level[1]) if level and take.ended is None and not paused else 0.0)
+        self.input_side.show_recording(status)
+        self.output_side.show_recording(status)
         for event in status.events[self._events:]:
             self.window.toast(event_words(event, max(int(status.seconds_left // 60), 0)))
         self._events = len(status.events)
@@ -560,6 +654,7 @@ class RecordPage(Adw.Bin):
         order = {levels.CLIPPING: 0, levels.QUIET: 1, levels.SILENT: 2}
         alerts = sorted(status.alerts, key=lambda a: order.get(a.kind, 9))
         if status.error:
+            self._remember_error(status.error)
             self._banner(status.error)
         elif alerts:
             self._banner(alert_words(alerts[0], names))
@@ -569,7 +664,7 @@ class RecordPage(Adw.Bin):
             self.stop()             # stopped by itself (the disk, an error): the files are made whole
 
     def pause(self) -> None:
-        if self.recorder is None or self._stopping:
+        if getattr(self.app, "closing", False) or self.recorder is None or self._stopping:
             return
         if self.recorder.snapshot().state == "paused":
             self.recorder.resume()
@@ -578,15 +673,27 @@ class RecordPage(Adw.Bin):
 
     def stop(self, then=None) -> None:
         """The recording stopped, its files closed and made whole (in a
-        thread), and handed to Transcribe; `then()` afterwards (the window
-        closing)."""
-        if then is not None:
+        thread). A stop requested during start is consumed by _started.
+        The first then() is called once on success only; finalization errors
+        block an application exit and leave the recording files reviewable.
+        """
+        if then is not None and self._then is None:
             self._then = then
-        recorder = self.recorder
-        if recorder is None or self._stopping:
+        self._stop_requested = True
+        if self._starting or self._stopping:
             return
+        recorder = self.recorder
+        if recorder is None:
+            self._stop_requested = False
+            completed, self._then = self._then, None
+            if completed is not None:
+                completed()
+            return
+        self._stop_requested = False
         self._stopping = True
-        self.stack.set_visible_child_name("finishing")
+        self.state_label.set_label(_("Closing the files…"))
+        self.pause_button.set_sensitive(False)
+        self.stop_button.set_sensitive(False)
         self.window.page_changed()
 
         def work():
@@ -598,22 +705,37 @@ class RecordPage(Adw.Bin):
 
     def _stopped(self, result, error) -> None:
         self.recorder, self._stopping = None, False
+        self._stop_requested = False
+        closing = getattr(self.app, "closing", False)
         self.stack.set_visible_child_name("page")
         self._show_idle()
         self._ticking()
         then, self._then = self._then, None
         if error is not None:
             report("finishing the recording", error)
-            self.window.toast(str(error) if isinstance(error, Failure) else
-                              _("The recording could not be finished: {error}").format(error=error))
+            message = str(error) if isinstance(error, Failure) else \
+                _("The recording could not be finished: {error}").format(error=error)
+            if self.folder is not None:
+                message += " " + _("Check the recording files in {folder}.").format(folder=self.folder)
+            self._remember_error(message)
+            self._banner(message)
+            self.window.toast(message)
+            if closing:
+                self.app.block_exit(error)
         else:
             finished, status = result
+            self.last_finished = finished
             if status.error:
+                self._remember_error(status.error)
                 self.window.toast(status.error)
-            if then is None:
+            if closing:
+                for note in finished.notes:
+                    print(f"finishing the recording: {note}", file=sys.stderr, flush=True)
+            if then is None and not closing:
                 self.window.recorded(finished)
-        if then is not None:
+        if error is None and then is not None:
             then()
             return
-        self.shown(self.window.views.get_visible_child_name() == "record")
+        if not closing:
+            self.shown(self.window.views.get_visible_child_name() == "record")
         self.window.page_changed()

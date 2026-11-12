@@ -26,17 +26,18 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, Gtk  # noqa: E402
 
 from scriba import APP_NAME, WINDOWS  # noqa: E402
 from scriba.i18n import _  # noqa: E402
 
 from .cards import CardTest  # noqa: E402
+from .models_page import ModelsPage, progress_text  # noqa: E402
 from .record import RecordPage  # noqa: E402
 from .result import ResultPage  # noqa: E402
 from .style_values import SPACE_S  # noqa: E402
 from .transcribe import TranscribePage  # noqa: E402
-from .ui import escape, header_bar, report, run_in_thread  # noqa: E402
+from .ui import escape, file_dialog_done, header_bar, report, run_in_thread  # noqa: E402
 
 STATE_VERSION = 1       # window.json of another layout is ignored
 NARROW = "max-width: 500sp"     # under this the view switcher goes to the bottom of the window
@@ -107,6 +108,7 @@ class MainWindow(_WindowBase):
         section = Gio.Menu()
         if WINDOWS:
             section.append(_("Check for Updates…"), "app.check-updates")
+        section.append(_("Models"), "app.models")
         section.append(_("Preferences"), "app.preferences")
         section.append(_("About {app}").format(app=APP_NAME), "app.about")
         menu.append_section(None, section)
@@ -124,7 +126,11 @@ class MainWindow(_WindowBase):
         return button
 
     def _main_page(self) -> Adw.NavigationPage:
-        view = Adw.ToolbarView()
+        view = self.toolbar_view = Adw.ToolbarView()
+        self.models = ModelsPage(self)
+        self.models_banner = Adw.Banner(button_label=_("Models"), revealed=False)
+        self.models_banner.connect("button-clicked", lambda *_: self.show_models())
+        self.app.downloads.subscribe(self._models_changed)
         header = header_bar()
         self.views = Adw.ViewStack()
         self.views.add_titled_with_icon(self.record, "record", _("Record"), "media-record-symbolic")
@@ -146,6 +152,7 @@ class MainWindow(_WindowBase):
         self._update_asked = lambda: None
         self._update_version = ""
         view.add_top_bar(self.update_banner)
+        view.add_top_bar(self.models_banner)
         view.set_content(self.views)
         view.add_bottom_bar(self.switcher_bar)
         narrow = Adw.Breakpoint.new(Adw.BreakpointCondition.parse(NARROW))
@@ -154,6 +161,17 @@ class MainWindow(_WindowBase):
         frame = Adw.BreakpointBin(child=view, width_request=360, height_request=480)
         frame.add_breakpoint(narrow)
         return Adw.NavigationPage(child=frame, title=APP_NAME, tag="main")
+
+    def show_models(self):
+        if self.nav.find_page("models") is None:
+            self.nav.add(self.models)
+        self.nav.pop_to_tag("main")
+        self.nav.push(self.models)
+
+    def _models_changed(self, state):
+        self.models_banner.set_title(_("Preparing Transcription") + " · " + progress_text(state))
+        self.models_banner.set_revealed(self.app.downloads.busy or state.phase in ("paused", "error"))
+        self.app.work_changed()
 
     def page_changed(self) -> None:
         """The header's Open follows the page: there where a recording can be
@@ -168,7 +186,7 @@ class MainWindow(_WindowBase):
 
     def refresh_update_banner(self) -> None:
         self.update_banner.set_revealed(bool(self._update_version) and not self.record.busy
-                                        and not self.transcribe.busy and not self.app.installing)
+                                        and not self.transcribe.busy and not self.app.downloads.busy and not self.app.installing)
 
     def show_update(self, version: str, asked) -> None:
         """The banner of a newer version; asked() opens what it brings."""
@@ -187,6 +205,8 @@ class MainWindow(_WindowBase):
     # -- recordings --------------------------------------------------------------------
 
     def choose_file(self) -> None:
+        if self.app.closing:
+            return
         dialog = Gtk.FileDialog(title=_("Open a Recording or Meeting"), modal=True)
         media = Gtk.FileFilter(name=_("Recordings and saved meetings"))
         media.add_suffix("json")
@@ -205,18 +225,13 @@ class MainWindow(_WindowBase):
         if last and os.path.isdir(last):
             dialog.set_initial_folder(Gio.File.new_for_path(last))
 
-        def chosen(dialog, result):
-            try:
-                file = dialog.open_finish(result)
-            except GLib.Error:      # dismissed
-                return
-            if file is not None and file.get_path():
-                self.open_path(file.get_path())
-        dialog.open(self, None, chosen)
+        dialog.open(self, None, file_dialog_done(self, "open_finish", self.open_path))
 
     def open_path(self, path: str) -> None:
         """A recording, from the dialog, a drop, the command line or a
         second launch: the choices for it, on the Transcribe page."""
+        if self.app.closing:
+            return
         if self.transcribe.busy:
             self.toast(_("A transcription is in progress: cancel it first."))
             return
@@ -230,7 +245,7 @@ class MainWindow(_WindowBase):
         self.page_changed()
 
     def _open_meeting(self, path: str) -> None:
-        self.transcribe._reading += 1
+        self.transcribe.cancel_inspection()
         reading = self.transcribe._reading
 
         def done(opened, error):
@@ -270,58 +285,13 @@ class MainWindow(_WindowBase):
     # -- closing and the remembered size ----------------------------------------------
 
     def _on_close(self, *_args) -> bool:
-        if self.record.busy and not self._closing:
-            self._ask_to_stop_recording()
-            return True
-        if self.transcribe.busy and not self._closing:
-            self._ask_to_stop()
-            return True
-        self.result.stop()
-        self.record.stop_all()
-        self.transcribe.stop_all()
-        self.transcribe.remember()
-        self.save_state()
-        return False
-
-    def _ask_to_stop(self) -> None:
-        """Closing while a transcription runs: asked first, as GNOME's apps
-        ask before they lose work."""
-        dialog = Adw.AlertDialog(heading=_("Stop the Transcription?"),
-                                 body=_("The work done so far is lost, and no file is written."))
-        dialog.add_response("keep", _("Keep Working"))
-        dialog.add_response("stop", _("Stop and Close"))
-        dialog.set_response_appearance("stop", Adw.ResponseAppearance.DESTRUCTIVE)
-        dialog.set_default_response("keep")
-        dialog.set_close_response("keep")
-
-        def answered(_dialog, response):
-            if response == "stop":
-                self._closing = True
-                self.close()
-        dialog.connect("response", answered)
-        dialog.present(self)
-
-    def _ask_to_stop_recording(self) -> None:
-        """Closing while recording: asked first; stopping closes the files
-        properly and makes them whole before the window goes."""
-        dialog = Adw.AlertDialog(heading=_("Stop the Recording?"),
-                                 body=_("What was recorded so far is kept: the files are closed properly "
-                                        "before the window goes."))
-        dialog.add_response("keep", _("Keep Recording"))
-        dialog.add_response("stop", _("Stop and Close"))
-        dialog.set_response_appearance("stop", Adw.ResponseAppearance.DESTRUCTIVE)
-        dialog.set_default_response("keep")
-        dialog.set_close_response("keep")
-
-        def answered(_dialog, response):
-            if response == "stop":
-                self.record.stop(then=self._close_after_recording)
-        dialog.connect("response", answered)
-        dialog.present(self)
-
-    def _close_after_recording(self) -> None:
-        self._closing = True
-        self.close()
+        if self.app.exit_ready:
+            return False
+        if not self.app.closing and self.app.cfg.keep_running and self.app.background is not None:
+            if self.app.background.hide():
+                return True
+        self.app.request_quit()
+        return True
 
     def _restore_state(self) -> None:
         try:
@@ -339,7 +309,7 @@ class MainWindow(_WindowBase):
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             pass
 
-    def save_state(self) -> None:
+    def save_state(self) -> bool:
         width, height = self.get_default_size()
         if WINDOWS:     # not the maximized size the workaround lends to GTK while maximized
             from . import winquirks
@@ -348,5 +318,7 @@ class MainWindow(_WindowBase):
         try:
             self._state_file.parent.mkdir(parents=True, exist_ok=True)
             self._state_file.write_text(json.dumps(state), encoding="utf-8")
-        except OSError:
-            pass
+        except OSError as error:
+            report("saving the window state", error)
+            return False
+        return True

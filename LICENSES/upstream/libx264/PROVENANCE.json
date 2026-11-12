@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "package": "mingw-w64-ucrt-x86_64-libx264",
+  "version": "0.165.r3222.b35605a-3",
+  "base": "mingw-w64-x264",
+  "source_url": "https://repo.msys2.org/mingw/sources/mingw-w64-x264-0.165.r3222.b35605a-3.src.tar.zst",
+  "source_archive_sha256": "6a4d3620201074edec84681aeb25ffa1eceaa9451f7347ca1448f532634eed55",
+  "source_signature_fingerprint": "5F944B027F7FE2091985AA2EFA11531AA0AA7F57",
+  "recipe_sha256": "6b62ca0fdb77e937527efb9f68d0a6704a8f023b0b6a1c7980b5cc7b0efc1ee5",
+  "payloads": [
+    {
+      "source": "x264::git+https://code.videolan.org/videolan/x264.git#commit=b35605ace3ddf7c1a5d67a2eb553f034aef41d55",
+      "status": "vcs_unchecked",
+      "resolved_commit": "b35605ace3ddf7c1a5d67a2eb553f034aef41d55"
+    }
+  ],
+  "files": [
+    {
+      "file": "AUTHORS",
+      "sha256": "783150c1bef404fc7140924f3006eff27c940ea73ef38b3bc76fcb9c173229a5",
+      "source_member": "mingw-w64-x264/x264@b35605ace3ddf7c1a5d67a2eb553f034aef41d55:AUTHORS",
+      "vcs_commit": "b35605ace3ddf7c1a5d67a2eb553f034aef41d55"
+    },
+    {
+      "file": "COPYING",
+      "sha256": "32b1062f7da84967e7019d01ab805935caa7ab7321a7ced0e30ebe75e5df1670",
+      "source_member": "mingw-w64-x264/x264@b35605ace3ddf7c1a5d67a2eb553f034aef41d55:COPYING",
+      "vcs_commit": "b35605ace3ddf7c1a5d67a2eb553f034aef41d55"
+    }
+  ]
+}

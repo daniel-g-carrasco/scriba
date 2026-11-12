@@ -11,6 +11,8 @@ command: scriba
 
 finish-args:
   - --share=ipc
+  # Register the tray item with shells that provide a reachable notification area.
+  - --talk-name=org.kde.StatusNotifierWatcher
   - --socket=fallback-x11
   - --socket=wayland
   - --device=dri
@@ -91,14 +93,17 @@ modules:
     build-commands:
       - install -d /app/share/scriba
       - cp -r src/scriba /app/share/scriba/scriba
+      - install -d /app/share/licenses/scriba
+      - install -m644 LICENSE COPYRIGHT /app/share/licenses/scriba/
+      - cp -r LICENSES /app/share/licenses/scriba/
       # the sample of speech the cards are tested on, with its text and origin (in the package's folder)
       - test -f /app/share/scriba/scriba/samples/sample-it.flac -a -f /app/share/scriba/scriba/samples/sample-it.txt
       - install -Dm755 bin/scriba /app/bin/scriba
       - python3 tools/compile_po.py --dest /app/share/locale
       - install -Dm644 data/io.github.daniel_g_carrasco.scriba.desktop -t /app/share/applications
       - install -Dm644 data/io.github.daniel_g_carrasco.scriba.metainfo.xml -t /app/share/metainfo
-      - install -Dm644 data/icons/hicolor/scalable/apps/io.github.daniel_g_carrasco.scriba.svg -t /app/share/icons/hicolor/scalable/apps
-      - install -Dm644 data/icons/hicolor/symbolic/apps/io.github.daniel_g_carrasco.scriba-symbolic.svg -t /app/share/icons/hicolor/symbolic/apps
+      - install -Dm644 data/icons/hicolor/scalable/apps/*.svg -t /app/share/icons/hicolor/scalable/apps
+      - install -Dm644 data/icons/hicolor/symbolic/apps/*.svg -t /app/share/icons/hicolor/symbolic/apps
       - install -Dm644 data/icons/hicolor/64x64/apps/io.github.daniel_g_carrasco.scriba.png -t /app/share/icons/hicolor/64x64/apps
       - install -Dm644 data/icons/hicolor/128x128/apps/io.github.daniel_g_carrasco.scriba.png -t /app/share/icons/hicolor/128x128/apps
       - install -Dm644 data/icons/hicolor/256x256/apps/io.github.daniel_g_carrasco.scriba.png -t /app/share/icons/hicolor/256x256/apps

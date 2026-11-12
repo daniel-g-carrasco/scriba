@@ -100,7 +100,7 @@ def purpose(model: Model) -> str:
     return {
         WHISPER_TURBO.key: _("Speech to text, fast (whisper large-v3-turbo)"),
         WHISPER_LARGE.key: _("Speech to text, precise and slower (whisper large-v3)"),
-        SILERO_VAD.key: _("Finds where somebody speaks (Silero)"),
+        SILERO_VAD.key: _("Identifies speech segments in the recording (Silero)"),
         WESPEAKER.key: _("Tells the voices apart (WeSpeaker)"),
     }.get(model.key, model.key)
 
@@ -214,6 +214,12 @@ def _cut(model: Model, done: int, detail: str) -> ModelError:
         name=model.filename, done=megabytes(done), total=megabytes(model.size)), detail)
 
 
+def _phase(progress, name):
+    callback = getattr(progress, "phase", None)
+    if callable(callback):
+        callback(name)
+
+
 def download(model: Model, where: str | os.PathLike | None = None, progress: Progress | None = None,
              cancelled: threading.Event | None = None, opener=None) -> Path:
     """The model in `where` (the models' folder), checked; its path. A file
@@ -229,7 +235,8 @@ def download(model: Model, where: str | os.PathLike | None = None, progress: Pro
     where = folder() if where is None else Path(where)
     where.mkdir(parents=True, exist_ok=True)
     final = where / model.filename
-    if verify(model, where, cancelled=cancelled):
+    _phase(progress, "checking")
+    if verify(model, where, progress=progress, cancelled=cancelled):
         return final
     if not allowed(model, model.url):
         raise ModelError(_("The address of {name} is not one of its publisher's: refused.").format(
@@ -246,7 +253,9 @@ def download(model: Model, where: str | os.PathLike | None = None, progress: Pro
             str(where))
     digest = hashlib.sha256()
     if have:
-        _hash_file(part, digest, cancelled)
+        _phase(progress, "checking")
+        _hash_file(part, digest, cancelled, progress, model.size)
+    _phase(progress, "connecting")
     headers = {"User-Agent": f"{EXE_NAME}/{__version__}"}
     if have:
         headers["Range"] = f"bytes={have}-"
@@ -292,6 +301,7 @@ def download(model: Model, where: str | os.PathLike | None = None, progress: Pro
         raise _cut(model, done, f"{type(e).__name__}: {getattr(e, 'reason', e)}") from None
     if done < model.size:
         raise _cut(model, done, f"{done} of {model.size} bytes")
+    _phase(progress, "verifying")
     if digest.hexdigest() != model.sha256:
         part.unlink(missing_ok=True)
         raise ModelError(_("The file downloaded is not {name} as published (its checksum differs): thrown away.").format(

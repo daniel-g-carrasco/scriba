@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "package": "mingw-w64-ucrt-x86_64-gstreamer",
+  "version": "1.28.8-1",
+  "base": "mingw-w64-gstreamer",
+  "source_url": "https://repo.msys2.org/mingw/sources/mingw-w64-gstreamer-1.28.8-1.src.tar.zst",
+  "source_archive_sha256": "c5331bd61a2e5b4cb11d83fb82e9c5dae8748b902722c86cfffd364ecca56313",
+  "source_signature_fingerprint": "5F944B027F7FE2091985AA2EFA11531AA0AA7F57",
+  "recipe_sha256": "f2c00399100a2624221f3a336ae7429334421a31a250b0ff16ae5190f95cb81f",
+  "payloads": [
+    {
+      "source": "https://gstreamer.freedesktop.org//src/gstreamer/gstreamer-1.28.8.tar.xz",
+      "member": "mingw-w64-gstreamer/gstreamer-1.28.8.tar.xz",
+      "sha256": "baa8e86985ad6417cc0ad6e7b79ff2884c6779c8b1c7a6240e7121822c86e524",
+      "status": "verified"
+    }
+  ],
+  "files": [
+    {
+      "file": "COPYING",
+      "sha256": "ad2eec519ebd4b5df86ea84dff24ae3bfa2edea846a703b58902dd221ae375db",
+      "source_member": "mingw-w64-gstreamer/gstreamer-1.28.8.tar.xz!/gstreamer-1.28.8/COPYING"
+    }
+  ]
+}

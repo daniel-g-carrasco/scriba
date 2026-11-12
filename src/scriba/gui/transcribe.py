@@ -1,8 +1,7 @@
 """The Transcribe page: the recording, the choices, the expected time, the
 work with its steps, and what went wrong said in words.
 
-One page, in five states (a Gtk.Stack): the models' download at the first
-start, an empty page that asks for a recording (an Adw.StatusPage with
+One page, in four states (a Gtk.Stack): an empty page that asks for a recording (an Adw.StatusPage with
 "Open…", and the whole window takes a file dropped on it), the choices
 (libadwaita's rows in boxed lists, as GNOME's converters have them:
 Switcheroo, Constrict, Video Trimmer), the work (a status page with the
@@ -36,7 +35,6 @@ from scriba.core import estimate  # noqa: E402
 from scriba.data.timing import clock  # noqa: E402
 from scriba.i18n import _  # noqa: E402
 
-from .models_page import ModelsPage  # noqa: E402
 from .style_values import SPACE_XL  # noqa: E402
 from .ui import choose_folder, documents_folder, escape, report, run_in_thread  # noqa: E402
 
@@ -68,19 +66,21 @@ class TranscribePage(Adw.Bin):
         self.media = None                   # ffmpeg.Media of the source, once read
         self.out_override: Path | None = None
         self._reading = 0                   # which reading of a file is the current one
+        self._inspect_cancel: threading.Event | None = None
+        self._pending_start: tuple[Path, int] | None = None
         self.cards = window.cards           # the test of the graphics cards (gui/cards.py)
         self.job = None                    # (progress, cancel, began, estimated, request) while working
         self._tick_id = 0
 
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
-        self.models = ModelsPage(window, self.models_ready)
-        self.stack.add_named(self.models, "models")
         self.stack.add_named(self._empty(), "empty")
         self.stack.add_named(self._setup(), "setup")
         self.stack.add_named(self._working(), "working")
         self.stack.add_named(self._failed(), "failed")
         self.set_child(self.stack)
         self.cards.connect("changed", lambda _test: self._cards_changed())
+        self._was_missing = bool(self.backend.missing())
+        self._unsubscribe_downloads = self.app.downloads.subscribe(self._models_changed)
         self.show_start()
         # the cards whisper sees, once: the estimate and the preferences name them
         run_in_thread(lambda: self.backend.devices(), lambda _found, _error: self.refresh_estimate())
@@ -91,32 +91,47 @@ class TranscribePage(Adw.Bin):
 
     @property
     def busy(self) -> bool:
-        return self.job is not None
+        return self.job is not None or self._pending_start is not None
 
     # -- the states ------------------------------------------------------------------
 
     def show_start(self) -> None:
-        """The models' page while one is missing, else the empty page (or the
-        choices, when a recording is open). With the models there, the
-        cards are tested if they never were: on the app's own sample, so
-        nothing waits for a recording."""
-        if self.backend.missing():
-            self.models.refresh()
-            self.stack.set_visible_child_name("models")
-        else:
+        """File choices stay accessible while the application prepares the models."""
+        if getattr(self.app, "closing", False):
+            return
+        if not self.busy:
             self.stack.set_visible_child_name("setup" if self.source is not None else "empty")
-            if not self.busy:
+            self._update_model_gate()
+            if not self.backend.missing():
                 self.cards.start_if_needed()
         self.window.page_changed()
 
-    def models_ready(self) -> None:
-        self.window.toast(_("The models are ready: open a recording to transcribe it."))
-        self.show_start()
-        if self.source is not None:
+    def _missing_models(self):
+        wanted = (*self.app.downloads.required, models.WHISPER.get(self.cfg.quality, models.WHISPER_TURBO))
+        return list({model.key: model for model in wanted if not self.backend.has(model)}.values())
+
+    def _update_model_gate(self):
+        missing = self._missing_models()
+        self.models_needed.set_visible(bool(missing))
+        self.models_needed.set_subtitle(escape(_(
+            "Download the missing models, or choose Fast if only the Precise model is missing.")))
+        self.start_button.set_sensitive(self.media is not None and not missing and not self.busy)
+
+    def _models_changed(self, _state):
+        missing = bool(self.backend.missing())
+        if getattr(self.app, "closing", False):
+            self._was_missing = missing
+            return
+        if self._was_missing and not missing:
+            self.window.toast(_("The models are ready: open a recording to transcribe it."))
+        self._was_missing = missing
+        if not self.busy:
+            self.show_start()
             self.refresh_estimate()
 
     def clear(self) -> None:
         """Back to the empty page, for a new recording."""
+        self.cancel_inspection()
         self.source, self.media, self.out_override = None, None, None
         self.show_start()
 
@@ -133,9 +148,20 @@ class TranscribePage(Adw.Bin):
     def stop_all(self) -> None:
         """The window closes: the test of the cards and the work stop (their
         programs are terminated, their temporary folders go)."""
+        self.cancel_inspection()
         self.cards.stop()
+        # A failed recording/export can abort shutdown. Keep model updates
+        # connected while the application still owns this page.
         if self.job is not None:
             self.job[1].set()
+
+    def cancel_inspection(self) -> None:
+        """Invalidate the reader before requesting termination of its subprocess."""
+        self._pending_start = None
+        self._reading += 1
+        if self._inspect_cancel is not None:
+            self._inspect_cancel.set()
+            self._inspect_cancel = None
 
     def _empty(self) -> Gtk.Widget:
         page = Adw.StatusPage(icon_name="audio-x-generic-symbolic", title=_("Transcribe a Recording"),
@@ -222,6 +248,11 @@ class TranscribePage(Adw.Bin):
         page.add(group)
 
         group = Adw.PreferencesGroup()
+        self.models_needed = Adw.ActionRow(title=_("Models Needed for This Transcription"), subtitle_lines=0)
+        manage = Gtk.Button(label=_("Models"), valign=Gtk.Align.CENTER)
+        manage.connect("clicked", lambda *_: self.window.show_models())
+        self.models_needed.add_suffix(manage)
+        group.add(self.models_needed)
         self.start_button = Gtk.Button(label=_("Transcribe"), halign=Gtk.Align.CENTER,
                                        css_classes=["pill", "suggested-action"])
         self.start_button.connect("clicked", lambda *_: self.start())
@@ -237,7 +268,7 @@ class TranscribePage(Adw.Bin):
         try:
             self.language_row.set_selected(LANGUAGES.index(cfg.speech_language)
                                            if cfg.speech_language in LANGUAGES else 1)
-            self.quality_row.set_visible(self.backend.has(models.WHISPER_LARGE))
+            self.quality_row.set_visible(True)
             self.quality_row.set_selected(QUALITIES.index(cfg.quality) if cfg.quality in QUALITIES else 0)
             self.voices_row.set_enable_expansion(cfg.speakers)
             self.count_row.set_selected(0 if cfg.speaker_count < 2 else min(cfg.speaker_count, MAX_SPEAKERS) - 1)
@@ -250,6 +281,7 @@ class TranscribePage(Adw.Bin):
         if getattr(self, "_loading", False):
             return
         setattr(self.cfg, name, value)
+        self._update_model_gate()
         self.refresh_estimate()
 
     def remember(self) -> None:
@@ -277,13 +309,16 @@ class TranscribePage(Adw.Bin):
 
     def open(self, path: str) -> None:
         """A recording chosen, dropped or given on the command line."""
-        if self.busy:
+        if getattr(self.app, "closing", False):
+            return
+        if self.job is not None:
             self.window.toast(_("A transcription is in progress: cancel it first."))
             return
         source = Path(path)
         if not source.is_file():
             self.window.toast(_("“{name}” is not a file that can be transcribed.").format(name=source.name or path))
             return
+        self.cancel_inspection()
         self.source, self.media, self.out_override = source, None, None
         self.cfg.last_folder = str(source.parent)
         self._load_choices()
@@ -297,13 +332,20 @@ class TranscribePage(Adw.Bin):
         self._show_out()
         self._show_device()
         self.show_start()
-        self._reading += 1
         reading = self._reading
-        run_in_thread(lambda: self.backend.inspect(source), lambda media, error: self._read(reading, media, error))
+        cancel = self._inspect_cancel = threading.Event()
+        try:
+            run_in_thread(lambda: self.backend.inspect(source, cancelled=cancel),
+                          lambda media, error: self._read(reading, media, error))
+        except Exception as error:
+            self._read(reading, None, error)
 
     def _read(self, reading: int, media, error) -> None:
-        if reading != self._reading:
+        if reading != self._reading or getattr(self.app, "closing", False):
             return                          # another recording was opened meanwhile
+        self._inspect_cancel = None
+        if isinstance(error, Cancelled):
+            return
         if error is not None:
             report("reading the recording", error)
             self.file_row.set_subtitle(escape(str(error) if isinstance(error, Failure) else
@@ -322,7 +364,7 @@ class TranscribePage(Adw.Bin):
         facts.append(jobs.full_path(self.source.parent))
         self.file_row.set_subtitle(escape(" · ".join(facts)))
         self.video_row.set_visible(media.video)
-        self.start_button.set_sensitive(True)
+        self._update_model_gate()
         self.refresh_estimate()
 
     def request(self) -> jobs.Request:
@@ -330,6 +372,9 @@ class TranscribePage(Adw.Bin):
 
     def refresh_estimate(self) -> None:
         if self.source is None or self.media is None:
+            return
+        if self._missing_models():
+            self.estimate_row.set_subtitle(escape(_("Waiting for the models selected above.")))
             return
         seconds = self.backend.estimate(self.media.duration, self.request())
         self.estimate_row.set_subtitle(escape(_("{about} for {duration} of audio").format(
@@ -341,10 +386,24 @@ class TranscribePage(Adw.Bin):
     def _cards_changed(self) -> None:
         """The test of the cards started, ended or failed: the row says it, and
         the estimate follows the speed just measured."""
+        if getattr(self.app, "closing", False):
+            self._pending_start = None
+            self.window.page_changed()
+            return
+        if self._pending_start is not None and self.cards.running is None:
+            pending, self._pending_start = self._pending_start, None
+            if pending == (self.source, self._reading):
+                self.start()
+            else:
+                self.show_start()
+            return
         if self.source is not None and self.media is not None:
             self.refresh_estimate()
         else:
             self._show_device()
+        if not self.busy:
+            self.cards.start_if_needed()    # a cancelled test can finish after the transcription
+        self.window.page_changed()
 
     def _show_device(self) -> None:
         cfg = self.cfg
@@ -395,10 +454,28 @@ class TranscribePage(Adw.Bin):
         return self.work_page
 
     def start(self) -> None:
+        if getattr(self.app, "closing", False):
+            return
         if self.app.installing:
             self.window.toast(_("An update is starting: wait for {app} to open again.").format(app=APP_NAME))
             return
         if self.busy or self.source is None or self.media is None:
+            return
+        if self._missing_models():
+            self.window.show_models()
+            return
+        if self.cards.running is not None:
+            # The cancel Event is a request, not proof the GPU process exited.
+            # Reserve one user intention before stop emits its changed signal.
+            self._pending_start = (self.source, self._reading)
+            self.work_page.set_title(escape(_("Transcribing {name}").format(name=self.source.name)))
+            self.work_page.set_description(escape(_("Waiting for the Graphics Card Test to Stop…")))
+            self.work_bar.set_fraction(0.0)
+            self.cancel_button.set_sensitive(True)
+            self._build_steps(())
+            self.stack.set_visible_child_name("working")
+            self.cards.stop()
+            self.window.page_changed()
             return
         self.cards.stop()           # the work wants the card; the test runs again after, if it never ended
         self.remember()
@@ -416,8 +493,11 @@ class TranscribePage(Adw.Bin):
         self.stack.set_visible_child_name("working")
         self.window.page_changed()
         self._tick_id = GLib.timeout_add(TICK_MS, self._tick)
-        run_in_thread(lambda: self.backend.run(request, progress, cancel),
-                      lambda result, error: self._finished(progress, result, error))
+        try:
+            run_in_thread(lambda: self.backend.run(request, progress, cancel),
+                          lambda result, error: self._finished(progress, result, error))
+        except Exception as error:
+            self._finished(progress, None, error)
 
     def _build_steps(self, stages) -> None:
         while (row := self.steps.get_row_at_index(0)) is not None:
@@ -470,6 +550,10 @@ class TranscribePage(Adw.Bin):
         return True
 
     def cancel(self) -> None:
+        if self._pending_start is not None:
+            self._pending_start = None
+            self.show_start()
+            return
         if self.job is not None:
             self.job[1].set()
             self.cancel_button.set_sensitive(False)
@@ -484,6 +568,12 @@ class TranscribePage(Adw.Bin):
             GLib.source_remove(self._tick_id)
             self._tick_id = 0
         self.stack.set_visible_child_name("setup")
+        if getattr(self.app, "closing", False):
+            if error is not None and not isinstance(error, Cancelled):
+                report("transcribing", error)
+                self.app.block_exit(error)
+            self.window.page_changed()
+            return
         if isinstance(error, Cancelled):
             self.window.toast(_("Cancelled: no file was written."))
         elif error is not None:

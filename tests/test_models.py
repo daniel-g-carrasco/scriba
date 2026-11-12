@@ -99,8 +99,17 @@ class DownloadTest(unittest.TestCase):
         return sorted(p.name for p in self.folder.iterdir())
 
     def test_a_model_arrives_checked_under_its_name(self):
-        seen = []
-        path = models.download(self.model("/ok"), self.folder, progress=lambda d, t: seen.append((d, t)))
+        seen, phases = [], []
+
+        class Progress:
+            def __call__(self, done, total):
+                seen.append((done, total))
+
+            def phase(self, phase):
+                phases.append(phase)
+        path = models.download(self.model("/ok"), self.folder, progress=Progress())
+        self.assertIn("connecting", phases)
+        self.assertEqual(phases[-1], "verifying")
         self.assertEqual(path.read_bytes(), BODY)
         self.assertEqual(self.files(), ["fake.bin"])
         self.assertEqual(seen[-1], (len(BODY), len(BODY)))

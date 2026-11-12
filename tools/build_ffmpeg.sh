@@ -2,8 +2,9 @@
 # The ffmpeg and ffprobe the Windows build carries: FFmpeg's release
 # sources, configured with no GPL and no non-free part (so under the
 # LGPL 2.1 or later), with only what Scriba uses, linked statically (two
-# programs and no DLLs). Daniel's decision of 11/11/2026: MSYS2's ffmpeg
-# is GPL-3.0-or-later and brings 150 libraries along; Scriba is MIT.
+# programs and no DLLs). This small configuration avoids bringing the
+# full MSYS2 FFmpeg dependency set into the application package. Scriba
+# itself is GPL-3.0-or-later; FFmpeg retains its own LGPL terms.
 #
 #   tools/build_ffmpeg.sh            (under MSYS2 UCRT64, from anywhere)
 #

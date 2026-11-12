@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "package": "mingw-w64-ucrt-x86_64-python-gobject",
+  "version": "3.58.1-1",
+  "base": "mingw-w64-pygobject",
+  "source_url": "https://repo.msys2.org/mingw/sources/mingw-w64-pygobject-3.58.1-1.src.tar.zst",
+  "source_archive_sha256": "ffb59f7aea375c3c8c8a0c9b2fde107271a675da468d554257120c70efb36ed3",
+  "source_signature_fingerprint": "5F944B027F7FE2091985AA2EFA11531AA0AA7F57",
+  "recipe_sha256": "69db33c8e959a58c1a5627149015f2e0d5e296ae4981f455a38646aa48ebbeb4",
+  "payloads": [
+    {
+      "source": "https://download.gnome.org/sources/pygobject/3.58/pygobject-3.58.1.tar.gz",
+      "member": "mingw-w64-pygobject/pygobject-3.58.1.tar.gz",
+      "sha256": "4c80598ade17fbaa7798e01a25d0bf29ce109740786026a074c5c62bb3e79d23",
+      "status": "verified"
+    }
+  ],
+  "files": [
+    {
+      "file": "COPYING",
+      "sha256": "f4cac31434b287b10a70b81c62cfa973d250417f8f248c4c1b5566d061ecfb2f",
+      "source_member": "mingw-w64-pygobject/pygobject-3.58.1.tar.gz!/pygobject-3.58.1/COPYING"
+    }
+  ]
+}

@@ -14,11 +14,25 @@ permissions:
   contents: read
 
 jobs:
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      package: ${{ steps.scope.outputs.package }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Package unless the complete diff is safe documentation
+        id: scope
+        run: python3 tools/ci_build.py scope
+
   test:
     uses: ./.github/workflows/test.yml
 
   flatpak:
-    needs: test
+    needs: [test, scope]
+    if: needs.scope.outputs.package != 'false'
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
@@ -27,9 +41,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+      - name: Identify the dependency cache
+        id: flatpak-cache
+        run: |
+          flatpak-builder --show-manifest build-aux/flatpak/io.github.daniel_g_carrasco.scriba.yaml > "$RUNNER_TEMP/flatpak-manifest.json"
+          python3 tools/ci_build.py flatpak-key --manifest "$RUNNER_TEMP/flatpak-manifest.json" --source-base build-aux/flatpak \
+            --sdk-commit "$(flatpak info --show-commit org.gnome.Sdk//50)" \
+            --runtime-commit "$(flatpak info --show-commit org.gnome.Platform//50)" \
+            --arch x86_64 --builder-version "$(flatpak-builder --version)"
+      # The state includes OSTree module results, downloaded sources and ccache.
+      # Restore only the exact SDK/runtime/dependency key; Builder checks each
+      # module again and rebuilds the application when its directory changes.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: .flatpak-builder
+          key: ${{ steps.flatpak-cache.outputs.key }}
       - name: Build
         run: |
-          flatpak-builder --disable-rofiles-fuse --force-clean --ccache=false --repo=repo \
+          flatpak-builder --disable-rofiles-fuse --force-clean --ccache --rebuild-on-sdk-change --arch=x86_64 --repo=repo \
             build-dir build-aux/flatpak/io.github.daniel_g_carrasco.scriba.yaml
           flatpak build-bundle repo scriba.flatpak io.github.daniel_g_carrasco.scriba stable \
             --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
@@ -37,10 +66,38 @@ jobs:
         run: |
           flatpak info org.gnome.Platform//50
           flatpak build --runtime build-dir python3 /app/share/scriba/check_flatpak.py
+      # Cache only pinned source bytes. The collector hashes every cached file
+      # again and rejects a changed binary or recipe mapping before publication.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ${{ runner.temp }}/linux-source-cache
+          key: linux-sources-v1-${{ hashFiles('build-aux/flatpak/sources/linux-corresponding-sources.json') }}
+      - name: Collect the corresponding sources for this exact bundle
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          git archive --format=tar --prefix=scriba/ --output="$RUNNER_TEMP/app-source.tar" HEAD
+          python3 tools/collect_linux_sources.py \
+            --output "$RUNNER_TEMP/scriba-linux-sources" --cache "$RUNNER_TEMP/linux-source-cache" \
+            --seed-dir .flatpak-builder/downloads --builder-state .flatpak-builder \
+            --resolved-manifest "$RUNNER_TEMP/flatpak-manifest.json" \
+            --build-root build-dir/files --bundle scriba.flatpak \
+            --app-archive "$RUNNER_TEMP/app-source.tar" --app-commit "$(git rev-parse HEAD)" \
+            --runtime-commit "$(flatpak info --show-commit org.gnome.Platform//50)" \
+            --sdk-commit "$(flatpak info --show-commit org.gnome.Sdk//50)"
+          version=dev
+          case "$GITHUB_REF" in refs/tags/v*) version="$GITHUB_REF_NAME" ;; esac
+          XZ_OPT='-T2 -1' tar -cJf "scriba-${version}-linux-x86_64-sources.tar.xz" \
+            -C "$RUNNER_TEMP/scriba-linux-sources" .
+          python3 tools/collect_linux_sources.py \
+            --verify-pair "scriba-${version}-linux-x86_64-sources.tar.xz" \
+            --bundle scriba.flatpak --app-commit "$(git rev-parse HEAD)"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: scriba-flatpak
-          path: scriba.flatpak
+          path: |
+            scriba.flatpak
+            scriba-*-linux-x86_64-sources.tar.xz
 
   release:
     if: github.event_name != 'pull_request' && startsWith(github.ref, 'refs/tags/v')
@@ -65,9 +122,10 @@ jobs:
              "untrusted comment:"*) printf '%s\n' "$MINISIGN_SECRET_KEY" ;;
              *) printf 'untrusted comment: releases\n%s\n' "$MINISIGN_SECRET_KEY" ;;
            esac | tr -d '\r' > "$key")
-          f=scriba.flatpak
-          minisign -S -s "$key" -m "$f" -x "$f.minisig" -t "timestamp:$(date +%s) file:$f hashed" </dev/null
-          minisign -V -P "$PUBLIC_KEY" -m "$f" -x "$f.minisig"
+          for f in scriba.flatpak "scriba-${GITHUB_REF_NAME}-linux-x86_64-sources.tar.xz"; do
+            minisign -S -s "$key" -m "$f" -x "$f.minisig" -t "timestamp:$(date +%s) file:$f hashed" </dev/null
+            minisign -V -P "$PUBLIC_KEY" -m "$f" -x "$f.minisig"
+          done
           rm -f "$key"
       - name: The release, a draft, with the Flatpak
         # made here if it is not there yet (a job run again finds it), never
@@ -79,11 +137,13 @@ jobs:
             gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --draft \
               --title "Scriba ${GITHUB_REF_NAME#v}" --generate-notes
           gh release upload "${GITHUB_REF_NAME}" scriba.flatpak scriba.flatpak.minisig \
+            "scriba-${GITHUB_REF_NAME}-linux-x86_64-sources.tar.xz" \
+            "scriba-${GITHUB_REF_NAME}-linux-x86_64-sources.tar.xz.minisig" \
             --repo "${GITHUB_REPOSITORY}" --clobber
       - name: Published when every file is there
         # release-complete: the same step, word for word, in build.yml and in
         # windows.yml (tests/test_release.py compares them and runs it). The
-        # release is a draft until the Flatpak, the installer and the zip are
+        # release is a draft until the binaries and both source archives are
         # all there with their signatures: the installed app asks GitHub for
         # the latest release, and a draft is never that. Whichever workflow
         # ends last finds every file and publishes.
@@ -93,10 +153,12 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           names="$(gh release view "$tag" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')"
           missing=""
-          for wanted in '\.flatpak$' '\.flatpak\.minisig$' \
-                        "-setup-${tag}-windows-x64\.exe$" "-setup-${tag}-windows-x64\.exe\.minisig$" \
-                        "-${tag}-windows-x64-portable\.zip$" "-${tag}-windows-x64-portable\.zip\.minisig$"; do
-            echo "$names" | grep -Eq -- "$wanted" || missing="$missing $wanted"
+          for wanted in "scriba.flatpak" "scriba.flatpak.minisig" \
+                        "scriba-setup-${tag}-windows-x64.exe" "scriba-setup-${tag}-windows-x64.exe.minisig" \
+                        "scriba-${tag}-windows-x64-portable.zip" "scriba-${tag}-windows-x64-portable.zip.minisig" \
+                        "scriba-${tag}-windows-x64-sources.tar.xz" "scriba-${tag}-windows-x64-sources.tar.xz.minisig" \
+                        "scriba-${tag}-linux-x86_64-sources.tar.xz" "scriba-${tag}-linux-x86_64-sources.tar.xz.minisig"; do
+            echo "$names" | grep -Fxq -- "$wanted" || missing="$missing $wanted"
           done
           if [ -n "$missing" ]; then
             echo "the release stays a draft, still missing:$missing"

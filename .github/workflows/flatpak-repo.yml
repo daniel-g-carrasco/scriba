@@ -25,20 +25,43 @@ jobs:
 
   build:
     needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
-      options: --privileged
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Build without publishing credentials
+      - name: Install signature verification
         run: |
-          flatpak-builder --disable-rofiles-fuse --force-clean --ccache=false --repo=repo build-dir "$MANIFEST"
-          flatpak build --runtime build-dir python3 /app/share/scriba/check_flatpak.py
-          flatpak build-bundle repo scriba.flatpak io.github.daniel_g_carrasco.scriba stable \
-            --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq minisign
+      # Both platform workflows must finish their signed binary/source uploads.
+      # Import exactly that release's checked bundle instead of rebuilding it.
+      - name: Fetch and verify the published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLIC_KEY: RWRF+AifJvn/zhz0o7MBObIYHgw9+sWoc4GaBK+qYnJY0AqeJm540y0a
+        run: |
+          ready=false
+          for attempt in $(seq 1 120); do
+            draft="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft' 2>/dev/null || true)"
+            if [ "$draft" = false ]; then ready=true; break; fi
+            echo "Waiting for the complete release ($attempt/120)"
+            sleep 30
+          done
+          [ "$ready" = true ] || { echo "Release is still absent or a draft; repository unchanged"; exit 1; }
+          sources="scriba-${GITHUB_REF_NAME}-linux-x86_64-sources.tar.xz"
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --pattern scriba.flatpak --pattern scriba.flatpak.minisig \
+            --pattern "$sources" --pattern "$sources.minisig"
+          minisign -V -P "$PUBLIC_KEY" -m scriba.flatpak -x scriba.flatpak.minisig
+          minisign -V -P "$PUBLIC_KEY" -m "$sources" -x "$sources.minisig"
+      - name: Check that the sources describe this exact bundle and commit
+        run: |
+          python3 tools/collect_linux_sources.py \
+            --verify-pair "scriba-${GITHUB_REF_NAME}-linux-x86_64-sources.tar.xz" \
+            --bundle scriba.flatpak --app-commit "$GITHUB_SHA"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: scriba-flatpak-repository

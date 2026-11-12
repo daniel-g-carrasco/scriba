@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><defs><mask id="badge-gap"><rect width="16" height="16" fill="white"/><circle cx="12.5" cy="12.5" r="3.5" fill="black"/></mask></defs><g mask="url(#badge-gap)">
+  <path fill-rule="evenodd" d="M15 8a7 7 0 1 1-14 0 7 7 0 0 1 14 0ZM5.75 3.375h4.5V4.75L10.75 9.0625 8 13.375 5.25 9.0625 5.75 4.75Z"/>
+  <path d="M7.5 7.625h1V14h-1Z"/>
+  <circle cx="8" cy="7.625" r=".8"/>
+</g><g transform="translate(12.5 12.5)"><circle cx="0" cy="0" r="1.6"/></g></svg>

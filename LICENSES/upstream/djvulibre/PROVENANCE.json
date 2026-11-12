@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "package": "mingw-w64-ucrt-x86_64-djvulibre",
+  "version": "3.5.30-1",
+  "base": "mingw-w64-djvulibre",
+  "source_url": "https://repo.msys2.org/mingw/sources/mingw-w64-djvulibre-3.5.30-1.src.tar.zst",
+  "source_archive_sha256": "f72480c4f49a5083632ea4a1ef29bee0f9e99b5258aac144fa7c6a043ce894ce",
+  "source_signature_fingerprint": "5F944B027F7FE2091985AA2EFA11531AA0AA7F57",
+  "recipe_sha256": "7c9d0cdf5f7ca086d68a60920bbe7a14139a081701b0ede9094a6b83aeff8577",
+  "payloads": [
+    {
+      "source": "https://downloads.sourceforge.net/djvu/djvulibre-3.5.30.tar.gz",
+      "member": "mingw-w64-djvulibre/djvulibre-3.5.30.tar.gz",
+      "sha256": "ee5e457d4cfebe566f94b99e5e3d3cc7f5c79ddb741c2ac2ba2e456f00329644",
+      "status": "verified"
+    }
+  ],
+  "files": [
+    {
+      "file": "AUTHORS",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source_member": "mingw-w64-djvulibre/djvulibre-3.5.30.tar.gz!/djvulibre-3.5.30/AUTHORS"
+    },
+    {
+      "file": "COPYING",
+      "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643",
+      "source_member": "mingw-w64-djvulibre/djvulibre-3.5.30.tar.gz!/djvulibre-3.5.30/COPYING"
+    },
+    {
+      "file": "COPYRIGHT",
+      "sha256": "aca12808fc2c0c9d67ac550bc52864863eff8c92d3fc505fdf16d3a5903dbdb6",
+      "source_member": "mingw-w64-djvulibre/djvulibre-3.5.30.tar.gz!/djvulibre-3.5.30/COPYRIGHT"
+    },
+    {
+      "file": "debian/copyright",
+      "sha256": "4d4f31af027e78fc17fe2a4250a5284e041608465141e64dec26551fa5092d8a",
+      "source_member": "mingw-w64-djvulibre/djvulibre-3.5.30.tar.gz!/djvulibre-3.5.30/debian/copyright"
+    }
+  ]
+}

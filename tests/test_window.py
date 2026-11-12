@@ -95,21 +95,23 @@ class WindowTest(unittest.TestCase):
 
     # -- the first start ---------------------------------------------------------------
 
-    def test_with_models_missing_the_window_shows_their_download_and_then_transcribe(self):
+    def test_with_models_missing_record_stays_available_and_the_models_page_downloads(self):
         self.engines._missing = list(backend.needed_models())
         window = self.window()
-        self.assertEqual(self.state(window), "models")
-        page = window.transcribe.models
-        self.assertEqual(page.list.get_row_at_index(2).get_title(), models.purpose(models.WESPEAKER))
-        self.assertIn("MB", page.status.get_description())
+        self.assertEqual(self.state(window), "empty")
+        self.assertEqual(window.views.get_visible_child_name(), "record")
+        window.show_models()
+        page = window.models
+        self.assertEqual(page.rows[models.WESPEAKER.key].get_title(), models.purpose(models.WESPEAKER))
+        self.assertIn("MB", page.rows[models.WESPEAKER.key].get_subtitle())
         page.download()
-        self.assertTrue(_setup.spin(lambda: self.state(window) == "empty"))
+        self.assertTrue(_setup.spin(lambda: not self.engines.missing()))
         self.assertEqual(self.engines.missing(), [])
 
     def test_a_failed_download_is_said_in_words_and_can_be_tried_again(self):
         self.engines._missing = [models.WHISPER_TURBO]
         window = self.window()
-        page = window.transcribe.models
+        page = window.models
         with mock.patch.object(self.engines, "download",
                                side_effect=models.ModelError("The download of x stopped at 3 of 5 MB.", "cut")), \
                 contextlib.redirect_stderr(io.StringIO()) as said:
@@ -118,7 +120,7 @@ class WindowTest(unittest.TestCase):
         self.assertIn("stopped at 3 of 5 MB", page.error.get_label())
         self.assertIn("cut", said.getvalue())
         self.assertTrue(page.download_button.get_visible())
-        self.assertEqual(self.state(window), "models")
+        self.assertEqual(self.state(window), "empty")
 
     # -- Transcribe --------------------------------------------------------------------
 
@@ -133,7 +135,7 @@ class WindowTest(unittest.TestCase):
         self.assertEqual(page.file_row.get_title(), "call.m4a")
         self.assertIn("10:00", page.file_row.get_subtitle())
         self.assertFalse(page.video_row.get_visible())          # an audio file: no video to make
-        self.assertFalse(page.quality_row.get_visible())        # the precise model is not there
+        self.assertTrue(page.quality_row.get_visible())         # Precise remains discoverable before download
         self.assertTrue(page.start_button.get_sensitive())
         self.assertIn("10:00", page.estimate_row.get_subtitle())
         self.assertEqual(page.folder_row.get_subtitle(), jobs.full_path(self.out))
@@ -160,7 +162,7 @@ class WindowTest(unittest.TestCase):
         window = self.window()
         _setup.spin(lambda: False, 0.2)
         self.assertEqual(self.engines.tests, 0)                 # nothing to test with yet
-        window.transcribe.models.download()
+        window.models.download()
         self.assertTrue(_setup.spin(lambda: self.app.cfg.measured_device == fake_engines.CARD.name))
         self.assertEqual(self.engines.tests, 1)
 
@@ -175,7 +177,8 @@ class WindowTest(unittest.TestCase):
         self.assertTrue(_setup.spin(lambda: "Testing the graphics cards" in page.device_row.get_subtitle()))
         self.assertTrue(page.device_spinner.get_visible())
         page.start()                                            # the work wants the card
-        self.assertIsNone(window.cards.running)
+        self.assertIsNotNone(window.cards.running)
+        self.assertTrue(window.cards.running.is_set())          # requested, not yet acknowledged
         hold.set()
         self.assertTrue(_setup.spin(lambda: window.nav.get_visible_page() is window.result))
         # the test the work stopped runs again once the work is over
@@ -233,8 +236,8 @@ class WindowTest(unittest.TestCase):
         window = self.opened()
         page = window.transcribe
         page.terms_row.set_text("QG&UPS, UPS")
-        self.assertFalse(page.quality_row.get_visible())
-        self.engines.precise = True                             # downloaded from the preferences
+        self.assertTrue(page.quality_row.get_visible())
+        self.engines.precise = True                             # downloaded from the shared models page
         window.settings_changed()
         self.assertEqual(page.terms_row.get_text(), "QG&UPS, UPS")
         self.assertTrue(page.quality_row.get_visible())
@@ -370,7 +373,7 @@ class WindowTest(unittest.TestCase):
         window.open_path(str(made.session))
         self.assertTrue(_setup.spin(lambda: window.nav.get_visible_page() is window.result))
         self.assertEqual(window.result.entries["Speaker 2"].get_text(), "Anna")
-        self.assertTrue(window.open_button.get_visible())
+        self.assertTrue(window.lookup_action("open").get_enabled())
         self.app.cfg.my_name = "Daniel"
         window.result.my_voice.set_selected(1)
         self.assertEqual(window.result.entries["Speaker 1"].get_text(), "Daniel")
@@ -510,16 +513,19 @@ class WindowTest(unittest.TestCase):
         self.assertEqual(self.app.saved, 2)
         self.assertTrue(backend.request_for(self.app.cfg, self.recording, None, False).cpu)
 
-    def test_the_preferences_download_the_precise_model_and_keep_the_usual_folder(self):
+    def test_preferences_link_to_the_shared_models_page_and_keep_the_usual_folder(self):
         window = self.window()
         dialog = PreferencesDialog(window, self.app)
-        self.assertTrue(dialog.precise_button.get_visible())
-        dialog.precise_button.emit("clicked")
-        self.assertTrue(_setup.spin(lambda: self.engines.has(models.WHISPER_LARGE) and dialog._download is None))
-        self.assertFalse(dialog.precise_button.get_visible())
+        self.assertFalse(hasattr(dialog, "precise_button"))
         dialog._set_folder(str(self.out))
         self.assertEqual(self.app.cfg.output_folder, str(self.out))
         self.assertTrue(dialog.folder_reset.get_visible())
+        dialog.present(window)
+        dialog._open_models()
+        self.assertIs(window.nav.get_visible_page(), window.models)
+        window.models.precise_button.emit("clicked")
+        self.assertTrue(_setup.spin(lambda: self.engines.has(models.WHISPER_LARGE) and not self.app.downloads.busy))
+        self.assertTrue(_setup.spin(lambda: not window.models.precise_button.get_visible()))
 
     def test_the_size_is_remembered(self):
         window = self.window()
@@ -627,10 +633,10 @@ class RecordPageTest(unittest.TestCase):
     def test_the_automatic_choice_says_which_devices_and_why(self):
         page = self.window().record
         microphone = page.input_side.row.get_subtitle()
-        self.assertIn("Automatic: Cuffia auricolare (Free BYRD)", microphone)
-        self.assertIn("in use by Teams", microphone)
+        self.assertIn("Automatic · Cuffia auricolare (Free BYRD)", microphone)
+        self.assertIn("in use by Teams", page.input_side.auto.get_subtitle())
         sound = page.output_side.row.get_subtitle()
-        self.assertIn("Automatic: every output; the call is on Cuffie (Free BYRD), in use by Teams", sound)
+        self.assertIn("All outputs · Cuffie (Free BYRD)", sound)
         self.assertIn("the silent ones are left out", page.output_side.auto.get_subtitle())
         # every device has its row and its meter, moving
         self.assertEqual(len(page.input_side.rows), 3)
@@ -645,7 +651,7 @@ class RecordPageTest(unittest.TestCase):
         page.input_side.rows["in-webcam"][1].set_active(True)
         self.assertEqual(self.app.cfg.input_device, "in-webcam")
         page.refresh()
-        self.assertIn("chosen by hand", page.input_side.row.get_subtitle())
+        self.assertIn("Chosen · ", page.input_side.row.get_subtitle())
         _page, recorder = self.recording(window)
         self.assertEqual(recorder.plan.input.id, "in-webcam")
         self.assertEqual([d.id for d in recorder.plan.outputs], ["out-headset", "out-speakers"])
@@ -668,7 +674,7 @@ class RecordPageTest(unittest.TestCase):
         self.assertEqual([t.role for t in recorder.takes], ["me", "others", "others"])
         self.assertEqual(Path(recorder.folder), self.tmp / "recordings")
         self.assertTrue(_setup.spin(lambda: len(page._track_rows) == 3, 5))
-        self.assertFalse(page.sources.get_visible())
+        self.assertTrue(page.sources.get_visible())
         self.assertTrue(page.stop_button.get_visible())
         recorder.elapsed = 75.0
         recorder.alerts = (levels.Alert(levels.QUIET, "me-1", -46.0),)
@@ -706,20 +712,17 @@ class RecordPageTest(unittest.TestCase):
 
     def test_closing_while_recording_asks_and_stopping_closes_the_files_first(self):
         window = self.window()
+        self.app.window = window
+        self.app.quit = mock.Mock()
+        self.app.cfg.keep_running = False
         page, recorder = self.recording(window)
         window.close()
         self.assertTrue(window.get_visible())              # asked, not closed
         self.assertEqual(recorder.state, "recording")
-        # This test stops through the page below, bypassing the dialog's
-        # response. Close the embedded Adw.Dialog first, as a response does;
-        # an open modal dialog otherwise prevents the Linux window closing.
-        if not _setup.WINDOWS:
-            dialog = window.get_visible_dialog()
-            self.assertIsNotNone(dialog)
-            dialog.force_close()
-        window._ask_to_stop_recording = lambda: None
-        page.stop(then=window._close_after_recording)
-        self.assertTrue(_setup.spin(lambda: not window.get_visible(), 5))
+        self.assertIsNotNone(self.app._quit_dialog)
+        self.app._quit_dialog.emit("response", "quit")
+        self.assertTrue(_setup.spin(lambda: self.app.exit_ready, 5))
+        self.app.quit.assert_called_once()
         self.assertEqual(recorder.state, "stopped")
         self.assertEqual(len(self.engines.finished), 1)
 

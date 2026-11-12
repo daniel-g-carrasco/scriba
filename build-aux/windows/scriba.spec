@@ -77,20 +77,21 @@ backends = ['ggml-vulkan.dll', 'ggml-blas.dll', *sorted(p.name for p in BIN.glob
 for name in backends:
     engine(BIN / name)
 
-# ffmpeg and ffprobe: the LGPL build (tools/build_ffmpeg.sh, static: no
-# DLLs). MSYS2's is GPL-3.0-or-later and pulls in 150 libraries; it goes
-# in only when asked, for a build that is never given away
+# ffmpeg and ffprobe: the minimal static build (tools/build_ffmpeg.sh).
+# Scriba is GPL-3.0-or-later; keeping this smaller LGPL build is a size and
+# dependency choice. The MSYS2 alternative remains experimental: release
+# checks and source collection currently expect our minimal build.
 LGPL_FFMPEG = ROOT / 'build' / 'ffmpeg-lgpl' / 'bin'
 if (LGPL_FFMPEG / 'ffmpeg.exe').is_file():
     engine(LGPL_FFMPEG / 'ffmpeg.exe')
     engine(LGPL_FFMPEG / 'ffprobe.exe')       # tools/finish_bundle.py adds its BUILD.txt and licence
 elif os.environ.get('SCRIBA_GPL_FFMPEG') == '1':
-    print('WARNING: MSYS2\'s ffmpeg (GPL-3.0-or-later) in the build: not to be given away')
+    print('WARNING: experimental MSYS2 ffmpeg: release checks expect the minimal static build')
     engine(BIN / 'ffmpeg.exe')
     engine(BIN / 'ffprobe.exe')
 else:
     raise SystemExit('ERROR: no LGPL ffmpeg in build/ffmpeg-lgpl: run tools/build_ffmpeg.sh first '
-                     '(or SCRIBA_GPL_FFMPEG=1 for a build of MSYS2\'s, never to be given away)')
+                     '(or SCRIBA_GPL_FFMPEG=1 to experiment with MSYS2\'s build)')
 
 # onnxruntime's C library (the speech filter, the voices), called with
 # ctypes: the analysis cannot see it

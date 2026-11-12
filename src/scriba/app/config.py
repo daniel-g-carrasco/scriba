@@ -34,6 +34,8 @@ MIGRATIONS: dict[int, Callable[[dict], dict]] = {}
 class Config:
     theme: str = "system"                # "system", "light", "dark"
     language: str = ""                   # "" = the desktop's; "en", "it"
+    keep_running: bool = True            # keep working when the window is closed, if the desktop supports it
+    models_download_paused: bool = False # a deliberate pause survives the next launch
     check_updates: bool = True           # Windows: a newer release, once a day at start
     last_update_check: str = ""          # ISO date of the last check made on its own
     last_folder: str = ""                # the folder of the last recording opened, for the next file dialog

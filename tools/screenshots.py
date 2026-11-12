@@ -260,6 +260,8 @@ class Shots:
         from scriba.app.backend import needed_models
         app, _tmp = self.app({"missing": needed_models()})
         window = self.window(app)
+        window.show_models()
+        self.settle()
         self.photograph(window, "01-modelli-mancanti")
         window.destroy()
 

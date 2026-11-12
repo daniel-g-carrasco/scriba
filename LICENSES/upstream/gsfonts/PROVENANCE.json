@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "package": "mingw-w64-ucrt-x86_64-gsfonts",
+  "version": "20200910-3",
+  "base": "mingw-w64-gsfonts",
+  "source_url": "https://repo.msys2.org/mingw/sources/mingw-w64-gsfonts-20200910-3.src.tar.zst",
+  "source_archive_sha256": "919e9888283afaf48ac690bf0822bbb7b05a377e76131aa08a73da6a26d1c729",
+  "source_signature_fingerprint": "5F944B027F7FE2091985AA2EFA11531AA0AA7F57",
+  "recipe_sha256": "e52c7017c8e8bfa6514b96b5fd53299354ac266c841a3254c98a18d224cb3649",
+  "payloads": [
+    {
+      "source": "git+https://github.com/ArtifexSoftware/urw-base35-fonts#tag=20200910",
+      "status": "vcs_unchecked",
+      "resolved_commit": "c15105598aa7eb256b1ebfcecd3d078801521e73"
+    }
+  ],
+  "files": [
+    {
+      "file": "COPYING",
+      "sha256": "57c8ff33c9c0cfc3ef00e650a1cc910d7ee479a8bc509f6c9209a7c2a11399d6",
+      "source_member": "mingw-w64-gsfonts/urw-base35-fonts@c15105598aa7eb256b1ebfcecd3d078801521e73:COPYING",
+      "vcs_commit": "c15105598aa7eb256b1ebfcecd3d078801521e73"
+    },
+    {
+      "file": "LICENSE",
+      "sha256": "772b1b47eead8722156abaed483154e1dd1137e7035290550cea6444192a2e3f",
+      "source_member": "mingw-w64-gsfonts/urw-base35-fonts@c15105598aa7eb256b1ebfcecd3d078801521e73:LICENSE",
+      "vcs_commit": "c15105598aa7eb256b1ebfcecd3d078801521e73"
+    }
+  ]
+}

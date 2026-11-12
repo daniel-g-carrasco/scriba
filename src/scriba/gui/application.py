@@ -18,13 +18,14 @@ gi.require_version("Gdk", "4.0")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from scriba import APP_ID, APP_NAME, ENV_PREFIX, PACKAGE_DIR, SLUG, WINDOWS, __version__, i18n  # noqa: E402
-from scriba.app import config, jobs, services  # noqa: E402
+from scriba.app import config, jobs, services
+from scriba.app.model_downloads import ModelDownloads  # noqa: E402
 from scriba.app.backend import Backend  # noqa: E402
 from scriba.app.log import complain  # noqa: E402
 from scriba.app.paths import in_flatpak  # noqa: E402
 from scriba.i18n import _  # noqa: E402
 
-from .ui import load_style, run_in_thread  # noqa: E402
+from .ui import activities, load_style, run_in_thread  # noqa: E402
 from .preferences import PreferencesDialog, about_dialog  # noqa: E402
 from .window import MainWindow  # noqa: E402
 
@@ -134,6 +135,15 @@ class App(Adw.Application):
         # the engines, as the window asks them (the models in the user's
         # cache or SCRIBA_MODELS_DIR, the speeds measured in the state)
         self.backend = Backend(None, self.paths.state / jobs.SPEEDS_FILE)
+        self._downloads = None
+        self.background = None
+        self.closing = False
+        self.exit_ready = False
+        self._ignore_settings_error = False
+        self._logout_cookie = 0
+        self._quit_dialog = None
+        self._drain_source = 0
+        self._models_stopped_for_exit = False
         self.cfg: config.Config | None = None
         self.window: MainWindow | None = None
         self.installing = False    # reserved before Popen, until Setup closes the app or launch fails
@@ -164,8 +174,9 @@ class App(Adw.Application):
             print(f"settings: {notice.kind} {notice.detail} {notice.reason}".rstrip(), file=sys.stderr, flush=True)
             GLib.idle_add(lambda n=notice: self._window().toast(settings_notice_text(n)) and False)
 
-        for name, handler in (("quit", self.quit),
+        for name, handler in (("quit", self.request_quit),
                               ("about", lambda: about_dialog(self._window(), self.cfg, self.paths)),
+                              ("models", lambda: self._window().show_models()),
                               ("preferences", lambda: PreferencesDialog(self._window(), self).present(self._window())),
                               ("check-updates", lambda: self.check_updates(manual=True))):
             action = Gio.SimpleAction.new(name, None)
@@ -176,6 +187,12 @@ class App(Adw.Application):
         self.set_accels_for_action("window.close", ["<Control>w"])
         self.set_accels_for_action("win.open", ["<Control>o"])
 
+        if not WINDOWS:
+            import signal
+            self.connect("query-end", self._query_end)
+            for signum in (signal.SIGTERM, signal.SIGINT):
+                GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum, self._termination_signal)
+
         if WINDOWS:
             self._windows_notifications()
             # once a day, a while after start: the user's work comes first
@@ -185,13 +202,36 @@ class App(Adw.Application):
             run_in_thread(lambda: updates.clean_downloads(project), lambda *_: None)    # the installers of earlier updates
 
     def do_activate(self):
+        if self.closing or self.exit_ready:
+            return
         self._window().present()
+        self._ensure_background()
+        if self.background is not None:
+            self.background.hidden = False
+
+    def _ensure_background(self):
+        if self.background is not None:
+            return
+        if not os.environ.get(f"{ENV_PREFIX}_SCREENSHOT") and not self.closing:
+            from .background import Background
+            self.background = Background(self, str(SOURCE_ICONS) if SOURCE_ICONS.is_dir() else "")
+            try:
+                self.background.start()
+            except Exception as error:
+                complain("starting the tray", error)
+                self.background.stop()
+                self.background = None
 
     def do_open(self, files, _n_files, _hint):
         """Files and folders given on the command line or by the file
         manager, also to the instance already running."""
+        if self.closing:
+            return
         window = self._window()
         window.present()
+        self._ensure_background()
+        if self.background is not None:
+            self.background.hidden = False
         paths = [file.get_path() for file in files if file.get_path()]
         if paths:
             window.open_path(paths[0])      # one recording at a time
@@ -202,10 +242,179 @@ class App(Adw.Application):
         if self.window is None:
             self.window = MainWindow(self)
             shot = os.environ.get(f"{ENV_PREFIX}_SCREENSHOT")
+            if not shot:
+                GLib.idle_add(self._start_models)
             if shot:   # developer aid (and the CI's smoke test): the window as PNG after a few seconds
                 GLib.timeout_add(int(float(os.environ.get(f"{ENV_PREFIX}_SCREENSHOT_DELAY", "3")) * 1000),
                                  lambda: self._screenshot(shot) and False)
         return self.window
+
+    @property
+    def downloads(self):
+        if self._downloads is None:
+            def dispatch(callback):
+                GLib.idle_add(lambda: callback() or False)
+            self._downloads = ModelDownloads(self.backend, self.cfg, self.save_config, dispatch=dispatch)
+        return self._downloads
+
+    def _start_models(self):
+        if self.window is not None and not self.window._closing:
+            self.downloads.start_required()
+        return False
+
+    def do_shutdown(self):
+        if self.background is not None:
+            self.background.stop()
+        if self._downloads is not None:
+            self._downloads.shutdown()
+        Adw.Application.do_shutdown(self)
+
+    def _termination_signal(self):
+        self.request_quit(system=True)
+        return True
+
+    def _query_end(self, *_args):
+        if not self._logout_cookie:
+            self._logout_cookie = self.inhibit(
+                self.window, Gtk.ApplicationInhibitFlags.LOGOUT, _("Finishing the recording and saving files"))
+        self.request_quit(system=True)
+
+    def request_quit(self, *, system=False):
+        """Every explicit exit uses the same asynchronous completion barrier."""
+        if self.closing or self.exit_ready:
+            return
+        if self._quit_dialog is not None:
+            if system:
+                self._quit_dialog.close()
+                self._quit_dialog = None
+                self._begin_quit()
+            return
+        window = self.window
+        if not system and window is not None and (window.record.busy or window.transcribe.busy):
+            self._confirm_quit()
+        else:
+            self._begin_quit()
+
+    def _confirm_quit(self):
+        window = self.window
+        parts = []
+        if window.record.busy:
+            parts.append(_("The recording will be stopped and saved."))
+        if window.transcribe.busy:
+            parts.append(_("The transcription in progress will be cancelled."))
+        dialog = self._quit_dialog = Adw.AlertDialog(heading=_("Quit Scriba?"), body="\n\n".join(parts))
+        dialog.add_response("keep", _("Keep Working"))
+        dialog.add_response("quit", _("Stop and Quit"))
+        dialog.set_response_appearance("quit", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("keep")
+        dialog.set_close_response("keep")
+
+        def answered(_dialog, response):
+            self._quit_dialog = None
+            if response == "quit":
+                self._begin_quit()
+        dialog.connect("response", answered)
+        if self.background is not None:
+            self.background.present()
+        else:
+            window.present()
+        dialog.present(window)
+
+    def _begin_quit(self):
+        if self.closing or self.exit_ready:
+            return
+        self.closing = True
+        self._models_stopped_for_exit = False
+        if not self._drain_source:
+            self._drain_source = GLib.timeout_add(50, self._drain)
+        window = self.window
+        try:
+            if self._update_dialog is not None:
+                self._update_dialog.cancel_download()
+                self._update_dialog.close()
+            if window is not None:
+                window._closing = True
+                window.set_sensitive(False)
+                window.transcribe.remember()
+                window.result.stop()
+                window.transcribe.stop_all()
+                window.cards.stop()
+                if window.record.busy:
+                    window.record.stop(then=lambda: None)
+                window.record.stop_all()
+        except Exception as error:
+            self.block_exit(error)
+
+    def _drain(self):
+        if not self.closing:
+            self._drain_source = 0
+            return False
+        window = self.window
+        if activities.active_count or (window is not None and
+                (window.record.busy or window.transcribe.busy or window.cards.running is not None)):
+            return True
+        # Stop downloads only after critical writes have succeeded. A failed
+        # export can then leave the app open with its download service usable.
+        if not self._models_stopped_for_exit:
+            if window is not None:
+                try:
+                    state_saved = window.save_state()
+                    settings_saved = self.save_config()
+                    if not self._ignore_settings_error and (state_saved is False or settings_saved is False):
+                        raise OSError(_("The preferences or window state could not be saved."))
+                except Exception as error:
+                    self.block_exit(error)
+                    self._drain_source = 0
+                    return False
+            self._models_stopped_for_exit = True
+            if self._downloads is not None:
+                self._downloads.shutdown()
+        if self._downloads is not None and self._downloads.busy:
+            return True
+        self.exit_ready = True
+        self._drain_source = 0
+        if self._logout_cookie:
+            self.uninhibit(self._logout_cookie)
+            self._logout_cookie = 0
+        if self.background is not None:
+            self.background.stop()
+        if window is not None:
+            window.destroy()
+        self.quit()
+        return False
+
+    def block_exit(self, error):
+        if not self.closing:
+            return
+        self.closing = False
+        if self.window is not None:
+            self.window._closing = False
+            self.window.set_sensitive(True)
+            self.window.transcribe.show_start()
+            if self.window.transcribe.media is not None:
+                self.window.transcribe.refresh_estimate()
+            if self.background is not None:
+                self.background.present()
+            else:
+                self.window.present()
+            self._show_close_error(error)
+
+    def _show_close_error(self, error):
+        dialog = Adw.AlertDialog(
+            heading=_("Scriba Could Not Finish Saving"),
+            body=_("The application has been kept open so you can check your files.") + "\n\n" + str(error))
+        dialog.add_response("keep", _("Keep Open"))
+        dialog.add_response("quit", _("Quit Anyway"))
+        dialog.set_response_appearance("quit", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("keep")
+        dialog.set_close_response("keep")
+
+        def answered(_dialog, response):
+            if response == "quit":
+                self._ignore_settings_error = True
+                self.request_quit(system=True)
+        dialog.connect("response", answered)
+        dialog.present(self.window)
 
     def _screenshot(self, path: str) -> None:
         """The window as a PNG, taken right after a frame is painted: between
@@ -243,13 +452,15 @@ class App(Adw.Application):
 
     # -- settings ----------------------------------------------------------------------
 
-    def save_config(self) -> None:
+    def save_config(self) -> bool:
         try:
             config.save(self.cfg, self.paths.config_file)
         except OSError as e:        # said: a setting that does not stick is a bug report
             complain("saving the settings", e)
             if self.window is not None:
                 self.window.toast(_("The settings could not be saved: {error}").format(error=e.strerror or e))
+            return False
+        return True
 
     # -- notifications -----------------------------------------------------------------
 
@@ -285,6 +496,8 @@ class App(Adw.Application):
     # -- a newer version (Windows: on Linux the Flatpak brings it) ----------------------
 
     def _daily_update_check(self) -> bool:
+        if self.closing or self.exit_ready:
+            return False
         today = time.strftime("%Y-%m-%d")
         if self.cfg.check_updates and self.cfg.last_update_check != today:
             self.cfg.last_update_check = today
@@ -293,6 +506,8 @@ class App(Adw.Application):
         return False
 
     def check_updates(self, manual: bool) -> None:
+        if self.closing or self.exit_ready:
+            return False
         from scriba.app import updates
         if self.work_busy or self.installing:
             self._pending_check = bool(self._pending_check) or manual
@@ -317,10 +532,12 @@ class App(Adw.Application):
 
     @property
     def work_busy(self) -> bool:
-        return self.window is not None and (self.window.record.busy or self.window.transcribe.busy)
+        return (self._downloads is not None and self._downloads.busy) or (
+            self.window is not None and (self.window.record.busy or self.window.transcribe.busy
+                                         or self.window.cards.running is not None or self.window.result.busy))
 
     def update_allowed(self, release) -> bool:
-        if self.installing:
+        if self.closing or self.installing:
             return False
         if self.work_busy:
             self._pending_release = (release, True)
@@ -328,6 +545,8 @@ class App(Adw.Application):
         return True
 
     def _offer_update(self, release, manual: bool) -> None:
+        if self.closing or self.exit_ready:
+            return False
         self._available_release = release
         if self.work_busy or self.installing:
             self._pending_release = (release, manual or bool(self._pending_release and self._pending_release[1]))
@@ -343,9 +562,15 @@ class App(Adw.Application):
 
     def work_changed(self) -> None:
         """Suppress proposals for the whole job, including recording start and finish."""
-        if self.window is None:
+        if self.window is None or self.closing:
             return
+        if self.background is not None:
+            self.background.update()
         self.window.refresh_update_banner()
+        if self.window.record.busy or self.window.transcribe.busy:
+            self.window.cards.stop()
+        elif not self.downloads.busy:
+            self.window.cards.start_if_needed()
         if self.work_busy:
             if self._available_release is not None and self._pending_release is None:
                 self._pending_release = (self._available_release, False)

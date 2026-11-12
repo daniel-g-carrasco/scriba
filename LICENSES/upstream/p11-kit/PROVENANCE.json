@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "package": "mingw-w64-ucrt-x86_64-p11-kit",
+  "version": "0.26.5-1",
+  "base": "mingw-w64-p11-kit",
+  "source_url": "https://repo.msys2.org/mingw/sources/mingw-w64-p11-kit-0.26.5-1.src.tar.zst",
+  "source_archive_sha256": "1665c40c6237bbb9be868ecfc00ab65f9038047e4c608126de575ae4ecb5ca12",
+  "source_signature_fingerprint": "5F944B027F7FE2091985AA2EFA11531AA0AA7F57",
+  "recipe_sha256": "98fa23420fa595ea71cf51fdb3f5cc2bcd77a0b996e36549057fe82b8c1e723f",
+  "payloads": [
+    {
+      "source": "https://github.com/p11-glue/p11-kit/releases/download/0.26.5/p11-kit-0.26.5.tar.xz",
+      "member": "mingw-w64-p11-kit/p11-kit-0.26.5.tar.xz",
+      "sha256": "f2cc09111e44bf3fea58f023180b33acea90aa82d042d6fbb623fbc5ba033bb7",
+      "status": "verified"
+    }
+  ],
+  "files": [
+    {
+      "file": "AUTHORS",
+      "sha256": "cde5ccbf5083e28d1b38333b5817be06c158fb3218f21ee5594b6125a9372591",
+      "source_member": "mingw-w64-p11-kit/p11-kit-0.26.5.tar.xz!/p11-kit-0.26.5/AUTHORS"
+    },
+    {
+      "file": "COPYING",
+      "sha256": "2e1ba993904df807a10c3eda1e5c272338edc35674b679773a8b3ad460731054",
+      "source_member": "mingw-w64-p11-kit/p11-kit-0.26.5.tar.xz!/p11-kit-0.26.5/COPYING"
+    }
+  ]
+}

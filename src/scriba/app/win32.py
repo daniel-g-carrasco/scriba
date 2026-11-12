@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import ctypes
 import os
+import threading
+import uuid
 from ctypes import wintypes
 
 
@@ -170,3 +172,144 @@ def on_network(path: str) -> bool:
     kernel32.GetDriveTypeW.argtypes = [wintypes.LPCWSTR]
     kernel32.GetDriveTypeW.restype = wintypes.UINT
     return kernel32.GetDriveTypeW(drive + sep) == DRIVE_REMOTE
+
+
+# -- a folder chosen by the Windows shell -------------------------------------------
+
+class _GUID(ctypes.Structure):
+    _fields_ = [("data1", ctypes.c_uint32), ("data2", ctypes.c_uint16), ("data3", ctypes.c_uint16),
+                ("data4", ctypes.c_ubyte * 8)]
+
+    @classmethod
+    def parse(cls, text):
+        return cls.from_buffer_copy(uuid.UUID(text).bytes_le)
+
+
+_FILE_OPEN_DIALOG = _GUID.parse("dc1c5a9c-e88a-4dde-a5a1-60f82a20aef7")
+_IID_FILE_OPEN_DIALOG = _GUID.parse("d57c7288-d4ad-4768-be02-9d969532d960")
+_IID_SHELL_ITEM = _GUID.parse("43826d1e-e718-42ee-bc55-a1e261c37bfe")
+_IID_OLE_WINDOW = _GUID.parse("00000114-0000-0000-C000-000000000046")
+_CANCELLED = 0x800704C7
+
+
+def _com_checked(hr):
+    if hr & 0x80000000:
+        code = hr & 0xffffffff
+        # Win32 HRESULTs carry the system error code in the low word.
+        native_code = code & 0xffff if (code >> 16) & 0x1fff == 7 else code
+        message = ctypes.FormatError(native_code).strip()
+        raise OSError(f"{message} (0x{code:08X})")
+
+
+def _com_method(pointer, slot, *types, result=ctypes.c_long):
+    table = ctypes.cast(pointer, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+    return ctypes.WINFUNCTYPE(result, ctypes.c_void_p, *types)(table[slot])
+
+
+def _com_release(pointer):
+    if pointer:
+        _com_method(pointer, 2, result=ctypes.c_ulong)(pointer)
+
+
+def choose_folder_native(title: str, initial: str | None = None, owner: int = 0,
+                         cancelled: threading.Event | None = None) -> str | None:
+    """Run on a dedicated worker: path on accept, None on cancel, OSError on failure.
+
+    The worker owns every COM interface and memory allocation for its complete
+    lifetime. The integer owner HWND may be obtained by the GTK main thread.
+    https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-imodalwindow-show
+    """
+    ole = ctypes.WinDLL("ole32")
+    shell = ctypes.WinDLL("shell32")
+    ole.CoInitializeEx.argtypes = [ctypes.c_void_p, wintypes.DWORD]
+    ole.CoInitializeEx.restype = ctypes.c_long
+    ole.CoUninitialize.argtypes = []
+    ole.CoUninitialize.restype = None
+    ole.CoCreateInstance.argtypes = [ctypes.POINTER(_GUID), ctypes.c_void_p, wintypes.DWORD,
+                                    ctypes.POINTER(_GUID), ctypes.POINTER(ctypes.c_void_p)]
+    ole.CoCreateInstance.restype = ctypes.c_long
+    ole.CoTaskMemFree.argtypes = [ctypes.c_void_p]
+    ole.CoTaskMemFree.restype = None
+    shell.SHCreateItemFromParsingName.argtypes = [wintypes.LPCWSTR, ctypes.c_void_p, ctypes.POINTER(_GUID),
+                                                ctypes.POINTER(ctypes.c_void_p)]
+    shell.SHCreateItemFromParsingName.restype = ctypes.c_long
+
+    dialog, initial_item, selected = ctypes.c_void_p(), ctypes.c_void_p(), ctypes.c_void_p()
+    name = ctypes.c_void_p()
+    timer = 0
+    timer_errors = []
+    close_posted = False
+    ole_window = ctypes.c_void_p()
+    user = ctypes.WinDLL("user32", use_last_error=True)
+    timer_proc = ctypes.WINFUNCTYPE(None, wintypes.HWND, wintypes.UINT, ctypes.c_size_t, wintypes.DWORD)
+    user.SetTimer.argtypes = [wintypes.HWND, ctypes.c_size_t, wintypes.UINT, timer_proc]
+    user.SetTimer.restype = ctypes.c_size_t
+    user.KillTimer.argtypes = [wintypes.HWND, ctypes.c_size_t]
+    user.KillTimer.restype = wintypes.BOOL
+    user.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    user.PostMessageW.restype = wintypes.BOOL
+
+    @timer_proc
+    def on_timer(_hwnd, _message, _timer, _time):
+        nonlocal close_posted
+        if cancelled is not None and cancelled.is_set() and not close_posted:
+            try:
+                handle = wintypes.HWND()
+                _com_checked(_com_method(ole_window, 3, ctypes.POINTER(wintypes.HWND))(ole_window, ctypes.byref(handle)))
+                if handle:
+                    # Close() from a TIMERPROC returns S_OK without closing on
+                    # Windows 11. IOleWindow identifies our own dialog without
+                    # searching by title/class; posting lets its modal loop exit.
+                    if not user.PostMessageW(handle, 0x0010, 0, 0):
+                        raise ctypes.WinError(ctypes.get_last_error())
+                    close_posted = True
+            except OSError as error:
+                timer_errors.append(error)
+
+    # A dedicated worker has no previously selected incompatible apartment.
+    _com_checked(ole.CoInitializeEx(None, 2 | 4))  # STA, disable obsolete OLE1 DDE
+    try:
+        _com_checked(ole.CoCreateInstance(ctypes.byref(_FILE_OPEN_DIALOG), None, 1,
+                                      ctypes.byref(_IID_FILE_OPEN_DIALOG), ctypes.byref(dialog)))
+        _com_checked(_com_method(dialog, 0, ctypes.POINTER(_GUID), ctypes.POINTER(ctypes.c_void_p))(
+            dialog, ctypes.byref(_IID_OLE_WINDOW), ctypes.byref(ole_window)))
+        flags = wintypes.DWORD()
+        _com_checked(_com_method(dialog, 10, ctypes.POINTER(wintypes.DWORD))(dialog, ctypes.byref(flags)))
+        # Folder, filesystem, existing path, unchanged CWD, no Recent Items entry.
+        options = flags.value | 0x20 | 0x40 | 0x800 | 0x8 | 0x02000000
+        _com_checked(_com_method(dialog, 9, wintypes.DWORD)(dialog, options))
+        _com_checked(_com_method(dialog, 17, wintypes.LPCWSTR)(dialog, title))
+        if initial and os.path.isdir(initial):
+            _com_checked(shell.SHCreateItemFromParsingName(initial, None, ctypes.byref(_IID_SHELL_ITEM),
+                                                       ctypes.byref(initial_item)))
+            _com_checked(_com_method(dialog, 12, ctypes.c_void_p)(dialog, initial_item))
+        if cancelled is not None:
+            if cancelled.is_set():
+                return None
+            timer = user.SetTimer(None, 0, 100, on_timer)
+            if not timer:
+                raise ctypes.WinError(ctypes.get_last_error())
+        answer = _com_method(dialog, 3, wintypes.HWND)(dialog, owner or None)
+        if timer_errors:
+            raise timer_errors[0]
+        if answer & 0xffffffff == _CANCELLED:
+            return None
+        _com_checked(answer)
+        _com_checked(_com_method(dialog, 20, ctypes.POINTER(ctypes.c_void_p))(dialog, ctypes.byref(selected)))
+        if not selected:
+            raise OSError("Windows returned no selected folder.")
+        _com_checked(_com_method(selected, 5, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p))(
+            selected, ctypes.c_int(0x80058000), ctypes.byref(name)))  # SIGDN_FILESYSPATH
+        if not name:
+            raise OSError("Windows returned no filesystem path for the folder.")
+        return ctypes.wstring_at(name)
+    finally:
+        if timer:
+            user.KillTimer(None, timer)
+        if name:
+            ole.CoTaskMemFree(name)
+        _com_release(ole_window)
+        _com_release(selected)
+        _com_release(initial_item)
+        _com_release(dialog)
+        ole.CoUninitialize()

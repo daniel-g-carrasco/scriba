@@ -47,8 +47,6 @@ SW_MAXIMIZE = 3
 # our own handle: argtypes set on ctypes.windll.user32 would reach every
 # other user of that shared object (win32.py, the tray)
 _user32 = ctypes.WinDLL("user32", use_last_error=True)
-_user32.FindWindowW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR]
-_user32.FindWindowW.restype = wintypes.HWND
 _user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
 
 
@@ -74,15 +72,25 @@ def close_open_popovers(window: Gtk.Window) -> int:
 
 
 def hwnd_of(window: Gtk.Window) -> int:
-    """The window's HWND: from GDK where the binding gives it, else by title."""
+    """The HWND of this exact surface, also when GdkWin32 has no typelib."""
     surface = window.get_surface()
+    if surface is None:
+        return 0
     try:
         import gi
         gi.require_version("GdkWin32", "4.0")
         from gi.repository import GdkWin32
-        return int(GdkWin32.Win32Surface.get_handle(surface))
-    except Exception:       # no typelib, no method in this GTK: the title is the next best thing
-        return int(_user32.FindWindowW(None, window.get_title() or "") or 0)
+        return int(GdkWin32.Win32Surface.get_handle(surface) or 0)
+    except (ImportError, ValueError, AttributeError):
+        # Frozen GTK may omit GdkWin32's typelib. Read this surface's pointer,
+        # never another window with a matching title (Preferences can repeat).
+        get_pointer = ctypes.pythonapi.PyCapsule_GetPointer
+        get_pointer.argtypes = [ctypes.py_object, ctypes.c_char_p]
+        get_pointer.restype = ctypes.c_void_p
+        gtk = ctypes.CDLL("libgtk-4-1.dll")
+        gtk.gdk_win32_surface_get_handle.argtypes = [ctypes.c_void_p]
+        gtk.gdk_win32_surface_get_handle.restype = wintypes.HWND
+        return int(gtk.gdk_win32_surface_get_handle(get_pointer(surface.__gpointer__, None)) or 0)
 
 
 def normal_size(window: Gtk.Window) -> tuple[int, int]:

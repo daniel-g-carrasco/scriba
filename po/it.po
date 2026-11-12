@@ -1785,3 +1785,207 @@ msgstr "Sta partendo un aggiornamento: aspetta che {app} si riapra."
 
 msgid "No audio was found at this point in the recording."
 msgstr "In questo punto della registrazione non è stato trovato audio."
+
+msgid "Stop and Quit"
+msgstr "Interrompi ed esci"
+
+msgid "Keep Open"
+msgstr "Mantieni aperto"
+
+msgid "Quit Anyway"
+msgstr "Esci comunque"
+
+msgid "Finishing the recording and saving files"
+msgstr "Completamento della registrazione e salvataggio dei file"
+
+msgid "The recording will be stopped and saved."
+msgstr "La registrazione verrà interrotta e salvata."
+
+msgid "The transcription in progress will be cancelled."
+msgstr "La trascrizione in corso verrà annullata."
+
+msgid "Quit Scriba?"
+msgstr "Uscire da Scriba?"
+
+msgid "Scriba Could Not Finish Saving"
+msgstr "Scriba non ha completato il salvataggio"
+
+msgid "The application has been kept open so you can check your files."
+msgstr "L’applicazione è rimasta aperta per consentirti di controllare i file."
+
+msgid "The preferences or window state could not be saved."
+msgstr "Non è stato possibile salvare le preferenze o lo stato della finestra."
+
+msgid "Ready"
+msgstr "A riposo"
+
+msgid "Show Scriba"
+msgstr "Mostra Scriba"
+
+msgid "Recording Paused"
+msgstr "Registrazione in pausa"
+
+msgid "Finishing the Recording…"
+msgstr "Completamento della registrazione…"
+
+msgid "Quit"
+msgstr "Esci"
+
+msgid "Transcribing…"
+msgstr "Trascrizione in corso…"
+
+msgid "Preparing Transcription…"
+msgstr "Preparazione della trascrizione…"
+
+msgid "Stop Recording"
+msgstr "Termina la registrazione"
+
+msgid "The Model Download Needs Attention"
+msgstr "Il download dei modelli richiede attenzione"
+
+msgid "Resume Recording"
+msgstr "Riprendi la registrazione"
+
+msgid "Pause Recording"
+msgstr "Metti in pausa la registrazione"
+
+msgid "Testing the Graphics Cards…"
+msgstr "Prova delle schede grafiche…"
+
+msgid "Preparing Transcription"
+msgstr "Preparazione della trascrizione"
+
+msgid "Connecting…"
+msgstr "Connessione…"
+
+msgid "Checking Downloaded Data…"
+msgstr "Verifica dei dati scaricati…"
+
+msgid "Checking the Model…"
+msgstr "Verifica del modello…"
+
+msgid "Downloads Paused"
+msgstr "Download in pausa"
+
+msgid "Download Failed"
+msgstr "Download non riuscito"
+
+msgid "Models Ready"
+msgstr "Modelli pronti"
+
+msgid "Models"
+msgstr "Modelli"
+
+msgid "These models are needed to transcribe speech. You can record immediately while they download. Files are checked before use and stay on this computer."
+msgstr "Questi modelli servono per trascrivere il parlato. Puoi già registrare mentre vengono scaricati. I file vengono verificati prima dell’uso e rimangono su questo computer."
+
+msgid "Pause Downloads"
+msgstr "Metti in pausa i download"
+
+msgid "Resume"
+msgstr "Riprendi"
+
+msgid "Required for Transcription"
+msgstr "Necessari per trascrivere"
+
+msgid "Precise Quality, Optional"
+msgstr "Qualità precisa, facoltativa"
+
+msgid "A larger, slower model. Download it only if you want to choose Precise for a transcription."
+msgstr "Un modello più grande e più lento. Scaricalo se vuoi scegliere la qualità Precisa per una trascrizione."
+
+msgid "Source and Licence"
+msgstr "Provenienza e licenza"
+
+msgid "Queued"
+msgstr "In attesa"
+
+msgid "File"
+msgstr "File"
+
+msgid "Not Downloaded"
+msgstr "Da scaricare"
+
+msgid "Speech Models"
+msgstr "Modelli vocali"
+
+msgid "Downloads, progress and the optional Precise model"
+msgstr "Download, avanzamento e modello facoltativo per la qualità Precisa"
+
+msgid "Manage Models"
+msgstr "Gestisci modelli"
+
+msgid "Background"
+msgstr "Funzionamento in background"
+
+msgid "Keep Running When Closing the Window"
+msgstr "Continua a funzionare quando chiudi la finestra"
+
+msgid "When a tray icon is available. Choose Quit to stop Scriba."
+msgstr "Quando è disponibile un’icona nell’area di notifica. Scegli Esci per terminare Scriba."
+
+msgid "Work is in progress: test the graphics cards after it finishes."
+msgstr "È in corso un’operazione: prova le schede grafiche al termine."
+
+msgid "Open Folder"
+msgstr "Apri cartella"
+
+msgid "Change…"
+msgstr "Cambia…"
+
+msgid "No active device"
+msgstr "Nessun dispositivo attivo"
+
+msgid "All outputs"
+msgstr "Tutte le uscite"
+
+msgid "All outputs · {count} active"
+msgstr "Tutte le uscite · {count} attive"
+
+msgid "Recording · {device}"
+msgstr "In registrazione · {device}"
+
+msgid "All outputs · {device}"
+msgstr "Tutte le uscite · {device}"
+
+msgid "Automatic · {device}"
+msgstr "Automatico · {device}"
+
+msgid "Chosen · {device}"
+msgstr "Scelto · {device}"
+
+msgid "Download the missing models, or choose Fast if only the Precise model is missing."
+msgstr "Scarica i modelli mancanti, oppure scegli Veloce se manca soltanto il modello per la qualità Precisa."
+
+msgid "Models Needed for This Transcription"
+msgstr "Modelli necessari per questa trascrizione"
+
+msgid "Waiting for the models selected above."
+msgstr "In attesa dei modelli scelti sopra."
+
+msgid "The file or folder could not be opened: {error}"
+msgstr "Non è stato possibile aprire il file o la cartella: {error}"
+
+msgid "Choose a file or folder on this computer."
+msgstr "Scegli un file o una cartella su questo computer."
+
+msgid "The desktop did not confirm the operation."
+msgstr "Il sistema non ha confermato l’operazione."
+
+msgid "The file or folder could not be selected: {error}"
+msgstr "Non è stato possibile selezionare il file o la cartella: {error}"
+
+msgid "Identifies speech segments in the recording (Silero)"
+msgstr "Riconosce i tratti di voce nella registrazione (Silero)"
+
+msgid "Check the recording files in {folder}."
+msgstr "Controlla i file della registrazione in {folder}."
+
+msgid "Waiting for the Graphics Card Test to Stop…"
+msgstr "Arresto della prova della scheda grafica…"
+
+msgid "Recording Needs Attention"
+msgstr "La registrazione richiede attenzione"
+
+msgid "Transcription Needs Attention"
+msgstr "La trascrizione richiede attenzione"

@@ -4,8 +4,6 @@ legal sections)."""
 
 from __future__ import annotations
 
-import threading
-
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -14,10 +12,10 @@ from gi.repository import Adw, Gtk  # noqa: E402
 
 from scriba import APP_ID, APP_NAME, WEBSITE, WINDOWS, __version__  # noqa: E402
 from scriba.app import credits, diagnostics, jobs, models, recording  # noqa: E402
-from scriba.app.task import Cancelled  # noqa: E402
 from scriba.i18n import _  # noqa: E402
 
-from .ui import choose_folder, escape, recordings_folder, report, run_in_thread, toolkit_versions  # noqa: E402
+from .style_values import SPACE_XL  # noqa: E402
+from .ui import choose_folder, escape, recordings_folder, run_in_thread, toolkit_versions  # noqa: E402
 
 QUALITIES = ("turbo", "large")
 LICENCES = {"MIT": Gtk.License.MIT_X11, "Apache-2.0": Gtk.License.APACHE_2_0, "BSD-3-Clause": Gtk.License.BSD_3,
@@ -29,14 +27,56 @@ CUSTOM_LICENCES = {"CC-BY-4.0": ("Creative Commons Attribution 4.0 International
 PUBLIC_DOMAIN = ("CC-PDDC",)        # nobody's: no © before the name
 
 
+def preference_size(width, height, available_width, available_height):
+    """Bound the initial content to the actual work area, without a size floor."""
+    return min(width, max(1, available_width)), min(height, max(1, available_height))
+
+
+def _win32_workarea(monitor):
+    # GTK exports this API, but its Windows typelib omits the binding.
+    # Use GTK's own application-pixel work area, including fractional DPI.
+    import ctypes
+
+    class Rectangle(ctypes.Structure):
+        _fields_ = [("x", ctypes.c_int), ("y", ctypes.c_int),
+                    ("width", ctypes.c_int), ("height", ctypes.c_int)]
+    unpack = ctypes.pythonapi.PyCapsule_GetPointer
+    unpack.argtypes = [ctypes.py_object, ctypes.c_char_p]
+    unpack.restype = ctypes.c_void_p
+    gtk = ctypes.CDLL("libgtk-4-1.dll")
+    workarea = gtk.gdk_win32_monitor_get_workarea
+    workarea.argtypes = [ctypes.c_void_p, ctypes.POINTER(Rectangle)]
+    workarea.restype = None
+    area = Rectangle()
+    workarea(unpack(monitor.__gpointer__, None), ctypes.byref(area))
+    return area
+
+
+def _available_size(window):
+    display = window.get_display()
+    surface = window.get_surface()
+    monitor = display.get_monitor_at_surface(surface) if surface is not None else display.get_monitors().get_item(0)
+    if monitor is None:
+        return 600, 640
+    if WINDOWS:
+        area = _win32_workarea(monitor)
+    else:
+        area = monitor.get_geometry()
+    # Space for the native frame, in the same application pixels as GTK.
+    return area.width - 2 * SPACE_XL, area.height - 2 * SPACE_XL
+
+
 class PreferencesDialog(Adw.PreferencesDialog):
     def __init__(self, window, app):
         super().__init__(title=_("Preferences"))
         self.window, self.app = window, app
         self.backend = app.backend
         cfg = app.cfg
-        self._download: threading.Event | None = None
-        self.connect("closed", lambda *_: self._download and self._download.set())
+        if WINDOWS:
+            width, height = preference_size(600, 640, *_available_size(window))
+            self.set_content_width(width)
+            self.set_content_height(height)
+            self.connect("realize", self._prepare_window)
         page = Adw.PreferencesPage()
 
         group = Adw.PreferencesGroup(title=_("Appearance"))
@@ -78,12 +118,14 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self.quality_row.set_selected(QUALITIES.index(cfg.quality) if cfg.quality in QUALITIES else 0)
         self.quality_row.connect("notify::selected", lambda r, _p: self._set("quality", QUALITIES[r.get_selected()]))
         group.add(self.quality_row)
-        self.precise_row = Adw.ActionRow(title=_("Precise Model"), subtitle_lines=2)
-        self.precise_button = Gtk.Button(label=_("Download"), valign=Gtk.Align.CENTER)
-        self.precise_button.connect("clicked", lambda *_: self._download_precise())
-        self.precise_row.add_suffix(self.precise_button)
-        group.add(self.precise_row)
-        self._show_precise()
+        self.models_row = Adw.ActionRow(title=_("Speech Models"),
+                                        subtitle=_("Downloads, progress and the optional Precise model"))
+        manage = Gtk.Button(label=_("Manage Models"), valign=Gtk.Align.CENTER)
+        manage.connect("clicked", lambda *_: self._open_models())
+        self.models_row.add_suffix(manage)
+        group.add(self.models_row)
+        unsubscribe = app.downloads.subscribe(lambda _state: self._show_test())
+        self.connect("closed", lambda *_: unsubscribe())
         self.folder_row = Adw.ActionRow(title=_("Usual Folder for the Files"), subtitle_lines=2)
         self.folder_reset = Gtk.Button(icon_name="edit-undo-symbolic", tooltip_text=_("Next to the Recording"),
                                        valign=Gtk.Align.CENTER, css_classes=["flat"])
@@ -92,7 +134,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
         choose = Gtk.Button(icon_name="folder-open-symbolic", tooltip_text=_("Choose a Folder…"),
                             valign=Gtk.Align.CENTER, css_classes=["flat"])
         choose.connect("clicked", lambda *_: choose_folder(self.window, _("Choose the Usual Folder for the Files"),
-                                                           cfg.output_folder or None, self._set_folder))
+                                                           cfg.output_folder or None, self._set_folder, owner_widget=self))
         self.folder_row.add_suffix(choose)
         group.add(self.folder_row)
         self._show_folder()
@@ -108,10 +150,19 @@ class PreferencesDialog(Adw.PreferencesDialog):
                             valign=Gtk.Align.CENTER, css_classes=["flat"])
         choose.connect("clicked", lambda *_: choose_folder(self.window, _("Choose the Folder for the Recordings"),
                                                            str(recordings_folder(self.app.cfg)),
-                                                           self._set_recordings))
+                                                           self._set_recordings, owner_widget=self))
         self.recordings_row.add_suffix(choose)
         group.add(self.recordings_row)
         self._show_recordings()
+        page.add(group)
+
+        group = Adw.PreferencesGroup(title=_("Background"))
+        background = Adw.SwitchRow(
+            title=_("Keep Running When Closing the Window"),
+            subtitle=_("When a tray icon is available. Choose Quit to stop Scriba."),
+            active=cfg.keep_running)
+        background.connect("notify::active", lambda row, _prop: self._set("keep_running", row.get_active()))
+        group.add(background)
         page.add(group)
 
         if WINDOWS:
@@ -170,7 +221,9 @@ class PreferencesDialog(Adw.PreferencesDialog):
         cards = self.window.cards
         running = cards.running is not None
         self.test_spinner.set_visible(running)
-        self.test_button.set_sensitive(not running and self.backend.has(models.WHISPER_TURBO))
+        self.test_button.set_sensitive(not running and not self.window.record.busy
+                                       and not self.window.transcribe.busy and not self.app.downloads.busy
+                                       and self.backend.has(models.WHISPER_TURBO))
         self.test_row.remove_css_class("warning")
         measured = self.app.cfg.measured_device
         if running:
@@ -191,8 +244,8 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self._show_automatic()
 
     def _test_again(self) -> None:
-        if self.window.transcribe.busy:
-            self.add_toast(Adw.Toast(title=escape(_("A transcription is in progress: the test waits for its end.")),
+        if self.window.record.busy or self.window.transcribe.busy or self.app.downloads.busy:
+            self.add_toast(Adw.Toast(title=escape(_("Work is in progress: test the graphics cards after it finishes.")),
                                      timeout=6))
             return
         self.window.cards.start()
@@ -204,49 +257,16 @@ class PreferencesDialog(Adw.PreferencesDialog):
         if 0 <= index < len(self._devices):
             self._set("device", self._devices[index])
 
-    # -- the precise model ---------------------------------------------------------
+    def _prepare_window(self, _dialog):
+        root = self.get_root()
+        if isinstance(root, Gtk.Window) and root is not self.window:
+            root.set_resizable(True)
+            size = preference_size(self.get_content_width(), self.get_content_height(), *_available_size(self.window))
+            root.set_default_size(*size)
 
-    def _show_precise(self, text: str = "") -> None:
-        model = models.WHISPER_LARGE
-        there = self.backend.has(model)
-        self.precise_button.set_visible(not there and self._download is None)
-        if text:
-            self.precise_row.set_subtitle(escape(text))
-        elif there:
-            self.precise_row.set_subtitle(escape(_("Downloaded: “Precise” can be chosen for a transcription")))
-        else:
-            self.precise_row.set_subtitle(escape(_("Not downloaded: {size}, from Hugging Face").format(
-                size=models.megabytes(model.size))))
-
-    def _download_precise(self) -> None:
-        model = models.WHISPER_LARGE
-        cancel = self._download = threading.Event()
-        self._show_precise(_("Downloading…"))
-        shown = [-1]
-
-        def progress(done, total):
-            from gi.repository import GLib
-            percent = int(100 * done / total) if total else 0
-            if percent != shown[0]:
-                shown[0] = percent
-                GLib.idle_add(lambda: self._download is cancel and self._show_precise(
-                    _("Downloading: {percent} %").format(percent=percent)) and False)
-
-        def done(_path, error):
-            if self._download is not cancel:
-                return
-            self._download = None
-            if error is None:
-                self._show_precise()
-                self.window.settings_changed()
-            elif isinstance(error, Cancelled):
-                self._show_precise()
-            else:
-                report("downloading the precise model", error)
-                self._show_precise(str(error))
-                self.precise_button.set_visible(True)
-
-        run_in_thread(lambda: self.backend.download(model, progress, cancel), done)
+    def _open_models(self):
+        self.close()
+        self.window.show_models()
 
     # -- the folder ----------------------------------------------------------------
 
@@ -277,7 +297,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
 def about_dialog(parent, cfg, paths, present: bool = True) -> Adw.AboutDialog:
     dialog = Adw.AboutDialog(
         application_name=APP_NAME, application_icon=APP_ID, version=__version__,
-        developer_name="Daniel Grasso", license_type=Gtk.License.MIT_X11, website=WEBSITE,
+        developer_name="Daniel Grasso", license_type=Gtk.License.GPL_3_0, website=WEBSITE,
         issue_url=WEBSITE + "/issues",
         comments=_("Transcribes recordings of meetings on your own computer, with speakers and subtitles. "
                    "Nothing leaves the computer: the models are downloaded once, and checked."))

@@ -26,7 +26,7 @@ class WorkflowGatesTest(unittest.TestCase):
             self.assertNotIn("${{ false }}", found[name])
             self.assertNotIn("secrets.", found[name])
             self.assertNotIn("contents: write", found[name])
-        self.assertIn("needs: test", found["flatpak"])
+        self.assertIn("needs: [test, scope]", found["flatpak"])
         self.assertIn("/app/share/scriba/check_flatpak.py", found["flatpak"])
         self.assertIn("org.gnome.Platform//50", found["flatpak"])
         release_gate = re.search(r"^    if:\s*(.+)$", found["release"], re.M).group(1)
@@ -79,3 +79,35 @@ class WorkflowGatesTest(unittest.TestCase):
         gate = re.search(r"^    if:\s*(.+)$", found["release"], re.M).group(1)
         self.assertIn("github.event_name != 'pull_request'", gate)
         self.assertIn("startsWith(github.ref, 'refs/tags/v')", gate)
+
+
+class PackagingOptimisationTest(unittest.TestCase):
+    def test_only_packaging_is_conditional_and_git_history_is_available(self):
+        linux_text = (WORKFLOWS / "build.yml").read_text(encoding="utf-8")
+        windows_text = (WORKFLOWS / "windows.yml").read_text(encoding="utf-8")
+        linux, windows = jobs(linux_text), jobs(windows_text)
+        self.assertNotIn("paths-ignore", linux_text + windows_text)
+        self.assertNotRegex(linux["test"], r"(?m)^    if:")
+        self.assertNotRegex(windows["probe"], r"(?m)^    if:")
+        self.assertIn("needs.scope.outputs.package != 'false'", linux["flatpak"])
+        self.assertIn("needs.probe.outputs.package != 'false'", windows["package"])
+        for scope in (linux["scope"], windows["probe"]):
+            self.assertIn("fetch-depth: 0", scope)
+            self.assertIn("tools/ci_build.py scope", scope)
+            self.assertIn("outputs:", scope)
+        self.assertIn("unittest discover -s tests", windows["probe"])
+        for name in ("probe", "package"):
+            self.assertRegex(windows[name], r"(?m)^            git$")
+
+    def test_flatpak_state_cache_includes_ccache_and_exact_runtime_identity(self):
+        flatpak = jobs((WORKFLOWS / "build.yml").read_text(encoding="utf-8"))["flatpak"]
+        self.assertIn("path: .flatpak-builder", flatpak)
+        self.assertIn("tools/ci_build.py flatpak-key", flatpak)
+        self.assertIn("flatpak-builder --show-manifest", flatpak)
+        self.assertIn("--show-commit org.gnome.Sdk//50", flatpak)
+        self.assertIn("--show-commit org.gnome.Platform//50", flatpak)
+        self.assertIn("--arch=x86_64", flatpak)
+        self.assertIn("--ccache --rebuild-on-sdk-change", flatpak)
+        self.assertNotIn("--ccache=false", flatpak)
+        self.assertNotIn("--disable-cache", flatpak)
+        self.assertNotIn("restore-keys:", flatpak)

@@ -64,6 +64,7 @@ class ResultPage(Adw.NavigationPage):
     def __init__(self, window):
         super().__init__(title=_("Transcript"), tag="result")
         self.window = window
+        self._writes = 0
         self.result: jobs.Result | None = None
         self.media = None                   # Gtk.MediaFile of the recording, made on the first Listen
         self.muted = False                  # the tests listen without a sound
@@ -80,6 +81,19 @@ class ResultPage(Adw.NavigationPage):
         self.view.add_top_bar(header)
         self.set_child(self.view)
         self.connect("hidden", lambda *_: self.stop())
+
+    @property
+    def busy(self):
+        return self._writes > 0
+
+    def _write_finished(self, error, action):
+        self._writes -= 1
+        self._saving_changed(self.busy)
+        if error is not None:
+            report(action, error)
+            self.window.toast(str(error))
+            self.window.app.block_exit(error)
+        self.window.app.work_changed()
 
     # -- filling it ------------------------------------------------------------------
 
@@ -122,6 +136,7 @@ class ResultPage(Adw.NavigationPage):
         page.add(group)
         self.page = page
         self.view.set_content(page)
+        self._saving_changed(self.busy)
 
     def _outcome(self, result: jobs.Result, request: jobs.Request) -> list[Adw.PreferencesGroup]:
         """The line at the top: what came out, in two words, and the facts;
@@ -220,19 +235,19 @@ class ResultPage(Adw.NavigationPage):
             self.save_button.set_sensitive(not active and bool(speakers.clean(self.names()) or self.result.names))
 
     def save_balance(self) -> None:
-        if self._saving:
+        if self.busy or self.window.app.closing:
             return
         result, balance = self.result, self.balance_scale.get_value()
         self.stop()
+        self._writes += 1
         self._saving_changed(True, listening=True)
+        self.window.app.work_changed()
 
         def done(saved, error):
+            self._write_finished(error, "saving a listening copy")
             if self.result is not result:
                 return
-            self._saving_changed(False)
             if error is not None:
-                report("saving a listening copy", error)
-                self.window.toast(str(error))
                 return
             self._reset_media()
             self.session_row.set_subtitle(escape(result.session.name))
@@ -242,7 +257,10 @@ class ResultPage(Adw.NavigationPage):
                 self.window.toast(note)
             self.window.toast(_("A new listening copy was saved."))
 
-        run_in_thread(lambda: self.window.backend.save_balance(result, balance), done)
+        try:
+            run_in_thread(lambda: self.window.backend.save_balance(result, balance), done)
+        except Exception as error:
+            self._write_finished(error, "starting a listening-copy save")
 
     # -- the voices ----------------------------------------------------------------
 
@@ -330,18 +348,18 @@ class ResultPage(Adw.NavigationPage):
             self.entries[self.result.me].set_text(name)
 
     def save_names(self) -> None:
-        if self._saving:
+        if self.busy or self.window.app.closing:
             return
         result, names = self.result, self.names()
+        self._writes += 1
         self._saving_changed(True)
+        self.window.app.work_changed()
 
         def done(named, error) -> None:
+            self._write_finished(error, "saving with the names")
             if self.result is not result:
                 return
-            self._saving_changed(False)
             if error is not None:
-                report("saving with the names", error)
-                self.window.toast(str(error))
                 return
             cfg = self.window.app.cfg
             cfg.speaker_names = speakers.remembered(cfg.speaker_names, speakers.clean(names))
@@ -355,12 +373,17 @@ class ResultPage(Adw.NavigationPage):
             self.window.toast(ngettext("Saved with the names: {n} new file", "Saved with the names: {n} new files",
                                        len(named.outputs)).format(n=len(named.outputs)))
 
-        run_in_thread(lambda: self.window.backend.save_names(result, names), done)
+        try:
+            run_in_thread(lambda: self.window.backend.save_names(result, names), done)
+        except Exception as error:
+            self._write_finished(error, "starting a names save")
 
     # -- listening to a voice -------------------------------------------------------
 
     def listen(self, voice: speakers.Voice) -> None:
         """Prepare a short WAV off the main loop, then play it from zero."""
+        if self.window.app.closing:
+            return
         if self._playing == voice.label:
             self.stop()
             return

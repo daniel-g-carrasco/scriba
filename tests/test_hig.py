@@ -92,8 +92,11 @@ class InnerWindowsAreDialogs(unittest.TestCase):
 
 def icon_names(source: str) -> set[str]:
     """Every symbolic icon a source names: its strings ending in -symbolic."""
-    return {node.value for node in ast.walk(ast.parse(source))
-            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    tree = ast.parse(source)
+    dynamic_parts = {id(part) for node in ast.walk(tree) if isinstance(node, ast.JoinedStr)
+                     for part in ast.walk(node)}
+    return {node.value for node in ast.walk(tree)
+            if id(node) not in dynamic_parts and isinstance(node, ast.Constant) and isinstance(node.value, str)
             and node.value.endswith("-symbolic") and " " not in node.value}
 
 
@@ -121,6 +124,9 @@ class IconsAreTheThemes(unittest.TestCase):
         missing = sorted(f"{path.name}: {name}" for path in sorted(gui_dir().rglob("*.py"))
                          for name in icon_names(path.read_text(encoding="utf-8")) - own if name not in there)
         self.assertEqual(missing, [], "not in Adwaita " + str(theme))
+
+    def test_dynamic_suffixes_are_not_mistaken_for_complete_icon_names(self):
+        self.assertEqual(icon_names('name = f"{app}-symbolic"\nicon = "folder-symbolic"'), {"folder-symbolic"})
 
     def test_the_search_sees_the_names(self):
         self.assertEqual(icon_names('Gtk.Image(icon_name="folder-symbolic")\nx = "a b-symbolic"\n'),

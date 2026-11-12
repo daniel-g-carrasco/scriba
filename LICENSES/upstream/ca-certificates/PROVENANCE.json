@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "package": "mingw-w64-ucrt-x86_64-ca-certificates",
+  "version": "20260816-1",
+  "base": "mingw-w64-ca-certificates",
+  "source_url": "https://repo.msys2.org/mingw/sources/mingw-w64-ca-certificates-20260816-1.src.tar.zst",
+  "source_archive_sha256": "b383044865046a1e8e6f8101d25f7d276ca5080a6673c2541bc48886aebcd8a1",
+  "source_signature_fingerprint": "5F944B027F7FE2091985AA2EFA11531AA0AA7F57",
+  "recipe_sha256": "635b260940bd2f517269ac1a346bf539d4ab4224b4c38579f05d055eaf0b5882",
+  "payloads": [
+    {
+      "source": "https://ftp.debian.org/debian/pool/main/c/ca-certificates/ca-certificates_20260816.tar.xz",
+      "member": "mingw-w64-ca-certificates/ca-certificates_20260816.tar.xz",
+      "sha256": "d939bcdd0cb058712cf4175bac76997676eb8b68fe9473765e1b40fb3d5b186a",
+      "status": "verified"
+    }
+  ],
+  "files": [
+    {
+      "file": "debian/copyright",
+      "sha256": "1ae033c4679e4440848d2fcf6bc8e57d4da2644662775f401e2fede57862674c",
+      "source_member": "mingw-w64-ca-certificates/ca-certificates_20260816.tar.xz!/ca-certificates/debian/copyright"
+    }
+  ]
+}

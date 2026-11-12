@@ -18,6 +18,7 @@ from scriba.app import services, updates  # noqa: E402
 from scriba.i18n import _  # noqa: E402
 
 from .style_values import SPACE_L, SPACE_M, SPACE_S, SPACE_XXL  # noqa: E402
+from .ui import run_in_thread  # noqa: E402
 
 
 class UpdateDialog(Adw.Dialog):
@@ -28,7 +29,7 @@ class UpdateDialog(Adw.Dialog):
         self.project = services.project()
         self.installer = updates.installer_of(self.project, release) if updates.installed_build() else None
         self._cancel = threading.Event()
-        self.connect("closed", lambda *_: self._cancel.set())
+        self.connect("closed", lambda *_: self.cancel_download())
 
         view = Adw.ToolbarView()
         view.add_top_bar(Adw.HeaderBar())
@@ -80,6 +81,8 @@ class UpdateDialog(Adw.Dialog):
         self.close()
 
     def _download(self) -> None:
+        if self._cancel.is_set():
+            return
         if self.app is not None and not self.app.update_allowed(self.release):
             self._failed(_("The update waits until the recording or transcription has finished."))
             return
@@ -94,18 +97,30 @@ class UpdateDialog(Adw.Dialog):
         def progress(done: int, total: int) -> None:
             GLib.idle_add(self._progress, done, total)
 
-        def work() -> None:
-            try:
-                dest = updates.download_folder(self.project) / self.installer.name
-                updates.download(self.project, self.installer, dest, progress, self._cancel)
-            except Exception as e:      # whatever it is, said: never a dialog stuck on "Downloading…"
-                GLib.idle_add(self._failed, _("Download failed: {error}").format(error=e))
-                return
-            GLib.idle_add(self._downloaded, dest)
+        def work() -> Path:
+            dest = updates.download_folder(self.project) / self.installer.name
+            updates.download(self.project, self.installer, dest, progress, self._cancel)
+            return dest
 
-        threading.Thread(target=work, name="update-download", daemon=True).start()
+        def done(dest, error) -> None:
+            if error is not None:
+                if not self._cancel.is_set():
+                    self._failed(_("Download failed: {error}").format(error=error))
+                return
+            self._downloaded(dest)
+
+        try:
+            run_in_thread(work, done)
+        except Exception as error:
+            self._failed(_("Download failed: {error}").format(error=error))
+
+    def cancel_download(self) -> None:
+        """Request cancellation; the worker registry owns the actual completion."""
+        self._cancel.set()
 
     def _progress(self, done: int, total: int) -> bool:
+        if self._cancel.is_set():
+            return False
         if total:
             self.progress.set_fraction(min(done / total, 1.0))
             self.progress.set_text(f"{done / 1e6:.1f} / {total / 1e6:.1f} MB")

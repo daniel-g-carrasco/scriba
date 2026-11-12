@@ -27,7 +27,9 @@ python tools/compile_po.py
 env -u MSYSTEM python bin/scriba
 ```
 
-The first start downloads the checked speech models: about 600 MB for the fast transcription model, speech filter and voice embedder. A larger model is optional. The app benchmarks the available graphics cards and processor on a bundled public-domain speech sample, checking words as well as speed. Actual processing time depends on the computer and recording.
+The first start automatically downloads the checked speech models: about 600 MB for the fast transcription model, speech filter and voice embedder. Download progress and any errors appear in the Models page. These models are needed to transcribe; recording is available while they download. A larger model is optional and is downloaded only when requested from the same page. The app benchmarks the available graphics cards and processor on a bundled public-domain speech sample, checking words as well as speed. Actual processing time depends on the computer and recording.
+
+By default, closing the window keeps Scriba running in the notification area when the desktop provides one. Its icon shows recording, pause, transcription, download and error states. Reopen the window from the icon, or choose Quit to finish saving and exit. This behaviour can be disabled in Preferences. On Linux desktops without a supported notification area, closing the window uses the normal exit procedure.
 
 The command line is available from the same sources:
 
@@ -60,4 +62,4 @@ Windows and Linux CI check pushes and pull requests and build development artifa
 
 ## Licence
 
-The application code is MIT, see [LICENSE](LICENSE). Third-party engines, models and libraries retain their own licences and credits. The intended signing process for a future release is described in [CODE_SIGNING.md](CODE_SIGNING.md).
+Scriba is licensed under GPL-3.0-or-later; see [COPYRIGHT](COPYRIGHT), [LICENSE](LICENSE) and [distribution notes](docs/licensing.md). Third-party engines, models and libraries retain their own licences and credits. The intended signing process for a future release is described in [CODE_SIGNING.md](CODE_SIGNING.md).

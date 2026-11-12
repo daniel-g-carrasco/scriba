@@ -29,7 +29,7 @@ repository root:
 ```sh
 flatpak install --user flathub org.gnome.Platform//50 org.gnome.Sdk//50 org.flatpak.Builder
 flatpak run org.flatpak.Builder --user --install --disable-rofiles-fuse \
-  --force-clean --ccache=false --repo=repo build-dir \
+  --force-clean --ccache --rebuild-on-sdk-change --repo=repo build-dir \
   build-aux/flatpak/io.github.daniel_g_carrasco.scriba.yaml
 flatpak run --command=python3 io.github.daniel_g_carrasco.scriba \
   /app/share/scriba/check_flatpak.py
@@ -56,6 +56,9 @@ The permissions have specific purposes:
   outputs. Consequently this package can read and write ordinary user files
   without the portal; it is not limited to a selected recording.
 - Read-only GTK configuration access uses the desktop's accent colours.
+- Access to `org.kde.StatusNotifierWatcher` provides the notification-area
+  icon where the desktop supports it. Without a reachable tray host, closing
+  the window exits normally instead of leaving an inaccessible hidden app.
 
 The source tests need PyGObject, GTK 4, libadwaita, GStreamer, FFmpeg, NumPy,
 SciPy and scikit-learn. `test.yml` installs these explicitly and runs the full
@@ -63,14 +66,23 @@ suite on a display, plus a direct window module run that cannot silently skip
 all GUI tests. `build.yml` builds a Flatpak artifact and repeats the dependency
 check against Platform. Pull requests receive no publishing credentials.
 
+CI caches dependency build state with the exact SDK, Platform and dependency
+identities. Documentation-only changes still run tests but may skip packaging;
+version tags always run the complete build checks.
+
 The signed repository workflow and release job run only for `v*` tags, after
-their checks. Creating and pushing a release tag is a separate action. The
+their checks. The repository workflow imports the release's existing Flatpak
+instead of rebuilding it. It waits up to one hour for the release to leave
+draft state, then verifies signatures of both the bundle and its matching
+Linux source archive. If either is unavailable or invalid, publication stops.
+Creating and pushing a release tag is a separate action. The
 repository needs the dedicated repository
 key in `FLATPAK_GPG_PRIVATE_KEY`, its complete fingerprint in the repository
 variable `FLATPAK_GPG_KEY_ID`, and GitHub Pages configured for `gh-pages`.
 Release bundles also need `MINISIGN_SECRET_KEY`; no private key belongs in the
-checkout. The existing complete-release check requires the Linux bundle,
-Windows installer and portable archive, with all three signatures, before
+checkout. The complete-release check requires the Linux bundle,
+Windows installer and portable archive, both platform source archives,
+and all five signatures before
 making a draft release public.
 
 ## Repository signing key

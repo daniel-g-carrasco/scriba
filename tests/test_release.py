@@ -67,7 +67,9 @@ class CompleteReleaseTest(unittest.TestCase):
 
     FILES = ("{slug}.flatpak", "{slug}.flatpak.minisig", "{slug}-setup-v1.2.3-windows-x64.exe",
              "{slug}-setup-v1.2.3-windows-x64.exe.minisig", "{slug}-v1.2.3-windows-x64-portable.zip",
-             "{slug}-v1.2.3-windows-x64-portable.zip.minisig")
+             "{slug}-v1.2.3-windows-x64-portable.zip.minisig",
+             "{slug}-v1.2.3-windows-x64-sources.tar.xz", "{slug}-v1.2.3-windows-x64-sources.tar.xz.minisig",
+             "{slug}-v1.2.3-linux-x86_64-sources.tar.xz", "{slug}-v1.2.3-linux-x86_64-sources.tar.xz.minisig")
 
     def step(self, workflow: str) -> str:
         text = (ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
@@ -125,6 +127,13 @@ class CompleteReleaseTest(unittest.TestCase):
                 out, asked = self.run_with([name for name in every if name != missing])
                 self.assertIn("stays a draft", out)
                 self.assertEqual(asked, "")
+
+    def test_another_versions_sources_do_not_count(self):
+        every = [name.format(slug=scriba.SLUG).replace("v1.2.3-linux", "v1.2.2-linux")
+                 for name in self.FILES]
+        out, asked = self.run_with(every)
+        self.assertIn("stays a draft", out)
+        self.assertEqual(asked, "")
 
     def test_another_versions_installer_does_not_count(self):
         every = [name.format(slug=scriba.SLUG).replace("v1.2.3-windows-x64.exe", "v1.2.2-windows-x64.exe")

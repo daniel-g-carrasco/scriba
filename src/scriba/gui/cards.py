@@ -43,6 +43,8 @@ class CardTest(GObject.Object):
         self.emit("changed")
 
     def _notes_read(self, notes, error) -> None:
+        if getattr(self.app, "closing", False):
+            return
         if error is not None:
             report("reading the last test of the graphics cards", error)
         elif self.running is None:
@@ -56,30 +58,37 @@ class CardTest(GObject.Object):
         return not (cfg.device or cfg.measured_device) and self.backend.has(models.WHISPER_TURBO)
 
     def start_if_needed(self) -> None:
-        if self.needed and self.running is None and not self.failed:
+        if not getattr(self.app, "closing", False) and self.needed and self.running is None and not self.failed:
             self.start()
 
     def start(self) -> bool:
         """The test, now (Test Again); False when one runs already or the
         model is not there."""
-        if self.running is not None or not self.backend.has(models.WHISPER_TURBO):
+        if (getattr(self.app, "closing", False) or self.app.work_busy
+                or self.running is not None or not self.backend.has(models.WHISPER_TURBO)):
             return False
         cancel = self.running = threading.Event()
         self.failed = ""
         self._changed()
-        run_in_thread(lambda: self.backend.try_devices(cancel), lambda choice, error: self._done(cancel, choice, error))
+        try:
+            run_in_thread(lambda: self.backend.try_devices(cancel), lambda choice, error: self._done(cancel, choice, error))
+        except Exception as error:
+            self._done(cancel, None, error)
+            return False
         return True
 
     def stop(self) -> None:
-        if self.running is not None:
+        if self.running is not None and not self.running.is_set():
             self.running.set()
-            self.running = None
             self._changed()
 
     def _done(self, cancel: threading.Event, choice, error) -> None:
         if self.running is not cancel:
-            return                          # stopped meanwhile (stop() said so): its outcome is not wanted
+            return                          # an obsolete callback cannot finish another worker
         self.running = None
+        if cancel.is_set() or getattr(self.app, "closing", False):
+            self._changed()
+            return                          # cancellation can race a successful backend return
         if error is not None:
             if not isinstance(error, Cancelled):
                 report("testing the graphics cards", error)

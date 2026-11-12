@@ -70,6 +70,10 @@ GPGKey={key}
 <p>Or from a terminal:</p>
 <pre>flatpak install {base}/{SLUG}.flatpakref</pre>
 <p>Updates arrive on their own, through GNOME Software or <code>flatpak update</code>. The GNOME runtime comes from Flathub.</p>
+<p>Scriba is free software under GPL-3.0-or-later. Download the
+<a href="https://github.com/{GITHUB_REPO}/releases/download/v{version}/{SLUG}-v{version}-linux-x86_64-sources.tar.xz">corresponding sources for this Linux package</a>,
+including the collected dependency sources and build information, from the
+<a href="https://github.com/{GITHUB_REPO}/releases/tag/v{version}">signed release files</a>.</p>
 <p class="dim">The repository is signed. The key's fingerprint is in the
 <a href="https://github.com/{GITHUB_REPO}/blob/main/docs/linux.md#repository-signing-key">Linux documentation</a>.
 <a href="https://github.com/{GITHUB_REPO}">Source and issues</a> are on GitHub.</p>

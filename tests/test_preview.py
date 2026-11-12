@@ -347,13 +347,16 @@ class PreviewRaceTest(unittest.TestCase):
         self.assertFalse(newest.path.exists())
         self.page.listen(a)
         _work_close, done_close = self.pending.pop()
-        self.assertFalse(self.window._on_close())
-        self.window.destroy()
+        self.app.window = self.window
+        self.app.quit = mock.Mock()
+        self.assertTrue(self.window._on_close())  # retained until cancellation and cleanup finish
         late = self.clip("after-close")
         done_close(late, None)
         self.drain_cleanup()
         self.assertIsNone(self.page.media)
         self.assertFalse(late.path.exists())
+        self.assertTrue(_setup.spin(lambda: self.app.exit_ready))
+        self.app.quit.assert_called_once()
 
     def test_stop_during_decode_sets_cancellation_and_an_error_is_said_without_a_player(self):
         a = Voice("Speaker 1", 0, 1, (0, 1))

@@ -5,7 +5,7 @@
 <component type="desktop-application">
   <id>io.github.daniel_g_carrasco.scriba</id>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>MIT</project_license>
+  <project_license>GPL-3.0-or-later</project_license>
 
   <name>Scriba</name>
   <summary>Record a meeting and transcribe it on your own computer, with speakers and subtitles</summary>
