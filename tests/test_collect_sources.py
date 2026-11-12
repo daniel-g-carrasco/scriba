@@ -203,3 +203,35 @@ class SourceCollectionTest(unittest.TestCase):
         source.write_bytes(b"different archive")
         with self.assertRaisesRegex(sources.SourceError, "checksum"):
             sources.own_ffmpeg(args, self.root / "different-output", bundle)
+
+    def test_custom_gstplay_source_pair_checks_the_actual_bundle_and_preserves_every_input(self):
+        build, bundle = self.root / "gstplay", self.root / "bundle"
+        build.mkdir()
+        (bundle / "_internal/licenses/gstplay").mkdir(parents=True)
+        recipe = self.root / "tools/build_gstplay.py"
+        recipe.parent.mkdir()
+        recipe.write_bytes(b"recipe data, never execute")
+        (recipe.parent / "gstplay_receipt.py").write_bytes(b"validator source")
+        record = {"component": "gstplay", "source": {"file": "upstream.tar.xz"},
+                  "patch": {"file": "gstplay-dispose.patch"}, "licence_files": [{"file": "COPYING"}],
+                  "recipe": {"project_file": "tools/build_gstplay.py", "sha256": sources.sha256(recipe)},
+                  "outputs": [{"file": "bin/libgstplay-1.0-0.dll", "sha256": hashlib.sha256(b"custom").hexdigest()}]}
+        for name in ("upstream.tar.xz", "gstplay-dispose.patch", "COPYING"):
+            (build / name).write_bytes(name.encode())
+            if name != "upstream.tar.xz":
+                (bundle / "_internal/licenses/gstplay" / name).write_bytes(name.encode())
+        (build / "BUILD.json").write_text(json.dumps(record))
+        (bundle / "_internal/licenses/gstplay/BUILD.json").write_bytes((build / "BUILD.json").read_bytes())
+        shipped = bundle / "_internal/libgstplay-1.0-0.dll"
+        shipped.write_bytes(b"custom")
+        component = {"component": "gstplay", "receipt": record, "files": ["_internal/" + shipped.name]}
+        with mock.patch.object(sources.gstplay_receipt, "read_receipt", return_value=record):
+            result = sources.own_gstplay(build / "BUILD.json", self.root / "output", bundle,
+                                         component, project_root=self.root)
+            self.assertEqual(len(result["inputs"]), 6)
+            self.assertEqual(result["programs"][0]["sha256"], sources.sha256(shipped))
+            self.assertNotIn(str(self.root), json.dumps(result))
+            shipped.write_bytes(b"stock library")
+            with self.assertRaisesRegex(sources.SourceError, "GstPlay.*bundle"):
+                sources.own_gstplay(build / "BUILD.json", self.root / "rejected", bundle,
+                                    component, project_root=self.root)

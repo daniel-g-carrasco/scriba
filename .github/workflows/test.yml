@@ -52,7 +52,29 @@ jobs:
           sudo apt-get install -y python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 xvfb gettext python3-numpy python3-scipy python3-sklearn ffmpeg \
             gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gstreamer1.0-pulseaudio \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad libgtk-4-media-gstreamer \
-            pulseaudio pulseaudio-utils
+            pulseaudio pulseaudio-utils meson ninja-build gcc pkg-config git libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+      - name: Exact GstPlay backport inputs
+        id: gstplay-inputs
+        run: echo "key=$(python3 tools/build_gstplay.py --cache-key)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: build/gstplay
+          key: gstplay-v1-${{ runner.os }}-${{ steps.gstplay-inputs.outputs.key }}
+      - name: Backport the upstream GstPlay dispose fix
+        run: |
+          python3 tools/build_gstplay.py --output build/gstplay
+          echo "LD_LIBRARY_PATH=$PWD/build/gstplay/lib" >> "$GITHUB_ENV"
+          LD_LIBRARY_PATH="$PWD/build/gstplay/lib" python3 - <<'PYTHON'
+          import ctypes
+          from pathlib import Path
+          ctypes.CDLL('libgstplay-1.0.so.0')
+          expected = (Path('build/gstplay/lib/libgstplay-1.0.so.0')).resolve()
+          loaded = {Path(line.rsplit(None, 1)[-1]).resolve()
+                    for line in Path('/proc/self/maps').read_text().splitlines()
+                    if '/libgstplay-1.0.so' in line}
+          assert loaded == {expected}, f'Unexpected GstPlay library: {loaded}'
+          print(f'Verified loaded GstPlay: {expected}')
+          PYTHON
       - run: python3 tools/compile_po.py
       - name: The full suite with a display and isolated settings
         run: |

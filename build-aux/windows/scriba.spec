@@ -93,6 +93,10 @@ else:
     raise SystemExit('ERROR: no LGPL ffmpeg in build/ffmpeg-lgpl: run tools/build_ffmpeg.sh first '
                      '(or SCRIBA_GPL_FFMPEG=1 to experiment with MSYS2\'s build)')
 
+# The disposal backport is built separately, without replacing the MSYS2 installation.
+GSTPLAY = ROOT / 'build/gstplay/bin/libgstplay-1.0-0.dll'
+engine(GSTPLAY)
+
 # onnxruntime's C library (the speech filter, the voices), called with
 # ctypes: the analysis cannot see it
 engine(BIN / 'onnxruntime.dll')
@@ -141,6 +145,13 @@ a = Analysis(
 )
 
 pyz = PYZ(a.pure)
+
+# Dependency discovery can also find the stock DLL. Select the verified custom
+# origin explicitly before COLLECT, so its TOC never claims a pacman input.
+a.binaries = [(name, str(GSTPLAY), kind) if name == GSTPLAY.name else (name, source, kind)
+              for name, source, kind in a.binaries]
+if sum(name == GSTPLAY.name for name, _source, _kind in a.binaries) != 1:
+    raise SystemExit('ERROR: GstPlay backport was not collected exactly once')
 
 common = dict(exclude_binaries=True, icon=str(ROOT / 'build-aux' / 'windows' / 'scriba.ico'),
               manifest=str(Path(SPECPATH) / 'scriba.manifest'))

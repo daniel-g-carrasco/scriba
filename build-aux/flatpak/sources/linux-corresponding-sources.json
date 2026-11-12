@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "scope": "Pinned source inputs for Linux x86_64: audited native dependencies, seven Python source distributions, whisper.cpp and SPIRV-Headers. The application archive and current Flatpak identity are supplied and checked separately for each build.",
+  "scope": "Pinned source inputs for Linux x86_64: audited native dependencies, seven Python source distributions, whisper.cpp, SPIRV-Headers and the patched GStreamer Play library. The application archive and current Flatpak identity are supplied and checked separately for each build.",
   "status": "source acquisition verified; unsigned recipe-derived inventory, not a vendor-signed SBOM or bit-reproducibility attestation",
   "artifacts": [
     {
@@ -656,6 +656,18 @@
       "destination": "engines/spirv-headers-vulkan-sdk-1.4.321.0.tar.gz",
       "size": 538412,
       "sha256": "5bbea925663d4cd2bab23efad53874f2718248a73dcaf9dd21dff8cb48e602fc"
+    },
+    {
+      "id": "gstplay-1.26.11-source",
+      "name": "GStreamer Play",
+      "version": "1.26.11",
+      "type": "source_archive",
+      "role": "engine_source",
+      "module": "gstplay",
+      "url": "https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-1.26.11.tar.xz",
+      "destination": "gstplay/gst-plugins-bad-1.26.11.tar.xz",
+      "size": 7798064,
+      "sha256": "110fb82795f0e569b1e27b12ab9699d35c7762e1ff4db95335d6ac8d1442af3d"
     }
   ],
   "binary_mappings": [
@@ -1212,5 +1224,10 @@
       "source_artifact": "python-threadpoolctl-3.8.0"
     }
   ],
-  "native_audit_scope": "Supplement for ONNX Runtime and wheel-vendored GCC/OpenBLAS sources; merge with the seven Python sdists, application, whisper and SPIRV source inputs"
+  "native_audit_scope": "Supplement for ONNX Runtime and wheel-vendored GCC/OpenBLAS sources; merge with the seven Python sdists, application, whisper and SPIRV source inputs",
+  "gstplay": {
+    "module": "gstplay",
+    "receipt": "share/licenses/gstplay/BUILD.json",
+    "source_artifact": "gstplay-1.26.11-source"
+  }
 }

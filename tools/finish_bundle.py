@@ -42,6 +42,11 @@ import sys
 from pathlib import Path, PurePosixPath
 from urllib.parse import quote
 
+try:
+    import gstplay_receipt
+except ModuleNotFoundError:
+    from tools import gstplay_receipt
+
 ROOT = Path(__file__).resolve().parent.parent
 PREFIX = Path(sys.prefix)                       # MSYS2: C:/msys64/ucrt64
 PACKAGE_PREFIX = "mingw-w64-ucrt-x86_64-"
@@ -254,6 +259,8 @@ def inventory(internal: Path, *, prefix: Path = PREFIX, root: Path = ROOT, toc_d
             raise ValueError(f"missing {kind} TOC in {toc_dir}")
     metadata, owners = installed_packages(prefix)
     used, accounted, generated, copied_sources = {}, set(), [], {}
+    custom_components = []
+    gstplay = root / "build/gstplay"
     msys = prefix.parent
 
     def owner(source):
@@ -414,6 +421,17 @@ def inventory(internal: Path, *, prefix: Path = PREFIX, root: Path = ROOT, toc_d
             if sha256(path) != sha256(source):
                 raise ValueError(f"hash mismatch: build output {destination}")
             accounted.add(path)
+        elif path.name == "libgstplay-1.0-0.dll" and (
+                source.is_relative_to(gstplay) or (gstplay / "BUILD.json").is_file()):
+            expected = gstplay / "bin" / path.name
+            if source.resolve() != expected.resolve():
+                raise ValueError("GstPlay custom build origin differs from the TOC")
+            receipt = gstplay_receipt.read_receipt(gstplay / "BUILD.json", project_root=root)
+            if receipt["outputs"][0]["file"] != "bin/" + path.name or sha256(path) != sha256(expected):
+                raise ValueError("GstPlay output hash mismatch")
+            custom_components.append({"component": "gstplay", "receipt": receipt,
+                                      "files": [path.relative_to(internal.parent).as_posix()]})
+            accounted.add(path)
         elif source.is_relative_to(msys):
             copied(path, source)
         elif source.is_relative_to(root / "build" / "ffmpeg-lgpl" / "bin"):
@@ -474,7 +492,8 @@ def inventory(internal: Path, *, prefix: Path = PREFIX, root: Path = ROOT, toc_d
         record["origins"] = dict(sorted(record["origins"].items()))
         record["module_origins"] = dict(sorted(record["module_origins"].items()))
         packages.append(record)
-    return {"schema_version": 1, "packages": packages, "generated_files": sorted(generated, key=lambda r: r["file"])}
+    return {"schema_version": 1, "packages": packages, "generated_files": sorted(generated, key=lambda r: r["file"]),
+            "custom_components": custom_components}
 
 
 def packages_of(internal: Path) -> dict[str, str]:
@@ -541,6 +560,13 @@ def licences(internal: Path, *, prefix: Path = PREFIX, root: Path = ROOT, toc_di
         (out / "ffmpeg").mkdir()
         for name in ("BUILD.txt", "COPYING.LGPLv2.1"):
             shutil.copy2(own / name, out / "ffmpeg" / name)
+    for component in data["custom_components"]:
+        directory = out / "gstplay"
+        directory.mkdir()
+        build = root / "build/gstplay"
+        shutil.copy2(build / "BUILD.json", directory / "BUILD.json")
+        for item in [component["receipt"]["patch"], *component["receipt"]["licence_files"]]:
+            shutil.copy2(build / item["file"], directory / item["file"])
     rows, missing, without_installed = [], [], []
     for record in data["packages"]:
         package, version = record["package"], record["version"]
@@ -588,6 +614,11 @@ def licences(internal: Path, *, prefix: Path = PREFIX, root: Path = ROOT, toc_di
     if ffmpeg_build.is_file():
         head += [("ffmpeg and ffprobe are Scriba's own build of FFmpeg's release sources, under the LGPL 2.1 or "
                   "later: how they were built, and where the sources are, is in ffmpeg/BUILD.txt."), ""]
+    if data["custom_components"]:
+        head += [("GstPlay includes a narrowly scoped upstream disposal fix. Its exact source version, "
+                 "patch derivation, build recipe and library hash are recorded in [gstplay/BUILD.json](gstplay/BUILD.json); "
+                 "the source notice and applied patch accompany it. This modified library is accounted for "
+                 "separately from the unmodified MSYS2 package files."), ""]
     head += ["| Package | Version | Licence | Home page | Licence files |", "|---|---|---|---|---|"]
     (out / "THIRD-PARTY.md").write_text("\n".join(head + rows) + "\n", encoding="utf-8")
 

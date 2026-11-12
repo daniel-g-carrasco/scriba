@@ -6,6 +6,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import _setup
 
@@ -92,6 +93,33 @@ class InventoryTest(unittest.TestCase):
                          ("lib/gdk-pixbuf/loaders/libpixbufloader-heif.dll",
                           str(self.prefix / "lib/gdk-pixbuf/loaders/libpixbufloader-heif.dll"), "BINARY")]
         self.assertEqual(self.build_inventory()["packages"], [])
+
+    def test_custom_gstplay_is_verified_separately_from_the_stock_package(self):
+        self.package("gst-plugins-bad-libs", ["bin/libgstplay-1.0-0.dll"])
+        own = self.write(self.root / "build/gstplay/bin/libgstplay-1.0-0.dll", "patched library")
+        self.write(own.parent.parent / "BUILD.json", "receipt")
+        shipped = self.write(self.internal / own.name, "patched library")
+        self.collect.append((own.name, str(own), "BINARY"))
+        receipt = {"component": "gstplay", "outputs": [{"file": "bin/" + own.name,
+                    "sha256": finish.sha256(own)}]}
+        with mock.patch.object(finish.gstplay_receipt, "read_receipt", return_value=receipt):
+            result = self.build_inventory()
+            self.assertEqual(result["packages"], [])
+            self.assertEqual(result["custom_components"][0]["receipt"], receipt)
+            self.assertEqual(result["custom_components"][0]["files"], ["_internal/" + own.name])
+            self.assertNotIn(str(self.root), json.dumps(result))
+            shipped.write_text("different library")
+            with self.assertRaisesRegex(ValueError, "GstPlay.*mismatch"):
+                self.build_inventory()
+
+    def test_custom_gstplay_cannot_be_misattributed_to_a_stock_package(self):
+        self.package("gst-plugins-bad-libs", ["bin/libgstplay-1.0-0.dll"])
+        own = self.write(self.root / "build/gstplay/bin/libgstplay-1.0-0.dll")
+        self.write(own.parent.parent / "BUILD.json", "receipt")
+        self.write(self.internal / own.name)
+        self.collect.append((own.name, str(self.prefix / "bin" / own.name), "BINARY"))
+        with self.assertRaisesRegex(ValueError, "GstPlay.*origin"):
+            self.build_inventory()
 
     def test_a_package_file_changed_after_copy_is_rejected(self):
         self.package("library", ["bin/a.dll"])

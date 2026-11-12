@@ -28,6 +28,11 @@ import urllib.parse
 import urllib.request
 from pathlib import Path, PurePosixPath
 
+try:
+    import gstplay_receipt
+except ModuleNotFoundError:
+    from tools import gstplay_receipt
+
 ROOT = Path(__file__).resolve().parent.parent
 PREFIX = "mingw-w64-ucrt-x86_64-"
 ALGORITHMS = {"sha256sums": "sha256", "sha512sums": "sha512", "b2sums": "blake2b",
@@ -169,6 +174,16 @@ def load_inventory(path):
         for origin in generated.get("inputs", []):
             safe_name(origin["package"])
             safe_member(origin["package_file"])
+    custom = data.get("custom_components", [])
+    if len(custom) > 1 or any(item.get("component") != "gstplay" for item in custom):
+        raise SourceError("unsupported custom component inventory")
+    package_files = {file for entry in data["packages"]
+                     for file in [*entry.get("files", []), *entry.get("origins", {})]}
+    for component in custom:
+        if component.get("files") != ["_internal/libgstplay-1.0-0.dll"]:
+            raise SourceError("unexpected custom GstPlay file mapping")
+        if package_files.intersection(component["files"]):
+            raise SourceError("custom GstPlay cannot claim a pacman file origin")
     data["inventory_kind"] = kind
     return data
 
@@ -512,12 +527,42 @@ def own_ffmpeg(args, output, bundle):
                        for p in (args.ffmpeg_build, args.ffmpeg_source, args.ffmpeg_script)], "programs": binaries}
 
 
+def own_gstplay(receipt_path, output, bundle, component, *, project_root=ROOT):
+    receipt_path = Path(receipt_path)
+    receipt = gstplay_receipt.read_receipt(receipt_path, project_root=project_root)
+    if (receipt != component["receipt"] or component["files"] != ["_internal/libgstplay-1.0-0.dll"]
+            or receipt["outputs"][0]["file"] != "bin/libgstplay-1.0-0.dll"):
+        raise SourceError("GstPlay receipt differs from the bundle inventory")
+    program = {"file": component["files"][0], "sha256": receipt["outputs"][0]["sha256"]}
+    if sha256(bundle_path(bundle, program["file"])) != program["sha256"]:
+        raise SourceError("GstPlay library differs from the bundle source pair")
+    notices = Path(bundle) / "_internal/licenses/gstplay"
+    if sha256(notices / "BUILD.json") != sha256(receipt_path):
+        raise SourceError("GstPlay bundle receipt differs from the build")
+    inputs = [receipt_path, receipt_path.parent / receipt["source"]["file"],
+              receipt_path.parent / receipt["patch"]["file"],
+              *[receipt_path.parent / item["file"] for item in receipt["licence_files"]],
+              gstplay_receipt.relative_file(project_root, receipt["recipe"]["project_file"]),
+              gstplay_receipt.relative_file(project_root, "tools/gstplay_receipt.py")]
+    for item in [receipt["patch"], *receipt["licence_files"]]:
+        if sha256(notices / item["file"]) != sha256(receipt_path.parent / item["file"]):
+            raise SourceError("GstPlay bundle notice differs from the source pair")
+    directory = Path(output) / "own-gstplay"
+    for path in inputs:
+        copy_new(path, directory / path.name)
+    return {"kind": "own_gstplay", "receipt": receipt,
+            "inputs": [{"file": "own-gstplay/" + path.name, "sha256": sha256(path)} for path in inputs],
+            "programs": [program]}
+
+
 def collect(args):
     output = require_external_output(args.output)
     if (output / "manifest.json").exists():
         raise SourceError("final manifest exists; choose a new output revision")
     inventory = load_inventory(args.inventory)
     entries = [dict(entry) for entry in inventory["packages"]]
+    if (args.bundle / "_internal/licenses/gstplay/BUILD.json").is_file() != bool(inventory.get("custom_components")):
+        raise SourceError("GstPlay custom inventory and bundle receipt differ")
     for generated in inventory.get("generated_files", []):
         if sha256(bundle_path(args.bundle, generated["file"])) != generated["sha256"]:
             raise SourceError("generated bundle file checksum differs from inventory")
@@ -594,6 +639,13 @@ def collect(args):
             manifest["own_sources"].append(own_ffmpeg(args, output, args.bundle))
         except SourceError as error:
             manifest["errors"].append({"package": "own-ffmpeg", "error": str(error)})
+    for component in inventory.get("custom_components", []):
+        try:
+            path = getattr(args, "gstplay_build", None) or ROOT / "build/gstplay/BUILD.json"
+            manifest["own_sources"].append(own_gstplay(path, output, args.bundle, component))
+        except (SourceError, OSError, ValueError, KeyError, tarfile.TarError) as error:
+            manifest["errors"].append({"package": "own-gstplay",
+                                       "error": str(error) if isinstance(error, ValueError) else type(error).__name__})
     manifest["collection_complete"] = not manifest["errors"] and not args.select and inventory["inventory_kind"] == "json"
     manifest["unhashed_sources"] = sum(p["source"]["unhashed_sources"] for p in manifest["packages"])
     manifest["manual_review_required"] = bool(manifest["unhashed_sources"])
@@ -619,6 +671,7 @@ def parser():
     p.add_argument("--select", action="append", default=[])
     p.add_argument("--extra-package", action="append", default=[])
     p.add_argument("--include-pyinstaller", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--gstplay-build", type=Path, help="custom GstPlay BUILD.json; defaults to build/gstplay/BUILD.json")
     p.add_argument("--ffmpeg-build", type=Path)
     p.add_argument("--ffmpeg-source", type=Path)
     p.add_argument("--ffmpeg-script", type=Path)

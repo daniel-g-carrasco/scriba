@@ -5,3 +5,8 @@ bin/* text eol=lf
 
 # Preserve upstream notice bytes and their provenance hashes.
 LICENSES/** -text -whitespace
+
+# The native backport receipt hashes these exact public checkout bytes.
+build-aux/gstplay/*.patch text eol=lf
+tools/build_gstplay.py text eol=lf
+tools/gstplay_receipt.py text eol=lf

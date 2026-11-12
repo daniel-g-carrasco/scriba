@@ -57,6 +57,10 @@ jobs:
             mingw-w64-ucrt-x86_64-gst-plugins-base
             mingw-w64-ucrt-x86_64-gst-plugins-good
             mingw-w64-ucrt-x86_64-gst-plugins-bad
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-meson
+            mingw-w64-ucrt-x86_64-ninja
       - name: Compatible ONNX Runtime dependency versions
         # ONNX Runtime 1.29.0-2 imports Abseil 2605. The rolling repository
         # already ships Abseil 2608 and rebuilt protobuf/re2, but not ONNX.
@@ -78,6 +82,17 @@ jobs:
           sha256sum -c SHA256SUMS
           pacman -U --noconfirm ./*.pkg.tar.zst
           env -u MSYSTEM python -c "import ctypes, os, sys; from pathlib import Path; p = Path(sys.prefix) / 'bin'; h = os.add_dll_directory(str(p)); ctypes.CDLL(str(p / 'onnxruntime.dll')); print('ONNX Runtime loads with the pinned dependency family')"
+      - name: Exact GstPlay backport inputs
+        id: gstplay-inputs
+        run: echo "key=$(env -u MSYSTEM python tools/build_gstplay.py --cache-key)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: build/gstplay
+          key: gstplay-v1-${{ runner.os }}-${{ steps.gstplay-inputs.outputs.key }}
+      - name: Backport the upstream GstPlay dispose fix
+        run: |
+          env -u MSYSTEM python tools/build_gstplay.py --output build/gstplay
+          echo "SCRIBA_GSTPLAY_BUILD=$(cygpath -w "$PWD/build/gstplay")" >> "$GITHUB_ENV"
       - name: Package unless the complete diff is safe documentation
         id: scope
         run: env -u MSYSTEM python tools/ci_build.py scope
@@ -108,7 +123,7 @@ jobs:
           mkdir -p gui/config gui/state gui/data
           export XDG_CONFIG_HOME="$OUT\\config" XDG_STATE_HOME="$OUT\\state" XDG_DATA_HOME="$OUT\\data"
           export SCRIBA_SCREENSHOT="$OUT\\window.png" SCRIBA_SCREENSHOT_DELAY=6
-          timeout 120 env -u MSYSTEM python bin/scriba 2>&1 | tee gui/run.log
+          timeout 120 env -u MSYSTEM python tools/gstplay_bootstrap.py bin/scriba 2>&1 | tee gui/run.log
           ls -la gui
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         if: always()
@@ -155,6 +170,8 @@ jobs:
             mingw-w64-ucrt-x86_64-gst-plugins-base
             mingw-w64-ucrt-x86_64-gst-plugins-good
             mingw-w64-ucrt-x86_64-gst-plugins-bad
+            mingw-w64-ucrt-x86_64-meson
+            mingw-w64-ucrt-x86_64-ninja
             make
             diffutils
             mingw-w64-ucrt-x86_64-gcc
@@ -182,6 +199,17 @@ jobs:
           sha256sum -c SHA256SUMS
           pacman -U --noconfirm ./*.pkg.tar.zst
           env -u MSYSTEM python -c "import ctypes, os, sys; from pathlib import Path; p = Path(sys.prefix) / 'bin'; h = os.add_dll_directory(str(p)); ctypes.CDLL(str(p / 'onnxruntime.dll')); print('ONNX Runtime loads with the pinned dependency family')"
+      - name: Exact GstPlay backport inputs
+        id: gstplay-inputs
+        run: echo "key=$(env -u MSYSTEM python tools/build_gstplay.py --cache-key)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: build/gstplay
+          key: gstplay-v1-${{ runner.os }}-${{ steps.gstplay-inputs.outputs.key }}
+      - name: Backport the upstream GstPlay dispose fix
+        run: |
+          env -u MSYSTEM python tools/build_gstplay.py --output build/gstplay
+          echo "SCRIBA_GSTPLAY_BUILD=$(cygpath -w "$PWD/build/gstplay")" >> "$GITHUB_ENV"
       # ffmpeg built from FFmpeg's release sources under the LGPL (the
       # script pins the tarball's SHA-256 and refuses a GPL configuration);
       # kept between runs while the script does not change

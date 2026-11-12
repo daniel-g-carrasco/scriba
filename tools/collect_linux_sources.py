@@ -24,6 +24,11 @@ import urllib.parse
 import urllib.request
 from pathlib import Path, PurePosixPath
 
+try:
+    import gstplay_receipt
+except ModuleNotFoundError:
+    from tools import gstplay_receipt
+
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CATALOG = ROOT / "build-aux/flatpak/sources/linux-corresponding-sources.json"
 CHUNK = 1 << 20
@@ -273,10 +278,12 @@ def verify_binary(mapping, build_root):
     return {"matched": True, "sha256": expected, "size": path.stat().st_size}
 
 
-def verify_application(archive, commit, build_root):
+def verify_application(archive, commit, build_root, *, project_inputs=None):
     if not re.fullmatch(r"(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})", commit):
         raise SourceError("application source needs its exact public checkout commit")
     count, seen, compared = 0, set(), set()
+    project_inputs = project_inputs or {}
+    pending = {"scriba/" + relative_path(name): digest for name, digest in project_inputs.items()}
     prefix = "scriba/src/scriba/"
     try:
         with tarfile.open(archive, "r|*") as source:
@@ -288,6 +295,14 @@ def verify_application(archive, commit, build_root):
                 if member.issym() or member.islnk():
                     # Source archives are retained, never followed or extracted.
                     continue
+                if member.name in pending:
+                    if not member.isfile():
+                        raise SourceError("custom build input is not a regular application source member")
+                    incoming = source.extractfile(member)
+                    with incoming:
+                        digest = hashlib.file_digest(incoming, "sha256").hexdigest()
+                    if digest != pending.pop(member.name):
+                        raise SourceError("custom build input differs from the public application archive")
                 if member.isfile() and member.name.startswith(prefix):
                     path = target_path(build_root, "share/scriba/scriba/" + member.name[len(prefix):])
                     incoming = source.extractfile(member)
@@ -301,6 +316,8 @@ def verify_application(archive, commit, build_root):
                     count += 1
     except tarfile.TarError as error:
         raise SourceError("invalid application source archive") from error
+    if pending:
+        raise SourceError("application archive omits a custom build input")
     if not count:
         raise SourceError("application archive has no source files to compare")
     installed = target_path(build_root, "share/scriba/scriba")
@@ -370,6 +387,58 @@ def verify_inputs(catalog, manifest, builder_state):
     return result
 
 
+def verify_gstplay(catalog, manifest, build_root, output, *, project_root=ROOT):
+    modules = _modules(manifest)
+    config = catalog.get("gstplay")
+    if not config:
+        if ("gstplay" in modules or (build_root and (
+                (Path(build_root) / "lib/libgstplay-1.0.so.0").exists() or
+                (Path(build_root) / "share/licenses/gstplay/BUILD.json").exists()))):
+            raise SourceError("GstPlay module is absent from the source catalogue")
+        return None, {}
+    if config != {"module": "gstplay", "receipt": "share/licenses/gstplay/BUILD.json",
+                  "source_artifact": config.get("source_artifact")}:
+        raise SourceError("unexpected GstPlay catalogue mapping")
+    module = modules.get("gstplay")
+    if module is None:
+        raise SourceError("GstPlay source catalogue has no manifest module")
+    path = target_path(build_root, config["receipt"])
+    receipt = gstplay_receipt.read_receipt(path, output_root=build_root, project_root=project_root)
+    item = next((entry for entry in catalog["artifacts"] if entry["id"] == config["source_artifact"]), None)
+    source = receipt["source"]
+    if item is None or (item["url"], item["sha256"]) != (source["url"], source["sha256"]):
+        raise SourceError("GstPlay receipt source differs from the catalogue")
+    if not any((entry.get("url"), entry.get("sha256")) == (source["url"], source["sha256"])
+               for entry in module.get("sources", [])):
+        raise SourceError("GstPlay source differs from the Flatpak manifest")
+    required = {receipt["recipe"]["project_file"]: receipt["recipe"]["sha256"],
+                gstplay_receipt.PATCH_PROJECT_FILE: receipt["patch"]["sha256"],
+                "tools/gstplay_receipt.py": file_hash(Path(project_root) / "tools/gstplay_receipt.py")}
+    for name, digest in required.items():
+        expected = gstplay_receipt.relative_file(project_root, name)
+        matches = []
+        for entry in module.get("sources", []):
+            if not entry.get("path"):
+                continue
+            supplied = Path(entry["path"])
+            if not supplied.is_absolute():
+                supplied = Path(project_root) / "build-aux/flatpak" / supplied
+            if supplied.resolve() == expected.resolve() and supplied.is_file() and file_hash(supplied) == digest:
+                matches.append(entry)
+        if len(matches) != 1:
+            raise SourceError("GstPlay patch or recipe differs from the Flatpak manifest")
+    retained = {"BUILD.json": path, receipt["patch"]["file"]: path.parent / receipt["patch"]["file"],
+                **{entry["file"]: path.parent / entry["file"] for entry in receipt["licence_files"]},
+                "build_gstplay.py": gstplay_receipt.relative_file(project_root, receipt["recipe"]["project_file"]),
+                "gstplay_receipt.py": gstplay_receipt.relative_file(project_root, "tools/gstplay_receipt.py")}
+    for name, origin in retained.items():
+        write_new(Path(output) / "metadata/gstplay" / name, origin.read_bytes())
+    return {"receipt": receipt, "source_artifact": item["id"],
+            "inputs": [{"file": "metadata/gstplay/" + name, "sha256": file_hash(origin)}
+                       for name, origin in retained.items()],
+            "verified_outputs": receipt["outputs"]}, required
+
+
 def external(path):
     path = Path(path).resolve()
     if path == ROOT or ROOT in path.parents:
@@ -422,6 +491,7 @@ def collect(args, cancelled):
             report[key] = catalog[key]
     try:
         binary_verified = []
+        custom_project_inputs = {}
         if args.build_root:
             for mapping in catalog.get("binary_mappings", []):
                 binary_verified.append({**mapping, "verification": verify_binary(mapping, args.build_root)})
@@ -438,6 +508,9 @@ def collect(args, cancelled):
                                           "runtime_version": manifest.get("runtime-version"),
                                           "app_id": manifest.get("app-id", manifest.get("id"))}
             report["binary_inputs"] = verify_inputs(catalog, manifest, args.builder_state)
+            custom, custom_project_inputs = verify_gstplay(catalog, manifest, args.build_root, output)
+            if custom is not None:
+                report["gstplay"] = custom
         for name in ("runtime_commit", "sdk_commit"):
             value = getattr(args, name)
             if value and not re.fullmatch(r"[a-f0-9]{64}", value):
@@ -458,14 +531,15 @@ def collect(args, cancelled):
         if args.app_archive:
             if not args.app_commit or not args.build_root:
                 raise SourceError("application archive needs its commit and current build to compare")
-            identity = verify_application(args.app_archive, args.app_commit, args.build_root)
+            identity = verify_application(args.app_archive, args.app_commit, args.build_root,
+                                          project_inputs=custom_project_inputs)
             path = output / "application/app-source.tar"
             _copy_verified(args.app_archive, path, {"size": identity["archive_size"],
                                                     "sha256": identity["archive_sha256"]}, cancelled)
             report["application_source"] = {**identity, "file": "application/app-source.tar"}
         report["binary_association_verified"] = bool(args.build_root and args.resolved_manifest
                                                       and report["binary_inputs"] and binary_verified)
-    except (SourceError, OSError, ValueError, KeyError) as error:
+    except (SourceError, OSError, ValueError, KeyError, tarfile.TarError) as error:
         report["errors"].append({"phase": "build_identity", "error": str(error)})
     if not report["errors"] or args.acquire_only:
         token = os.environ.get("GITHUB_TOKEN", "") or os.environ.get("GH_TOKEN", "")
@@ -581,7 +655,7 @@ def main(argv=None):
             handlers[signum] = signal.signal(signum, lambda _signal, _frame: cancelled.set())
     try:
         return collect(args, cancelled)
-    except (SourceError, OSError, ValueError, KeyError) as error:
+    except (SourceError, OSError, ValueError, KeyError, tarfile.TarError) as error:
         print(f"Source collection failed: {error}", flush=True)
         return 1
     finally:

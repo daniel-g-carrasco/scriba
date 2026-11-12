@@ -88,6 +88,33 @@ modules:
         url: https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v1.9.4.tar.gz
         sha256: 57e280cee375ab02425b806ad5146b99f6eb9357e3c2b31357c8a6af2e2e44ae
 
+  # Keep the runtime's GStreamer ABI and backport its upstream dispose fix.
+  # Placed after the speech engines so app/player changes reuse their cache.
+  - name: gstplay
+    buildsystem: simple
+    build-options:
+      # Preserve the exact library bytes recorded in BUILD.json.
+      strip: false
+      no-debuginfo: true
+    build-commands:
+      - python3 tools/build_gstplay.py --source gst-plugins-bad-1.26.11.tar.xz --output gstplay-out --offline
+      - install -d /app/lib /app/share/licenses/gstplay
+      - cp -a gstplay-out/lib/. /app/lib/
+      - install -m644 gstplay-out/BUILD.json gstplay-out/COPYING gstplay-out/gstplay-dispose.patch gstplay-out/gst-plugins-bad-1.26.11.tar.xz /app/share/licenses/gstplay/
+    sources:
+      - type: file
+        url: https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-1.26.11.tar.xz
+        sha256: 110fb82795f0e569b1e27b12ab9699d35c7762e1ff4db95335d6ac8d1442af3d
+      - type: file
+        path: ../../tools/build_gstplay.py
+        dest: tools
+      - type: file
+        path: ../../tools/gstplay_receipt.py
+        dest: tools
+      - type: file
+        path: ../gstplay/gstplay-dispose.patch
+        dest: build-aux/gstplay
+
   - name: scriba
     buildsystem: simple
     build-commands:

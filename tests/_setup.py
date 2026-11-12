@@ -10,6 +10,11 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 sys.path.insert(0, str(ROOT / "src"))
 
 WINDOWS = sys.platform == "win32"
+if WINDOWS and os.environ.get("SCRIBA_GSTPLAY_BUILD"):
+    # Source CI and its preview subprocesses select the verified DLL before GI.
+    sys.path.insert(0, str(ROOT / "tools"))
+    from gstplay_bootstrap import preload
+    preload()
 
 
 def fixture_text(name: str) -> str:

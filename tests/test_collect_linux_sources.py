@@ -271,6 +271,83 @@ class ValidationTest(unittest.TestCase):
             self.assertEqual(report["artifacts"], [])
             self.assertIn("binary differs", report["errors"][0]["error"])
 
+    def test_custom_gstplay_receipt_is_bound_to_catalogue_manifest_and_current_library(self):
+        build, project = self.root / "custom-build", self.root / "project"
+        notices = build / "share/licenses/gstplay"
+        notices.mkdir(parents=True)
+        (build / "lib").mkdir()
+        library = build / "lib/libgstplay-1.0.so.0"
+        library.write_bytes(BODY)
+        inputs = {}
+        for name in ("tools/build_gstplay.py", "tools/gstplay_receipt.py", "build-aux/gstplay/gstplay-dispose.patch"):
+            path = project / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(BODY)
+            inputs[name] = collector.file_hash(path)
+        receipt = {"component": "gstplay", "source": {"file": "source.tar.xz",
+                   "url": "https://example.org/source.tar.xz", "sha256": hashlib.sha256(BODY).hexdigest()},
+                   "patch": {"file": "gstplay-dispose.patch", "sha256": inputs["build-aux/gstplay/gstplay-dispose.patch"]},
+                   "recipe": {"project_file": "tools/build_gstplay.py", "sha256": inputs["tools/build_gstplay.py"]},
+                   "licence_files": [{"file": "COPYING", "sha256": hashlib.sha256(BODY).hexdigest()}],
+                   "outputs": [{"file": "lib/libgstplay-1.0.so.0", "sha256": collector.file_hash(library)}]}
+        (notices / "BUILD.json").write_text(json.dumps(receipt))
+        for name in ("COPYING", "gstplay-dispose.patch"):
+            (notices / name).write_bytes(BODY)
+        catalog = self.catalog(artifact(id="gstplay-source", url=receipt["source"]["url"],
+                                        sha256=receipt["source"]["sha256"]))
+        catalog["gstplay"] = {"module": "gstplay", "receipt": "share/licenses/gstplay/BUILD.json",
+                              "source_artifact": "gstplay-source"}
+        manifest = {"modules": [{"name": "gstplay", "sources": [dict(receipt["source"], type="file"),
+                    *[{"type": "file", "path": str(project / name)} for name in inputs]]}]}
+        with mock.patch.object(collector.gstplay_receipt, "read_receipt", return_value=receipt):
+            result, required = collector.verify_gstplay(catalog, manifest, build, self.root / "evidence",
+                                                       project_root=project)
+            self.assertEqual(required, inputs)
+            self.assertEqual(result["receipt"], receipt)
+            self.assertNotIn(str(self.root), json.dumps(result))
+            manifest["modules"][0]["sources"][0]["sha256"] = "0" * 64
+            with self.assertRaisesRegex(collector.SourceError, "GstPlay.*manifest"):
+                collector.verify_gstplay(catalog, manifest, build, self.root / "bad", project_root=project)
+        with self.assertRaisesRegex(collector.SourceError, "GstPlay.*catalogue"):
+            collector.verify_gstplay({}, manifest, build, self.root / "missing", project_root=project)
+
+    def test_custom_recipe_must_be_present_and_identical_in_public_application_archive(self):
+        build = self.root / "build/share/scriba/scriba"
+        build.mkdir(parents=True)
+        (build / "main.py").write_bytes(BODY)
+        archive = self.root / "public.tar"
+        with tarfile.open(archive, "w") as output:
+            info = tarfile.TarInfo("scriba/src/scriba/main.py")
+            info.size = len(BODY)
+            output.addfile(info, io.BytesIO(BODY))
+        with self.assertRaisesRegex(collector.SourceError, "custom.*input"):
+            collector.verify_application(archive, "a" * 40, self.root / "build",
+                                         project_inputs={"tools/build_gstplay.py": hashlib.sha256(BODY).hexdigest()})
+
+    def test_custom_recipe_in_public_archive_must_have_the_receipt_hash(self):
+        installed = self.root / "build/share/scriba/scriba"
+        installed.mkdir(parents=True)
+        (installed / "main.py").write_bytes(BODY)
+        archive = self.root / "public.tar"
+        with tarfile.open(archive, "w") as output:
+            for name in ("scriba/src/scriba/main.py", "scriba/tools/build_gstplay.py"):
+                info = tarfile.TarInfo(name)
+                info.size = len(BODY)
+                output.addfile(info, io.BytesIO(BODY))
+        inputs = {"tools/build_gstplay.py": hashlib.sha256(BODY).hexdigest()}
+        self.assertEqual(collector.verify_application(archive, "a" * 40, self.root / "build",
+                                                     project_inputs=inputs)["source_files_verified"], 1)
+        inputs["tools/build_gstplay.py"] = "0" * 64
+        with self.assertRaisesRegex(collector.SourceError, "custom.*differs"):
+            collector.verify_application(archive, "a" * 40, self.root / "build", project_inputs=inputs)
+
+    def test_a_custom_library_without_its_catalogue_record_is_rejected(self):
+        build = self.root / "build"
+        (build / "lib").mkdir(parents=True)
+        (build / "lib/libgstplay-1.0.so.0").write_bytes(BODY)
+        with self.assertRaisesRegex(collector.SourceError, "GstPlay.*catalogue"):
+            collector.verify_gstplay({}, {"modules": []}, build, self.root / "evidence")
+
     def test_strict_mode_cannot_acquire_or_publish_without_application_source(self):
         catalog = self.root / "catalog.json"
         catalog.write_text(json.dumps(self.catalog(artifact())))
@@ -283,7 +360,7 @@ class ValidationTest(unittest.TestCase):
         path = _setup.ROOT / "build-aux/flatpak/sources/linux-corresponding-sources.json"
         catalog = json.loads(path.read_text(encoding="utf-8"))
         collector.validate_catalog(catalog)
-        self.assertEqual(len(catalog["artifacts"]), 49)
+        self.assertEqual(len(catalog["artifacts"]), 50)
         self.assertEqual(len(catalog["binary_mappings"]), 7)
         self.assertEqual(len(catalog["resolved_ports"]), 29)
         self.assertEqual(len(catalog["python_sources"]), 7)
