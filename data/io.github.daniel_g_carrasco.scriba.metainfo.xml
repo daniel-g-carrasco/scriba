@@ -50,6 +50,11 @@
   </requires>
 
   <releases>
+    <release version="0.1.2" date="2026-11-13" type="stable">
+      <description>
+        <p>Echo of the loudspeakers removed from the microphone, the call's microphone and mute followed on Windows, a folder per recording with previous revisions kept, transcripts in paragraphs, subtitles of standard length, sharper text on high-resolution Windows screens, and a local error log.</p>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-11-12" type="stable">
       <description>
         <p>Fix folder selection buttons in recording, transcription and preferences.</p>

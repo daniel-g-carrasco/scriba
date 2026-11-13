@@ -20,6 +20,7 @@ from .style_values import SPACE_XL  # noqa: E402
 from .ui import choose_folder, escape, recordings_folder, run_in_thread, toolkit_versions  # noqa: E402
 
 QUALITIES = ("turbo", "large")
+ELSEWHERE = ("scriba", "beside")    # app/config.py, elsewhere
 LICENCES = {"MIT": Gtk.License.MIT_X11, "Apache-2.0": Gtk.License.APACHE_2_0, "BSD-3-Clause": Gtk.License.BSD_3,
             "GPL-3.0-or-later": Gtk.License.GPL_3_0, "LGPL-2.1-or-later": Gtk.License.LGPL_2_1}
 CUSTOM_LICENCES = {"CC-BY-4.0": ("Creative Commons Attribution 4.0 International",
@@ -140,6 +141,15 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self.folder_row.add_suffix(choose)
         group.add(self.folder_row)
         self._show_folder()
+        self.elsewhere_row = Adw.ComboRow(
+            title=_("Files Kept Elsewhere"), subtitle_lines=3,
+            subtitle=_("The transcripts of a file outside the folder for the recordings, when no usual folder is "
+                       "chosen: in a folder of their own there, with a link to the file, or next to it"),
+            model=Gtk.StringList.new([_("In Scriba’s Folder"), _("Next to the Original File")]))
+        self.elsewhere_row.set_selected(ELSEWHERE.index(cfg.elsewhere) if cfg.elsewhere in ELSEWHERE else 0)
+        self.elsewhere_row.connect("notify::selected",
+                                   lambda r, _p: self._set("elsewhere", ELSEWHERE[r.get_selected()]))
+        group.add(self.elsewhere_row)
         page.add(group)
 
         group = Adw.PreferencesGroup(title=_("Recording"))
@@ -156,6 +166,15 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self.recordings_row.add_suffix(choose)
         group.add(self.recordings_row)
         self._show_recordings()
+        if WINDOWS:
+            self.call_mute_row = Adw.SwitchRow(
+                title=_("Follow the Call’s Mute"), subtitle_lines=3,
+                subtitle=_("While you are muted in the call, what your microphone hears is recorded but not "
+                           "transcribed as yours. Windows 11, for apps that tell Windows, such as Teams; it reads "
+                           "Windows’ own words, so it depends on Windows’ language."),
+                active=cfg.follow_call_mute)
+            self.call_mute_row.connect("notify::active", lambda r, _p: self._set("follow_call_mute", r.get_active()))
+            group.add(self.call_mute_row)
         page.add(group)
 
         group = Adw.PreferencesGroup(title=_("Background"))

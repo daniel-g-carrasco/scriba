@@ -27,6 +27,12 @@ def main():
     Gst.init(None)
     for name in ("pulsesrc", "flacenc", "wavparse", "matroskamux"):
         assert Gst.ElementFactory.find(name), f"GStreamer element is missing: {name}"
+    # The echo canceller (webrtcdsp, from the runtime's gst-plugins-bad and
+    # webrtc-audio-processing) is said, not required: without it the app
+    # uses the raw microphone and says so. Not yet seen in GNOME 50's runtime.
+    from scriba.app.engines import echo
+    lacking = echo.missing()
+    print(f"echo canceller: {'missing ' + ', '.join(lacking) if lacking else 'present'}", flush=True)
     api = onnx.api()
     assert api.version.startswith("1.29."), f"Unexpected ONNX Runtime: {api.version}"
     assert whisper.find() and bundle.program("whisper-bench"), "whisper.cpp programs are missing"

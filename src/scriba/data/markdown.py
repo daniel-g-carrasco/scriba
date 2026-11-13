@@ -1,6 +1,7 @@
 """The transcript in Markdown (.md): a header that says what the file is
-and how far to trust it, then one line per segment, `[mm:ss] text`, and a
-title `**Speaker 2** [mm:ss]` wherever the voice changes.
+and how far to trust it, then one row per paragraph (core/paragraphs.py,
+given by app) or, without one, per segment, `[mm:ss] text`, and a title
+`**Speaker 2** [mm:ss]` wherever the voice changes.
 
 The lines are the ones trascrivi.py wrote, to the character; the header
 says the same things in the app's language (English in the source, the
@@ -16,7 +17,7 @@ from __future__ import annotations
 
 import datetime
 import os
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -109,32 +110,44 @@ def facts(header: Header, lines: Sequence[Line], code: bool = False) -> list[str
     return out
 
 
-def row(line: Line) -> str:
-    """`[mm:ss] text`, with the doubt's mark and its reasons."""
+def _marked(line: Line) -> str:
+    """The text, with the doubt's mark and its reasons."""
     text = _flat(line.text)
     if not line.doubts:
-        return f"[{clock(line.start)}] {text}"
+        return text
     words = reasons()
     why = ", ".join(words.get(code, code) for code in line.doubts)
-    return f"[{clock(line.start)}] {DOUBT_MARK} {text} _({why})_"
+    return f"{DOUBT_MARK} {text} _({why})_"
 
 
-def body(lines: Sequence[Line], bold: bool = True) -> list[str]:
+def row(line: Line) -> str:
+    """`[mm:ss] text`, with the doubt's mark and its reasons."""
+    return f"[{clock(line.start)}] {_marked(line)}"
+
+
+Group = Callable[[Sequence[Line]], Sequence[Sequence[Line]]]
+
+
+def body(lines: Sequence[Line], bold: bool = True, group: Group | None = None) -> list[str]:
     """The rows, with a voice's title where the voice changes and an empty
-    row before every title but the first, as trascrivi.py had them."""
+    row before every title but the first, as trascrivi.py had them.
+    `group` gathers the lines into paragraphs (core/paragraphs.py: data
+    does not know core, app gives it): a paragraph is one row with the time
+    of its first line, and an empty row parts the paragraphs. Without it
+    each line is a row of its own."""
     out: list[str] = []
     voiced = bool(_voices(lines))
+    spoken = [line for line in lines if line.text.strip()]
     previous = None
-    for line in lines:
-        if not line.text.strip():
-            continue
-        if voiced:
-            speaker = line.speaker or UNKNOWN_SPEAKER
-            if speaker != previous:
-                title = f"**{speaker}**" if bold else speaker
-                out += ([] if previous is None else [""]) + [f"{title} [{clock(line.start)}]"]
-                previous = speaker
-        out.append(row(line))
+    for paragraph in (group(spoken) if group else [[line] for line in spoken]):
+        first = paragraph[0]
+        if voiced and (first.speaker or UNKNOWN_SPEAKER) != previous:
+            previous = first.speaker or UNKNOWN_SPEAKER
+            title = f"**{previous}**" if bold else previous
+            out += ([] if not out else [""]) + [f"{title} [{clock(first.start)}]"]
+        elif group and out:
+            out.append("")
+        out.append(f"[{clock(first.start)}] " + " ".join(_marked(line) for line in paragraph))
     return out
 
 
@@ -149,14 +162,15 @@ def shown(lines: Iterable[Line], names: Mapping[str, str] | None) -> list[Line]:
                 line.doubts) for line in lines]
 
 
-def render(header: Header, lines: Iterable[Line], names: Mapping[str, str] | None = None) -> str:
+def render(header: Header, lines: Iterable[Line], names: Mapping[str, str] | None = None,
+           group: Group | None = None) -> str:
     lines = shown(lines, names)
     title, *rest = facts(header, lines, code=True)
-    return "\n".join([f"# {title}", "", *("- " + s for s in rest), "", "---", "", *body(lines)]) + "\n"
+    return "\n".join([f"# {title}", "", *("- " + s for s in rest), "", "---", "", *body(lines, group=group)]) + "\n"
 
 
 def write(folder: str | os.PathLike, stem: str, header: Header, lines: Iterable[Line],
-          names: Mapping[str, str] | None = None) -> Path:
+          names: Mapping[str, str] | None = None, group: Group | None = None) -> Path:
     """The transcript in a new file `stem.md` in `folder` (or `stem_R01.md`:
     never over a file that is there); its path."""
-    return files.write_new(folder, stem, ".md", render(header, lines, names))
+    return files.write_new(folder, stem, ".md", render(header, lines, names, group))

@@ -36,7 +36,9 @@ class StandIns:
         def decode(source, dest, duration=0.0, progress=None, cancelled=None, stream=0):
             self.calls.setdefault("streams", []).append(stream)
             import numpy as np
-            tone = 0.1 * 32768 * np.sin(2 * np.pi * 440 * np.arange(20 * RATE) / RATE)       # -23 dBFS
+            # a tone of its own on each track: tracks that do not hear each other (no echo, core/echo.py)
+            pitch = 440 + 220 * stream
+            tone = 0.1 * 32768 * np.sin(2 * np.pi * pitch * np.arange(20 * RATE) / RATE)       # -23 dBFS
             audio.write(dest, tone.astype(np.int16))
             return Path(dest)
 
@@ -44,7 +46,8 @@ class StandIns:
             self.calls["options"] = options
             self.calls["speech"] = len(audio.read(wav)) / RATE
             # times of the packed speech: 3 s, 0.2 s of silence, 2 s
-            return whisper.Transcript([Segment(0.5, 2.5, " Buongiorno a tutti."),
+            return whisper.Transcript([Segment(0.5, 2.5, " Buongiorno a tutti.",
+                                               words=((0.5, 1.4), (1.5, 1.7), (1.8, 2.5))),
                                        Segment(3.3, 4.0, " Grazie.", avg_logprob=-1.6)], "it", None, None)
 
         def voices(samples, vad_model, voice_model, speakers=None, threads=4, progress=None, cancelled=None):
@@ -87,6 +90,8 @@ class ChainTest(unittest.TestCase):
                                  (10.1, 10.8, "Grazie.", "Speaker 2", ("low_confidence",))])
         self.assertEqual(result.speakers, 2)
         self.assertAlmostEqual(result.segments[0].level, -23.0, delta=0.2)     # measured on the recording
+        self.assertEqual(result.segments[0].words, ((2.5, 3.4), (3.5, 3.7), (3.8, 4.5)))   # also the words' times
+        self.assertEqual(result.segments[1].words, ())
         md = Path(next(o.path for o in result.outputs if o.kind == "md")).read_text(encoding="utf-8")
         self.assertIn("**Speaker 1** [00:02]\n[00:02] Buongiorno a tutti.", md)
         self.assertIn("[00:10] (?) Grazie. _(words uncertain)_", md)
@@ -122,6 +127,11 @@ class ChainTest(unittest.TestCase):
         self.assertEqual(opened.segments, result.segments)
         self.assertEqual(opened.me, "Speaker 1")
         self.assertEqual(request.source, self.source)
+        # damaged times of the words cost only the words' times: the subtitles share the line's time
+        raw = json.loads(result.session.read_text(encoding="utf-8"))
+        raw["transcript"]["segments"][0]["words"] = [[1.0]]
+        result.session.write_text(json.dumps(raw), encoding="utf-8")
+        self.assertEqual(jobs.open_session(result.session)[0].segments[0].words, ())
 
     def test_a_single_microphone_track_is_the_user_without_diarisation(self):
         engines = StandIns(self, tracks=(ffmpeg.Track(0, "Microphone", "me"),))
@@ -152,9 +162,11 @@ class ChainTest(unittest.TestCase):
         (self.out / "call_transcript.srt").write_text("another day's", encoding="utf-8")
         result = jobs.run(jobs.Request(self.source, self.out))
         names = sorted(Path(o.path).name for o in result.outputs) + [result.session.name]
-        self.assertEqual(names, ["call_transcript_R01.md", "call_transcript_R01.srt", "call_transcript_R01.txt",
-                                 "call_transcript_R01.json"])
-        self.assertEqual((self.out / "call_transcript.srt").read_text(encoding="utf-8"), "another day's")
+        self.assertEqual(names, ["call_transcript.md", "call_transcript.srt", "call_transcript.txt",
+                                 "call_transcript.json"])
+        # the one that was there is a previous revision: moved, not replaced
+        previous = self.out / "Previous revisions" / "call_transcript_R01.srt"
+        self.assertEqual(previous.read_text(encoding="utf-8"), "another day's")
         self.assertEqual(self.source.read_bytes(), b"the user's recording")
         meeting = json.loads(result.session.read_text(encoding="utf-8"))
         self.assertEqual(meeting["kind"], "meeting-session")
@@ -210,7 +222,8 @@ class ChainTest(unittest.TestCase):
 
 
 class NamesTest(unittest.TestCase):
-    """The names given to the voices: new files, the automatic ones untouched."""
+    """The names given to the voices: the files with the names brought up to date, the automatic ones untouched,
+    no revision."""
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -228,7 +241,8 @@ class NamesTest(unittest.TestCase):
                          ["call_transcript_names.md", "call_transcript_names.srt", "call_transcript_names.txt"])
         self.assertEqual({o.kind for o in named.outputs}, {"md-named", "txt-named", "srt-named"})
         for name, content in self.before.items():
-            self.assertEqual((self.folder / name).read_bytes(), content, name)
+            if name != self.result.session.name:    # the meeting file keeps the names, in place
+                self.assertEqual((self.folder / name).read_bytes(), content, name)
         md = (self.folder / "call_transcript_names.md").read_text(encoding="utf-8")
         self.assertIn("**Anna Rossi** [00:02]", md)
         self.assertIn("**Speaker 2** [00:10]", md)
@@ -242,13 +256,22 @@ class NamesTest(unittest.TestCase):
         self.assertEqual(named.notes, [])
         self.assertIn("md-named", {o.kind for o in self.result.outputs})
 
-    def test_saved_twice_the_second_copy_takes_a_free_name(self):
+    def test_saved_twice_the_files_with_the_names_are_brought_up_to_date_and_no_revision_is_made(self):
+        automatic = {p.name: p.read_bytes() for p in self.folder.iterdir() if p.suffix in (".md", ".txt", ".srt")}
         jobs.save_names(self.result, {"Speaker 1": "Anna"})
         again = jobs.save_names(self.result, {"Speaker 1": "Anna Maria"})
         self.assertEqual(sorted(Path(o.path).name for o in again.outputs),
-                         ["call_transcript_names_R01.md", "call_transcript_names_R01.srt",
-                          "call_transcript_names_R01.txt"])
-        self.assertIn("Anna:", (self.folder / "call_transcript_names.srt").read_text(encoding="utf-8"))
+                         ["call_transcript_names.md", "call_transcript_names.srt", "call_transcript_names.txt"])
+        self.assertIn("Anna Maria:", (self.folder / "call_transcript_names.srt").read_text(encoding="utf-8"))
+        self.assertEqual(sorted(p.name for p in self.folder.iterdir()),
+                         sorted([*self.before, "call_transcript_names.md", "call_transcript_names.srt",
+                                 "call_transcript_names.txt"]))
+        for name, content in automatic.items():
+            self.assertEqual((self.folder / name).read_bytes(), content, name)
+        meeting = json.loads(self.result.session.read_text(encoding="utf-8"))
+        self.assertEqual(meeting["names"], {"Speaker 1": "Anna Maria"})
+        self.assertEqual([o["kind"] for o in meeting["outputs"]].count("md-named"), 1)
+        self.assertEqual([o.kind for o in self.result.outputs].count("md-named"), 1)
 
     def test_no_name_given_is_said_and_nothing_is_written(self):
         with self.assertRaises(Failure):
@@ -263,7 +286,7 @@ class NamesTest(unittest.TestCase):
     def test_reopening_needs_neither_models_nor_audio_and_keeps_original_voices_and_doubts(self):
         original = self.result.session
         jobs.save_names(self.result, {"Speaker 1": "Anna", "Speaker 2": "Anna"})
-        self.assertNotEqual(self.result.session, original)
+        self.assertEqual(self.result.session, original)
         self.source.unlink()
         for output in self.result.outputs:
             Path(output.path).unlink()
@@ -289,14 +312,13 @@ class NamesTest(unittest.TestCase):
         with self.assertRaises(Failure):
             jobs.open_session(path)
 
-    def test_all_names_can_be_cleared_in_a_new_revision(self):
+    def test_all_names_can_be_cleared_in_place(self):
         jobs.save_names(self.result, {"Speaker 1": "Anna"})
         previous = self.result.session
-        before = previous.read_bytes()
         jobs.save_names(self.result, {})
-        self.assertNotEqual(self.result.session, previous)
-        self.assertEqual(previous.read_bytes(), before)
+        self.assertEqual(self.result.session, previous)
         self.assertEqual(json.loads(self.result.session.read_text(encoding="utf-8"))["names"], {})
+        self.assertNotIn("Anna", (self.folder / "call_transcript_names.md").read_text(encoding="utf-8"))
 
     def test_a_saved_stem_cannot_write_outside_the_meeting_folder(self):
         raw = json.loads(self.result.session.read_text(encoding="utf-8"))
@@ -307,6 +329,103 @@ class NamesTest(unittest.TestCase):
                 with self.assertRaises(Failure):
                     jobs.open_session(self.result.session)
 
+
+class FoldersTest(unittest.TestCase):
+    """Where the files of a meeting go (13/11/2026): a folder per meeting, a link to a file kept
+    elsewhere, the previous transcripts in a folder of revisions; real files in a temporary folder."""
+
+    def setUp(self):
+        self.folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.recordings = self.folder / "Scriba"
+        self.recordings.mkdir()
+        self.elsewhere = self.folder / "Videos"
+        self.elsewhere.mkdir()
+        self.source = self.elsewhere / "2026-11-12 10-00-00.mkv"
+        self.source.write_bytes(b"an OBS video")
+        StandIns(self)
+
+    def test_a_file_kept_elsewhere_is_transcribed_in_a_folder_of_its_own_with_a_link_to_it(self):
+        self.assertTrue(jobs.elsewhere(self.source, self.recordings))
+        result = jobs.run(jobs.Request(self.source, home=self.recordings))
+        home = self.recordings / "2026-11-12 10-00-00"
+        self.assertEqual(result.folder, home)
+        self.assertEqual(sorted(p.name for p in home.iterdir() if p.suffix != ".lnk" and not p.is_symlink()),
+                         sorted(f"2026-11-12 10-00-00_transcript{ext}" for ext in (".json", ".md", ".srt", ".txt")))
+        if _setup.WINDOWS:
+            link = home / "2026-11-12 10-00-00.mkv.lnk"
+            self.assertTrue(link.is_file())
+            self.assertIn("2026-11-12 10-00-00.mkv".encode("utf-16-le"), link.read_bytes())    # the target's path
+        else:
+            link = home / "2026-11-12 10-00-00.mkv"
+            self.assertEqual(link.resolve(), self.source.resolve())
+        self.assertEqual(self.source.read_bytes(), b"an OBS video")                 # the original, where it was
+        self.assertEqual(json.loads(result.session.read_text(encoding="utf-8"))["source"], jobs.full_path(self.source))
+        self.assertEqual(result.notes, [])
+        # a second transcription of the same file goes in the same folder; another file of the same name does not
+        again = jobs.run(jobs.Request(self.source, home=self.recordings))
+        self.assertEqual(again.folder, home)
+        other = self.folder / "Phone" / self.source.name
+        other.parent.mkdir()
+        other.write_bytes(b"another video")
+        self.assertEqual(jobs.home_folder(other, self.recordings), self.recordings / "2026-11-12 10-00-00_R01")
+        self.assertFalse(jobs.elsewhere(home / "x.mka", self.recordings))
+
+    def test_a_second_transcription_moves_the_first_to_the_previous_revisions_and_loses_nothing(self):
+        first = jobs.run(jobs.Request(self.source, self.recordings / "meeting", speakers=True))
+        jobs.save_names(first, {"Speaker 1": "Anna"})
+        meeting = self.recordings / "meeting"
+        before = {p.name: p.read_bytes() for p in meeting.iterdir() if p.is_file()}
+        second = jobs.run(jobs.Request(self.source, meeting, speakers=True))
+        stem = "2026-11-12 10-00-00_transcript"
+        self.assertEqual(sorted(Path(o.path).name for o in second.outputs),
+                         sorted(f"{stem}{ext}" for ext in (".md", ".srt", ".txt")))
+        revisions = meeting / "Previous revisions"
+        moved = {p.name: p.read_bytes() for p in revisions.iterdir()}
+        self.assertEqual(sorted(moved), sorted(name.replace(stem, f"{stem}_R01") for name in before))
+        for name, content in before.items():
+            self.assertEqual(moved[name.replace(stem, f"{stem}_R01")], content, name)
+        third = jobs.run(jobs.Request(self.source, meeting))
+        self.assertEqual(third.stem, stem)
+        self.assertEqual(sorted(p.name for p in revisions.iterdir() if "_R02" in p.name),
+                         sorted(f"{stem}_R02{ext}" for ext in (".json", ".md", ".srt", ".txt")))
+
+    def test_a_previous_transcript_that_cannot_be_moved_stays_and_the_new_one_takes_another_name(self):
+        meeting = self.recordings / "meeting"
+        jobs.run(jobs.Request(self.source, meeting))
+        before = {p.name: p.read_bytes() for p in meeting.iterdir()}
+        real = jobs.files.move_new
+        calls = []
+
+        def locked(source, dest):
+            calls.append(dest)
+            if len(calls) == 2:
+                raise PermissionError("open in another program")
+            real(source, dest)
+
+        with mock.patch.object(jobs.files, "move_new", locked):
+            again = jobs.run(jobs.Request(self.source, meeting))
+        self.assertEqual(again.stem, "2026-11-12 10-00-00_transcript_R01")
+        self.assertTrue(any("could not be moved" in note for note in again.notes))
+        for name, content in before.items():
+            self.assertEqual((meeting / name).read_bytes(), content, name)          # put back whole
+        self.assertEqual(list((meeting / "Previous revisions").iterdir()), [])
+
+    def test_a_meeting_of_the_old_layout_opens_and_takes_names_where_it_is(self):
+        # before 13/11/2026: everything in the recordings' folder, a second transcript beside the first
+        old = self.recordings / "2026-11-10 09-00-00 registrazione.mka"
+        old.write_bytes(b"an old recording")
+        first = jobs.run(jobs.Request(old, self.recordings))
+        legacy = self.recordings / "2026-11-10 09-00-00 registrazione_transcript_R01.md"
+        legacy.write_text("an older revision, beside", encoding="utf-8")
+        named = jobs.save_names(first, {"Speaker 1": "Anna"})
+        listed = sorted(p.name for p in self.recordings.iterdir())
+        opened, request = jobs.open_session(first.session)
+        self.assertEqual(opened.names, {"Speaker 1": "Anna"})
+        self.assertEqual(opened.folder, self.recordings)
+        self.assertEqual(request.source, old)
+        self.assertEqual(legacy.read_text(encoding="utf-8"), "an older revision, beside")
+        self.assertEqual(named.notes, [])
+        self.assertEqual(sorted(p.name for p in self.recordings.iterdir()), listed)      # nothing moved
 
 
 class DevicesTest(unittest.TestCase):
@@ -523,6 +642,22 @@ class SpeedsTest(unittest.TestCase):
             self.assertAlmostEqual(jobs.estimated_seconds(600, request, "cpu", jobs.load_speeds(path)), 750 + 30)
             path.write_text("not json", encoding="utf-8")
             self.assertEqual(jobs.load_speeds(path), {})
+
+    def test_precise_never_run_on_a_card_starts_from_fast_there_and_says_it_is_a_first_estimate(self):
+        card = "Vulkan: Card"
+        speeds = {jobs.speed_key("turbo", card): 8.0, jobs.speed_key("speakers", "cpu"): 30.0}
+        precise, fast = jobs.Request(Path("x.wav"), model="large"), jobs.Request(Path("x.wav"))
+        self.assertAlmostEqual(jobs.estimated_seconds(2400, precise, card, speeds), 2400 / 8.0 * jobs.PRECISE_SLOWER)
+        self.assertTrue(jobs.first_estimate(precise, card, speeds))
+        self.assertFalse(jobs.first_estimate(fast, card, speeds))
+        # another device's measure says nothing of this one: the old default, said as a first estimate
+        self.assertAlmostEqual(jobs.estimated_seconds(2400, precise, "cpu", speeds), 2400)
+        self.assertTrue(jobs.first_estimate(precise, "cpu", speeds))
+        speeds[jobs.speed_key("large", card)] = 6.0             # measured once: its own speed from then on
+        self.assertAlmostEqual(jobs.estimated_seconds(2400, precise, card, speeds), 400)
+        self.assertFalse(jobs.first_estimate(precise, card, speeds))
+        voices = jobs.Request(Path("x.wav"), speakers=True)
+        self.assertTrue(jobs.first_estimate(voices, card, {jobs.speed_key("turbo", card): 8.0}))
 
     def test_the_files_go_next_to_the_recording_unless_asked_elsewhere(self):
         source = Path(tempfile.gettempdir()) / "call.mp4"

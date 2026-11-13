@@ -33,16 +33,43 @@ class WatchTest(unittest.TestCase):
     def test_a_voice_heard_from_across_the_room_is_said_to_be_too_quiet(self):
         # the live call: speech at -44 to -53 dB over a room at -62
         pick = random.Random(3)
-        now = feed(self.watch, "mic", 12, lambda t: -46 + pick.uniform(-4, 4) if int(t) % 3 else -62)
-        feed(self.watch, "out", 12, -20, start=0)
+        voice = lambda t: -46 + pick.uniform(-4, 4) if int(t) % 3 else -62     # noqa: E731
+        now = feed(self.watch, "mic", 12, voice)
+        feed(self.watch, "out", 30, -20, start=0)
+        self.assertEqual(self.kinds(now), [])           # not yet: faint speech for QUIET_FOR seconds first
+        now = feed(self.watch, "mic", 10, voice, start=now)
         self.assertIn((levels.QUIET, "mic"), self.kinds(now))
         quiet = next(a for a in self.watch.warnings(now) if a.kind == levels.QUIET)
         self.assertLess(quiet.level, levels.QUIET_BELOW)
+        self.assertGreaterEqual(quiet.level, levels.SPEECH_FROM)
 
     def test_a_quiet_room_where_nobody_speaks_is_not_a_quiet_voice(self):
         now = feed(self.watch, "mic", 12, -62)
         feed(self.watch, "out", 12, -20)
         self.assertEqual(self.kinds(now), [])
+
+    def test_a_user_silent_in_the_call_is_never_told_the_microphone_hears_little(self):
+        # the call of 13/11/2026: the right microphone at -73 dB, with the dips of the call's
+        # own noise suppression to digital silence and a breath now and then
+        pick = random.Random(5)
+        now = feed(self.watch, "mic", 120,
+                   lambda t: -700.0 if int(t * 10) % 7 == 0 else -73 + pick.uniform(-6, 6) if int(t) % 9 else -64)
+        feed(self.watch, "out", 120, -20)
+        self.assertNotIn(levels.QUIET, [k for k, _t in self.kinds(now)])
+
+    def test_one_faint_sound_in_the_silence_is_not_faint_speech(self):
+        now = feed(self.watch, "mic", 20, -73)
+        now = feed(self.watch, "mic", 1.5, -48, start=now)          # a cough, a chair
+        for _ in range(4):
+            now = feed(self.watch, "mic", 5, -73, start=now)
+            self.assertNotIn(levels.QUIET, [k for k, _t in self.kinds(now)])
+
+    def test_faint_speech_that_stops_is_not_warned_about_any_more(self):
+        voice = lambda t: -48 if int(t) % 3 else -66        # noqa: E731
+        now = feed(self.watch, "mic", 30, voice)
+        self.assertIn(levels.QUIET, [k for k, _t in self.kinds(now)])
+        now = feed(self.watch, "mic", 15, -73, start=now)          # the user stopped speaking
+        self.assertNotIn(levels.QUIET, [k for k, _t in self.kinds(now)])
 
     def test_a_voice_at_a_good_level_says_nothing_and_ends_the_warning(self):
         now = feed(self.watch, "mic", 12, lambda t: -46 if int(t) % 3 else -62)
@@ -135,7 +162,7 @@ class NamesAndRoomTest(unittest.TestCase):
         self.assertEqual(rec.stem(when, "registrazione"), "2026-11-11 10-54-08 registrazione")
 
     def test_a_device_s_name_is_made_safe_for_a_file_s(self):
-        self.assertEqual(rec.safe("Cuffie (Free BYRD)"), "Cuffie (Free BYRD)")
+        self.assertEqual(rec.safe("Cuffie (Headset BT)"), "Cuffie (Headset BT)")
         self.assertEqual(rec.safe('Mic: "USB" <2>/3'), "Mic USB 2 3")
         self.assertEqual(rec.safe("Gruppo microfoni (Tecnologia Intel® Smart Sound per microfoni digitali)"),
                          "Gruppo microfoni (Tecnologia Intel® Smar")

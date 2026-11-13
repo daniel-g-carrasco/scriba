@@ -11,7 +11,7 @@ touched, the version with the names is a new one).
 
 The logic of assign_speakers and number_speakers is trascrivi.py's
 (chi_parla and the numbering in order of appearance), which gave the
-transcripts Daniel has read; the same input gives the same voices.
+transcripts read so far; the same input gives the same voices.
 """
 
 from __future__ import annotations
@@ -55,6 +55,9 @@ class Segment:
     avg_logprob: float | None = None    # whisper's: mean log probability of the words, 0 = certain
     level: float | None = None          # dBFS of the line's loud part (the app measures it); None: not measured
     doubts: tuple[str, ...] = ()        # REASONS that hold for this line, in their order
+    # (start, end) of each word of text.split(), as the engine timed it;
+    # (): not given (core/subtitles.py then shares the line's time)
+    words: tuple[tuple[float, float], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -155,7 +158,7 @@ def flag_doubtful(segments: Iterable[Segment], *, no_speech_above: float = NO_SP
       not sure of it (mean log probability below `quiet_logprob_below`,
       -0.2). Measured on 11/11/2026: in the first minute and a half of the
       call of that day (voices far from the microphone, -40 to -48 dBFS)
-      whisper wrote 16 lines of which Daniel recognised none; 13 are QUIET,
+      whisper wrote 16 lines of which none was right; 13 are QUIET,
       where LOW_CONFIDENCE alone marks 5. Neither measure alone parts them
       from good lines: on the 10-minute test clip a remote speaker at -51
       dBFS is transcribed right, mostly with -0.09 to -0.19; of its 116
@@ -203,7 +206,9 @@ def shift(segments: Iterable[Segment], seconds: float) -> list[Segment]:
     """The segments moved by `seconds` (later when positive). A time that
     would fall before the start is put at 0: the line is kept, since its
     words matter more than a fraction of a second."""
-    return [replace(seg, start=max(seg.start + seconds, 0.0), end=max(seg.end + seconds, 0.0)) for seg in segments]
+    return [replace(seg, start=max(seg.start + seconds, 0.0), end=max(seg.end + seconds, 0.0),
+                    words=tuple((max(a + seconds, 0.0), max(b + seconds, 0.0)) for a, b in seg.words))
+            for seg in segments]
 
 
 def prefix_speakers(segments: Iterable[Segment], prefix: str) -> list[Segment]:

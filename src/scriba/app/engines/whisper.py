@@ -17,7 +17,13 @@ processor alone in 707 s. Four traps came out of that, handled here:
    back).
 3. large-v3 with its default context falls into loops (64 % of the words
    wrong); `-mc 0 --carry-initial-prompt` brings it back to 14.9 %.
-   Turbo never did it: those two options go with the precise model only.
+   Turbo does it too, on a long recording: in a meeting of 1 h 48 min its
+   microphone track fell into one sentence at minute 53 and wrote it
+   2275 times, to the end, each with a high confidence; on 20 minutes
+   across that point the default context gave one line 118 times out of
+   540, `-mc 0` none out of 246, in less than half the time (13/11/2026).
+   The text a loop writes is fed back as context and keeps it going, so
+   those two options go with every model.
 4. The first window on a card compiles Vulkan's shaders (4 to 5 s the
    first time; the driver keeps them after that: 2.8 s for 30 s of audio
    the second time). The benchmark below runs its sample twice in one
@@ -27,7 +33,8 @@ processor alone in 707 s. Four traps came out of that, handled here:
 The options are read from the installed program's own --help: a version
 that lacks one the app needs is said, not run with the wrong arguments.
 whisper-cli 1.9.4 writes, per segment, the times and every token with its
-probability (-ojf), from which the confidence of a line is worked out; it
+probability and its times (-ojf), from which the confidence of a line and
+the times of its words are worked out; it
 does not write the probability of "no speech" (the library has it,
 whisper_full_get_segment_no_speech_prob, the program does not print it),
 so that measure stays None and the speech filter does that work.
@@ -208,10 +215,9 @@ def options_arguments(cli: Path, options: Options, known: frozenset[str]) -> lis
     text = prompt(options.terms)
     if text and "--prompt" in known:
         argv += ["--prompt", text]
-    if options.precise:
-        argv += ["-mc", "0"] if "-mc" in known else []
-        if text and "--carry-initial-prompt" in known:
-            argv.append("--carry-initial-prompt")
+    argv += ["-mc", "0"] if "-mc" in known else []      # no text carried from one window to the next: trap 3
+    if text and "--carry-initial-prompt" in known:
+        argv.append("--carry-initial-prompt")
     if options.device is None:
         argv.append("-ng")
     return argv
@@ -241,6 +247,33 @@ def confidence(tokens: Sequence[dict]) -> float | None:
     return sum(logs) / len(logs) if logs else None
 
 
+def word_times(text: str, tokens: Sequence[dict]) -> tuple[tuple[float, float], ...]:
+    """(start, end), in seconds, of each word of `text` (text.split()): a
+    word starts with its first token and ends with its last. -ojf turns on
+    whisper's timing of the tokens (no option more, no time more). Measured
+    on 13/11/2026 (5 minutes, turbo, -mc 0, 868 tokens of text): in order,
+    never outside their line, 42 of no length; against the DTW alignment
+    (-dtw, which needs -nfa, and that changed the text of 21 lines of 86)
+    a word's start is off by 0.2 s at the median, 0.6 s at the 90th
+    centile, where sharing the line's time by length gives 0.2 and 0.9 s.
+    () when the tokens do not spell the text (a character cut between two
+    tokens)."""
+    spans: list[tuple[float, float]] = []
+    spelled = ""
+    for token in tokens:
+        piece = str(token.get("text", ""))
+        if _SPECIAL.match(piece.strip()):
+            continue
+        offsets = token.get("offsets") or {}
+        span = (float(offsets.get("from", 0)) / 1000, float(offsets.get("to", 0)) / 1000)
+        spelled += piece
+        spans += [span] * len(piece)
+    if spelled.split() != text.split():
+        return ()
+    return tuple((spans[m.start()][0], max(spans[m.end() - 1][1], spans[m.start()][0]))
+                 for m in re.finditer(r"\S+", spelled))
+
+
 def parse_output(data: dict) -> tuple[list[Segment], str]:
     """The segments of whisper-cli's full JSON (-ojf), times in seconds,
     and the language it says."""
@@ -248,8 +281,9 @@ def parse_output(data: dict) -> tuple[list[Segment], str]:
     for item in data.get("transcription") or []:
         offsets = item.get("offsets") or {}
         start, end = float(offsets.get("from", 0)) / 1000, float(offsets.get("to", 0)) / 1000
-        segments.append(Segment(start, max(end, start), str(item.get("text", "")),
-                                avg_logprob=confidence(item.get("tokens") or [])))
+        text, tokens = str(item.get("text", "")), item.get("tokens") or []
+        segments.append(Segment(start, max(end, start), text, avg_logprob=confidence(tokens),
+                                words=word_times(text, tokens)))
     language = str(((data.get("result") or {}).get("language")) or (data.get("params") or {}).get("language") or "")
     return segments, language
 

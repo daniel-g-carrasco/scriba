@@ -249,7 +249,8 @@ class WhisperTest(unittest.TestCase):
         argv = whisper.arguments(Path("whisper-cli"), Path("speech.wav"), Path("out"), options, known)
         self.assertEqual(argv[argv.index("--prompt") + 1], "Officina Esempio, Cantiere Esempio")
         self.assertNotIn("-ng", argv)
-        self.assertNotIn("-mc", argv)
+        self.assertEqual(argv[argv.index("-mc") + 1], "0")              # turbo loops on its own context too
+        self.assertIn("--carry-initial-prompt", argv)
         self.assertIn("-ojf", argv)
         large = whisper.Options(self.MODEL, "auto", ("Officina Esempio",), 4, card, precise=True)
         argv = whisper.arguments(Path("whisper-cli"), Path("speech.wav"), Path("out"), large, known)
@@ -283,6 +284,18 @@ class WhisperTest(unittest.TestCase):
         tokens = [{"text": "[_BEG_]", "p": 0.001}, {"text": " ciao", "p": 0.5}, {"text": "[_TT_150]", "p": 0.01}]
         self.assertAlmostEqual(whisper.confidence(tokens), math.log(0.5))
         self.assertIsNone(whisper.confidence([{"text": "[_BEG_]", "p": 0.9}]))
+
+    def test_the_times_of_the_words_from_their_tokens(self):
+        def token(text, start, end):
+            return {"text": text, "offsets": {"from": start, "to": end}}
+        tokens = [token("[_BEG_]", 0, 0), token(" por", 100, 200), token("ta", 200, 320), token(" c", 790, 790),
+                  token("'", 790, 850), token("è", 850, 910), token(",", 910, 930), token(" sì", 1000, 1200),
+                  token("[_TT_60]", 1200, 1200)]
+        self.assertEqual(whisper.word_times(" porta c'è, sì", tokens), ((0.1, 0.32), (0.79, 0.93), (1.0, 1.2)))
+        self.assertEqual(whisper.word_times(" porta c'è, no", tokens), ())        # tokens that do not spell the text
+        segments, _language = whisper.parse_output({"transcription": [
+            {"offsets": {"from": 0, "to": 1200}, "text": " porta c'è, sì", "tokens": tokens}]})
+        self.assertEqual(segments[0].words, ((0.1, 0.32), (0.79, 0.93), (1.0, 1.2)))
 
     def test_the_language_found_and_the_progress_lines(self):
         # as whisper-cli 1.9.4 printed them with -l auto and -pp

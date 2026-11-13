@@ -105,6 +105,121 @@ class AvailabilityTest(unittest.TestCase):
         self.assertEqual(changes, [True, False])
 
 
+class TaskbarThemeTest(unittest.TestCase):
+    """The icon for a dark taskbar, with the taskbar's colour from a stand-in
+    (never the registry)."""
+
+    def tray(self, dark, heard=None):
+        from unittest.mock import patch
+        tray = wintray.WinTray("io.example.test", "Test", lambda: None, taskbar_dark=lambda: dark[0],
+                               on_taskbar_theme=heard.append if heard is not None else None)
+        tray.dark = tray._read_dark()
+        tray._added = True
+        asked = []
+        patcher = patch.object(tray, "_icon", side_effect=lambda name: asked.append(name) or 7)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return tray, asked
+
+    def drain(self, seconds=0.3):
+        context = GLib.MainContext.default()
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            if not context.iteration(False):
+                time.sleep(0.01)
+
+    def test_the_variant_on_a_dark_taskbar_the_normal_icon_on_a_light_one(self):
+        dark, asked_dark = self.tray([True])
+        light, asked_light = self.tray([False])
+        for tray in (dark, light):
+            tray.icon_name = "io.example.test-recording"
+            tray._data(wintray.NIF_ICON)
+        self.assertEqual(asked_dark, ["io.example.test-recording-on-dark"])
+        self.assertEqual(asked_light, ["io.example.test-recording"])
+
+    def test_a_change_of_the_windows_mode_changes_the_icon(self):
+        import ctypes
+        from unittest.mock import patch
+        dark, heard = [False], []
+        tray, asked = self.tray(dark, heard)
+        setting = ctypes.create_unicode_buffer(wintray.COLOUR_SET)
+        dark[0] = True
+        with patch.object(wintray.shell32, "Shell_NotifyIconW", return_value=1) as shell:
+            tray._window_proc(None, wintray.WM_SETTINGCHANGE, 0, ctypes.addressof(setting))
+            self.assertEqual(heard, [])                 # from the main loop
+            self.drain()
+            self.assertEqual(heard, [True])
+            self.assertEqual(asked, ["io.example.test-on-dark"])
+            self.assertEqual(shell.call_args[0][0], wintray.NIM_MODIFY)
+            # another setting, no setting, or the same mode again: nothing
+            other = ctypes.create_unicode_buffer("Environment")
+            for lparam in (ctypes.addressof(other), 0, ctypes.addressof(setting)):
+                tray._window_proc(None, wintray.WM_SETTINGCHANGE, 0, lparam)
+            self.drain()
+            self.assertEqual(heard, [True])
+            self.assertEqual(shell.call_count, 1)
+
+    def test_without_the_variant_the_normal_icon(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            tray = wintray.WinTray("io.github.daniel_g_carrasco.scriba", "Scriba", lambda: None,
+                                   icon_theme_path=str(_setup.ROOT / "data" / "icons"), cache=Path(tmp))
+            self.assertTrue(tray._icon("io.github.daniel_g_carrasco.scriba-recording-on-dark"))
+            self.assertTrue((Path(tmp) / "io.github.daniel_g_carrasco.scriba-recording-on-dark.ico").is_file())
+            # a state without its variant (from another version of the app):
+            # an icon all the same, never none
+            self.assertTrue(tray._icon("io.github.daniel_g_carrasco.scriba-nothing-on-dark"))
+            tray.stop()
+
+
+class WindowIconTest(unittest.TestCase):
+    def test_the_taskbar_button_follows_the_taskbar_the_title_bar_the_window(self):
+        # the big icon is the taskbar button's (measured: see win32.window_icons),
+        # the small one the title bar's, whose colour is the content's
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from scriba.app import win32
+        from scriba.gui import application
+        from gi.repository import Adw
+        Adw.init()
+        content_dark = Adw.StyleManager.get_default().get_dark()
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(win32, "title_bars"), patch.object(win32, "window_icons") as icons:
+            for taskbar in (True, False):
+                application.native_windows(Path(tmp), taskbar_dark=lambda t=taskbar: t)()
+                _exe, small, big = icons.call_args[0]
+                self.assertEqual(big.endswith("scriba-on-dark.ico"), taskbar)
+                self.assertTrue(big.endswith(".ico"))   # a run from the sources: drawn from the SVG
+                self.assertEqual(small.endswith("-on-dark.ico"), content_dark)
+
+
+class FullDiscTest(unittest.TestCase):
+    def test_the_notification_areas_icon_is_full_to_the_edge_at_32_pixels(self):
+        # the SVG keeps the theme's margin for Linux; Windows' .ico is drawn without it
+        import struct
+        import tempfile
+        from pathlib import Path
+        from gi.repository import GdkPixbuf
+        from test_icons import drawn
+        svg = _setup.ROOT / "data" / "icons" / "hicolor" / "scalable" / "apps" / "io.github.daniel_g_carrasco.scriba-recording-on-dark.svg"
+        with tempfile.TemporaryDirectory() as tmp:
+            ico = Path(tmp) / "icon.ico"
+            wintray.ico_from_svg(str(svg), ico)
+            data = ico.read_bytes()
+        count = struct.unpack_from("<H", data, 4)[0]
+        for n in range(count):
+            width, _h, _c, _r, _p, _b, length, offset = struct.unpack_from("<BBBBHHII", data, 6 + 16 * n)
+            if width == 32:
+                loader = GdkPixbuf.PixbufLoader()
+                loader.write(data[offset:offset + length])
+                loader.close()
+                self.assertEqual(drawn(loader.get_pixbuf()), (32, 32))
+                return
+        self.fail("no 32-pixel image in the .ico")
+
+
 class IconTest(unittest.TestCase):
     def test_a_large_png_for_the_toasts(self):
         import tempfile

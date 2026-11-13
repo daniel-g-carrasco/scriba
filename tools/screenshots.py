@@ -34,7 +34,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tests"))
 
-STATES = ("models", "empty", "setup-video", "cards-testing", "cards-left-out", "working", "result", "result-long",
+STATES = ("models", "models-downloading", "empty", "setup-video", "cards-testing", "cards-left-out", "working", "result", "result-long",
           "preferences", "dark", "record", "record-going", "record-warning", "record-long", "balance")
 GHOST = 0.02            # the window's opacity on the screen while it is drawn and photographed
 
@@ -51,6 +51,8 @@ def main(argv=None) -> int:
     os.environ["LANGUAGE"] = args.lang
     if os.name == "nt":
         os.environ.setdefault("GTK_CSD", "0")       # as the app: the system's title bar, not GTK's
+        from scriba.app import win32
+        win32.per_monitor_dpi()                     # as the app: each screen's dpi, before GTK starts
 
     from scriba import PACKAGE_DIR, TEXTDOMAIN, i18n
     i18n.setup(TEXTDOMAIN, PACKAGE_DIR.parent.parent, args.lang)
@@ -69,6 +71,7 @@ def main(argv=None) -> int:
     from scriba.gui.ui import load_style
     if WINDOWS:
         app_mod.larger_system_font()            # as the app starts: the text a size larger on Windows
+        app_mod.text_follows_screen(lambda: None)   # and as large as the screen's scale asks
     for refused in load_style(Gdk.Display.get_default()):
         print(f"style: {refused}", file=sys.stderr)
     if app_mod.SOURCE_ICONS.is_dir():
@@ -265,6 +268,33 @@ class Shots:
         self.photograph(window, "01-modelli-mancanti")
         window.destroy()
 
+    def models_downloading(self):
+        """The first model held at 42 %, at the usual width and at a narrow one."""
+        from scriba.app.backend import needed_models
+        app, _tmp = self.app({"missing": needed_models()})
+        hold = threading.Event()
+        made_up = app.backend.download
+
+        def download(model, progress=None, cancelled=None):
+            if progress is not None:
+                progress(model.size * 0.42, model.size)
+            while not hold.wait(0.05):
+                if cancelled is not None and cancelled.is_set():
+                    break
+            return made_up(model, progress, cancelled)
+
+        app.backend.download = download
+        app.downloads.start_required()
+        self.spin(lambda: app.downloads.state.phase == "downloading", 5)
+        for width, name in ((640, "01b-modelli-scaricamento"), (360, "01c-modelli-scaricamento-stretta")):
+            window = self.window(app, width=width)
+            window.show_models()
+            self.settle()
+            self.photograph(window, name)
+            window.destroy()
+        hold.set()
+        app.downloads.shutdown()
+
     def empty(self):
         app, _tmp = self.app()
         window = self.window(app)
@@ -277,7 +307,7 @@ class Shots:
         from scriba.app.config import Config
         from scriba.app.engines import ffmpeg
         cfg = Config(measured_device=fake_engines.CARD.name, subtitled_video=True, speaker_count=4,
-                     terms="Cantiere Esempio, cavedi, carroponte, UPS, QG&UPS")
+                     terms="Cantiere Esempio, cavedi, montacarichi, UPS, QG&UPS")
         app, tmp = self.app({"media": ffmpeg.Media(3725.0, 1, True, 0), "precise": True}, cfg)
         window = self.opened(app, tmp)
         self.photograph(window, "03-trascrivi-video")
@@ -488,7 +518,7 @@ class Shots:
         recorder.levels["me-1"] = (-47.0, -38.0)
         recorder.takes[1].ended = 2412.0
         recorder.alerts = (levels.Alert(levels.QUIET, "me-1", -46.0),)
-        recorder.events = (recordings.Event(2412.0, recordings.GONE, "Cuffie (Free BYRD)"),)
+        recorder.events = (recordings.Event(2412.0, recordings.GONE, "Cuffie (Headset BT)"),)
         recorder.seconds_left = 22 * 60
         self.settle(1.0)
         self.photograph(window, "11-registra-avviso")
@@ -502,10 +532,10 @@ class Shots:
                        default=True),
             dev.Device("o2", "Cuffie (Sennheiser MOMENTUM 4 Wireless Hands-Free AG Audio)", dev.OUTPUT,
                        communications=True, container="m4", bluetooth=True, programs=("ms-teams.exe", "chrome.exe")),
-            dev.Device("o3", "Monitor DELL U2723QE (NVIDIA High Definition Audio, uscita DisplayPort 2)", dev.OUTPUT),
+            dev.Device("o3", "Monitor esterno (NVIDIA High Definition Audio, uscita DisplayPort 2)", dev.OUTPUT),
             dev.Device("i1", "Cuffia auricolare (Sennheiser MOMENTUM 4 Wireless Hands-Free AG Audio)", dev.INPUT,
                        communications=True, container="m4", bluetooth=True, programs=("ms-teams.exe",)),
-            dev.Device("i2", "Microfono (Trust Full HD Webcam con riduzione del rumore integrata)", dev.INPUT,
+            dev.Device("i2", "Microfono (HD Webcam con riduzione del rumore integrata)", dev.INPUT,
                        default=True),
             dev.Device("i3", "Gruppo microfoni (Tecnologia Intel® Smart Sound per microfoni digitali)", dev.INPUT),
             dev.Device("i4", "Microfono (Jabra Speak2 75, vivavoce per sale riunioni)", dev.INPUT, bluetooth=True),

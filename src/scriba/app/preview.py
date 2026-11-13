@@ -2,7 +2,7 @@
 
 Some tagged MP3s abort GTK's GStreamer backend in native code, outside
 Python's error handling. ffmpeg already reads the source formats safely;
-extracting at most twelve seconds also bounds temporary space and avoids
+extracting at most fifteen seconds (twenty for the balance's preview) also bounds temporary space and avoids
 seeking a whole recording in the player. Originals are only read.
 """
 
@@ -53,4 +53,29 @@ def prepare(source: str | Path, start: float, end: float, cancelled: threading.E
         return Clip(path, duration)
     except BaseException:
         shutil.rmtree(folder)
+        raise
+
+
+def balanced(source: str | Path, start: float, end: float, balance: float,
+             cancelled: threading.Event | None = None) -> Clip:
+    """The balance's preview: that stretch of the listening copy with this
+    balance (recording.balance_preview), in a temporary folder of its own
+    that Clip.close removes. The user's files are only read."""
+    from scriba.app import recording
+
+    check(cancelled)
+    length = end - max(start, 0.0)
+    if not math.isfinite(start) or not math.isfinite(length) or length <= 0:
+        raise Failure(_("No audio was found at this point in the recording."), "empty preview interval")
+    folder = Path(tempfile.mkdtemp(prefix="scriba-preview-"))
+    try:
+        path = recording.balance_preview(source, max(start, 0.0), length, balance, folder, cancelled)
+        check(cancelled)
+        with wave.open(str(path), "rb") as wav:
+            duration = wav.getnframes() / wav.getframerate()
+        if duration <= 0:
+            raise Failure(_("No audio was found at this point in the recording."), "empty preview WAV")
+        return Clip(path, duration)
+    except BaseException:
+        shutil.rmtree(folder, ignore_errors=True)
         raise

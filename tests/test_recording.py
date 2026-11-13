@@ -34,9 +34,9 @@ class FinishTest(unittest.TestCase):
         self.folder = Path(tmp.name)
 
     def takes(self):
-        return [Take("me-1", "me", "Cuffia auricolare (Free BYRD)", flac(self.folder / "r_mic.flac", 3, 0.05),
+        return [Take("me-1", "me", "Cuffia auricolare (Headset BT)", flac(self.folder / "r_mic.flac", 3, 0.05),
                      loudest=-26.0),
-                Take("others-2", "others", "Cuffie (Free BYRD)", flac(self.folder / "r_out 1.flac", 3, 0.3, 660),
+                Take("others-2", "others", "Cuffie (Headset BT)", flac(self.folder / "r_out 1.flac", 3, 0.3, 660),
                      loudest=-10.0),
                 Take("others-3", "others", "Altoparlanti (Realtek(R) Audio)", flac(self.folder / "r_out 2.flac", 3, 0),
                      loudest=-350.0)]
@@ -47,7 +47,7 @@ class FinishTest(unittest.TestCase):
         self.assertEqual(done.recording, self.folder / "r.mka")
         media = ffmpeg.probe(done.recording)
         self.assertEqual([(t.role, t.title) for t in media.roles],
-                         [("me", "Microphone: Cuffia auricolare (Free BYRD)"), ("others", "Output: Cuffie (Free BYRD)")])
+                         [("me", "Microphone: Cuffia auricolare (Headset BT)"), ("others", "Output: Cuffie (Headset BT)")])
         self.assertAlmostEqual(media.duration, 3.0, delta=0.1)
         self.assertEqual([t.key for t in done.dropped], ["others-3"])
         self.assertIn("Altoparlanti (Realtek(R) Audio): silent from start to end, not kept.", done.notes)
@@ -63,6 +63,15 @@ class FinishTest(unittest.TestCase):
         # two tones (not in phase) at -23 LUFS each, summed: about -20, and under the ceiling
         self.assertAlmostEqual(measure.integrated, -20.0, delta=1.5)
         self.assertLessEqual(measure.true_peak, -0.5)
+
+    def test_each_step_after_the_stop_is_said_as_it_begins(self):
+        steps = []
+        recording.finish(self.takes()[:2], self.folder, "r", progress=steps.append)
+        self.assertEqual(steps, [recording.JOINING, recording.CLEANING, recording.MIXING])
+        steps.clear()
+        recording.finish([Take("others-1", "others", "Cuffie", flac(self.folder / "o.flac", 3, 0.3), loudest=-10.0)],
+                         self.folder, "o", progress=steps.append)
+        self.assertEqual(steps, [recording.JOINING, recording.MIXING])     # no microphone: nothing to clean
 
     def test_a_name_that_is_taken_is_not_overwritten(self):
         (self.folder / "r.mka").write_bytes(b"another meeting")
@@ -82,6 +91,46 @@ class FinishTest(unittest.TestCase):
         for take in takes:
             self.assertTrue(take.path.exists(), take.path)
         self.assertFalse(any(p.suffix in (".mka", ".m4a", ".tmp") for p in self.folder.iterdir()))
+
+
+class OffNotesTest(unittest.TestCase):
+    def test_the_stretches_switched_off_in_scriba_are_said_for_each_track(self):
+        mic = Take("me-1", "me", "Cuffia", Path("m.flac"), off=((65.0, 130.0), (3000.0, None)))
+        self.assertEqual(recording.off_notes([mic, Take("others-2", "others", "Cuffie", Path("o.flac"))]), [
+            "Microphone: Cuffia: switched off in Scriba from 01:05 to 02:10, silence on its track.",
+            "Microphone: Cuffia: switched off in Scriba from 50:00 to the end, silence on its track."])
+
+
+class MeetingFolderTest(unittest.TestCase):
+    def test_each_recording_has_a_folder_named_with_its_date_and_time_and_never_one_that_is_there(self):
+        import datetime
+
+        from scriba.core import recording as rec
+        when = datetime.datetime(2026, 11, 13, 14, 20, 5)
+        with tempfile.TemporaryDirectory() as tmp:
+            recordings = Path(tmp)
+            first = recording.meeting_folder(recordings, when)
+            self.assertEqual(first, recordings / "2026-11-13 14-20-05")
+            self.assertTrue(rec.stem(when, "registrazione").startswith(first.name + " "))
+            first.mkdir()
+            self.assertEqual(recording.meeting_folder(recordings, when), recordings / "2026-11-13 14-20-05_R01")
+
+    def test_a_recording_that_cannot_start_leaves_no_empty_folder_behind(self):
+        try:
+            from scriba.app import recorder
+        except (ImportError, ValueError) as e:
+            self.skipTest(f"GStreamer: {e}")
+        from unittest import mock
+
+        from scriba.core.devices import INPUT, Device, Plan
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "2026-11-13 14-20-05"
+            made = recorder.Recorder(Plan(Device("mic", "Mic", INPUT), ()), folder, "x", lister=lambda: [])
+            self.assertTrue(folder.is_dir())
+            with mock.patch.object(recorder.rec, "may_start", return_value=False), \
+                    self.assertRaises(recorder.Failure):
+                made.start()
+            self.assertFalse(folder.exists())
 
 
 if __name__ == "__main__":

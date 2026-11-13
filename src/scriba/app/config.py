@@ -49,6 +49,10 @@ class Config:
     speaker_names: str = ""             # previously used names, one per line
     terms: str = ""                      # names and acronyms, separated by commas
     output_folder: str = ""              # "": next to the recording
+    # with no output_folder, a file outside the recordings' folder: "scriba",
+    # a folder of its own there with a link to the file (jobs.home_folder);
+    # "beside", next to the file
+    elsewhere: str = "scriba"
     device: str = ""                     # where whisper works: "" the best measured, "cpu", or a card's name
     measured_device: str = ""            # what the test of the cards chose: "" not tested yet, "cpu", a card
     # the recorder's choices
@@ -57,6 +61,7 @@ class Config:
     record_output: bool = True           # the computer's sound (the others in a call)
     input_device: str = ""               # "": chosen by the app (core/devices.py); else the device's id
     output_device: str = ""              # the same for the output
+    follow_call_mute: bool = True        # Windows 11: the microphone's speech not transcribed while muted in the call
     # settings of a newer version this one does not know, written back as they were
     extra: dict = field(default_factory=dict, compare=False, repr=False)
     # what load() had to do to read the file (Notice); never saved

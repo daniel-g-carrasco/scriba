@@ -1,7 +1,7 @@
 """The Result page, pushed on top of Transcribe: the outcome in one line,
 the files made (Open, Show in Folder), the voices with a field for each
-name and a stretch to listen to, "Save with the Names" (new files, never
-over the automatic ones), and the text to read, the doubtful lines faded
+name and a stretch to listen to, "Save with the Names" (the files with the
+names, brought up to date; never the automatic ones), and the text to read, the doubtful lines faded
 and every change of voice set off.
 
 A page of an Adw.NavigationView, as GNOME's apps open a detail: its back
@@ -24,15 +24,17 @@ from gi.repository import Adw, GLib, Gtk  # noqa: E402
 from scriba.app import jobs  # noqa: E402
 from scriba.app.task import Cancelled  # noqa: E402
 from scriba.core import estimate, speakers  # noqa: E402
+from scriba.core.paragraphs import paragraphs  # noqa: E402
 from scriba.data import markdown  # noqa: E402
 from scriba.data.timing import clock  # noqa: E402
 from scriba.i18n import _, count, ngettext  # noqa: E402
 
-from .style_values import ICON_TILE, SPACE_L, SPACE_M, SPACE_XS  # noqa: E402
+from .style_values import ICON_TILE, SPACE_L, SPACE_M, SPACE_S, SPACE_XS  # noqa: E402
 from .ui import escape, header_bar, open_path, report, reveal, run_in_thread  # noqa: E402
 
 PREVIEW_HEIGHT = 360        # the text's own scrolling area, as tall as half a window
 PREVIEW_MAX_LINES = 3000    # past this the preview stops and says so: the files have it all
+BALANCE_PREVIEW = "\0balance"   # the balance's preview among what is played (never a voice's label)
 
 
 def output_names() -> dict[str, str]:
@@ -108,6 +110,7 @@ class ResultPage(Adw.NavigationPage):
         self.files = Adw.PreferencesGroup(title=_("Files"),
                                           description=escape(_("Written in {folder}").format(
                                               folder=jobs.full_path(result.folder) if result.folder else "")))
+        self._shown_outputs: set[str] = set()
         for output in result.outputs:
             self._add_output(output)
         self.session_row = Adw.ActionRow(title=_("Meeting File (reopen to change the names)"),
@@ -173,6 +176,9 @@ class ResultPage(Adw.NavigationPage):
         return groups
 
     def _add_output(self, output) -> None:
+        if output.path in self._shown_outputs:
+            return                  # the files with the names, saved again: rewritten where they are
+        self._shown_outputs.add(output.path)
         name = os.path.basename(output.path)
         row = Adw.ActionRow(title=escape(output_names().get(output.kind, output.kind)), subtitle=escape(name),
                             activatable=True, subtitle_lines=2, tooltip_text=_("Open"))
@@ -192,9 +198,16 @@ class ResultPage(Adw.NavigationPage):
     # -- the listening copy ---------------------------------------------------------
 
     def _balance(self, result: jobs.Result) -> Adw.PreferencesGroup:
-        group = Adw.PreferencesGroup(title=_("Listening Balance"), visible=False,
-                                     description=_("Save a new listening file from the original tracks. "
-                                                   "The centre repeats the automatic balance."))
+        # what it changes, verified in the code: rebalance() writes a new
+        # _balanced.m4a from the original tracks; the recording, the
+        # transcript and the earlier copies are only read
+        group = Adw.PreferencesGroup(title=_("Balance of the Listening Copy"), visible=False,
+                                     description=_("Only the copy to listen to changes: the recording and the "
+                                                   "transcript stay as they are. “Listen to a Preview” plays "
+                                                   "{seconds} seconds where you and the others both speak, with the "
+                                                   "balance chosen; then save a new listening file from the original "
+                                                   "tracks. The centre repeats the automatic balance.").format(
+                                         seconds=round(speakers.PREVIEW_SECONDS)))
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=SPACE_M, margin_top=SPACE_L,
                       margin_bottom=SPACE_L, margin_start=SPACE_L, margin_end=SPACE_L)
         ends = Gtk.Box(spacing=SPACE_M)
@@ -206,13 +219,22 @@ class ResultPage(Adw.NavigationPage):
         self.balance_scale.add_mark(0, Gtk.PositionType.BOTTOM, _("Automatic"))
         self.balance_scale.set_value(jobs.listening_balance(result))
         self.balance_scale.set_tooltip_text(_("More others on the left, more me on the right"))
+        # a new balance is heard at the next preview: the one playing stops
+        self.balance_scale.connect("value-changed",
+                                   lambda *_: self.stop() if self._playing == BALANCE_PREVIEW else None)
         box.append(self.balance_scale)
-        self.balance_button = Gtk.Button(label=_("Save Listening Copy"), halign=Gtk.Align.CENTER,
-                                         css_classes=["pill"])
+        self.preview_content = Adw.ButtonContent()
+        self.preview_button = Gtk.Button(child=self.preview_content, css_classes=["pill"])
+        self.preview_button.connect("clicked", lambda *_: self.listen_balance())
+        self._show_playing(BALANCE_PREVIEW, False)
+        self.balance_button = Gtk.Button(label=_("Save Listening Copy"), css_classes=["pill"])
         self.balance_button.connect("clicked", lambda *_: self.save_balance())
         self.balance_spinner = Adw.Spinner(visible=False)
         box.append(self.balance_spinner)
-        box.append(self.balance_button)
+        buttons = Gtk.Box(spacing=SPACE_M, halign=Gtk.Align.CENTER)
+        buttons.append(self.preview_button)
+        buttons.append(self.balance_button)
+        box.append(buttons)
         group.add(Adw.PreferencesRow(child=box))
 
         def checked(available, error):
@@ -230,6 +252,7 @@ class ResultPage(Adw.NavigationPage):
         self._saving = active
         self.balance_button.set_sensitive(not active)
         self.balance_scale.set_sensitive(not active)
+        self.preview_button.set_sensitive(not active)
         self.balance_spinner.set_visible(active and listening)
         if hasattr(self, "save_button"):
             self.save_button.set_sensitive(not active and bool(speakers.clean(self.names()) or self.result.names))
@@ -267,8 +290,8 @@ class ResultPage(Adw.NavigationPage):
     def _voices(self, found) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup(title=_("Voices"),
                                      description=escape(_("Give each voice the name of who speaks: “Save with the "
-                                                          "Names” writes new files, and the automatic ones stay as "
-                                                          "they are.")))
+                                                          "Names” writes the files with the names, and the automatic "
+                                                          "ones stay as they are.")))
         self._voice_labels = [voice.label for voice in found]
         self.my_voice = Adw.ComboRow(title=_("My Voice"), subtitle=_("Choose which voice is yours"),
                                      model=Gtk.StringList.new([_("Not Chosen"),
@@ -370,8 +393,7 @@ class ResultPage(Adw.NavigationPage):
                 self._add_output(output)
             for note in named.notes:
                 self.window.toast(note)
-            self.window.toast(ngettext("Saved with the names: {n} new file", "Saved with the names: {n} new files",
-                                       len(named.outputs)).format(n=len(named.outputs)))
+            self.window.toast(_("Saved with the names: the automatic transcript stays as it is."))
 
         try:
             run_in_thread(lambda: self.window.backend.save_names(result, names), done)
@@ -381,18 +403,38 @@ class ResultPage(Adw.NavigationPage):
     # -- listening to a voice -------------------------------------------------------
 
     def listen(self, voice: speakers.Voice) -> None:
-        """Prepare a short WAV off the main loop, then play it from zero."""
+        heard = self.result.listen or self.result.source or self.request.source
+        self._play(voice.label, lambda cancel: self.window.backend.preview(heard, *voice.listen, cancel))
+
+    def listen_balance(self) -> None:
+        """A few seconds of the listening copy with the balance on the slider,
+        made again at every request (a temporary WAV: no file of the user's
+        is written); the same button stops it."""
+        result, balance = self.result, self.balance_scale.get_value()
+        self._play(BALANCE_PREVIEW, lambda cancel: self.window.backend.balance_preview(result, balance, cancel))
+
+    def _show_playing(self, key: str, playing: bool) -> None:
+        if key == BALANCE_PREVIEW:
+            self.preview_content.set_icon_name("media-playback-stop-symbolic" if playing
+                                               else "media-playback-start-symbolic")
+            self.preview_content.set_label(_("Stop the Preview") if playing else _("Listen to a Preview"))
+        elif key in getattr(self, "listen_buttons", {}):
+            self.listen_buttons[key].set_icon_name("media-playback-stop-symbolic" if playing
+                                                   else "media-playback-start-symbolic")
+
+    def _play(self, key: str, work) -> None:
+        """Prepare a short WAV off the main loop (work(cancel) gives the
+        Clip), then play it from zero; again on the same key, stop."""
         if self.window.app.closing:
             return
-        if self._playing == voice.label:
+        if self._playing == key:
             self.stop()
             return
         self.stop()
         token = self._listen_token
         cancel = self._listen_cancel = threading.Event()
-        heard = self.result.listen or self.result.source or self.request.source
-        self._playing = voice.label
-        self.listen_buttons[voice.label].set_icon_name("media-playback-stop-symbolic")
+        self._playing = key
+        self._show_playing(key, True)
 
         def done(clip, error):
             if token != self._listen_token or cancel.is_set():
@@ -439,7 +481,7 @@ class ResultPage(Adw.NavigationPage):
             else:
                 prepared(media)
 
-        self._preview_worker(lambda: self.window.backend.preview(heard, *voice.listen, cancel), done)
+        self._preview_worker(lambda: work(cancel), done)
 
     def _preview_worker(self, work, done) -> None:
         # The last window may close during decoding. Keep the main loop
@@ -482,8 +524,8 @@ class ResultPage(Adw.NavigationPage):
         clip, self._clip = self._clip, None
         if clip is not None:
             self._discard_clip(clip)
-        if self._playing is not None and self._playing in getattr(self, "listen_buttons", {}):
-            self.listen_buttons[self._playing].set_icon_name("media-playback-start-symbolic")
+        if self._playing is not None:
+            self._show_playing(self._playing, False)
         self._playing = None
 
     def _cannot_play(self, media) -> None:
@@ -508,26 +550,31 @@ class ResultPage(Adw.NavigationPage):
         reasons = markdown.reasons()
         previous, first = None, True
         voiced = any(s.speaker for s in result.segments)
-        lines = [s for s in result.segments if s.text.strip()]
-        for seg in lines[:PREVIEW_MAX_LINES]:
+        lines = paragraphs(result.segments)      # as the files have them; a doubtful line on its own
+        for paragraph in lines[:PREVIEW_MAX_LINES]:
+            seg = paragraph[0]
+            row = Gtk.Box(spacing=SPACE_M)
             if voiced and seg.speaker != previous:
                 shown = speakers.display_names([seg.speaker], self.names()).get(seg.speaker) if seg.speaker else "?"
                 heading = Gtk.Label(label=shown, xalign=0,
                                     css_classes=["heading", "accent"])
                 if not first:
                     heading.set_margin_top(SPACE_M)
-                first = False
                 box.append(heading)
                 self.headings.setdefault(seg.speaker, []).append(heading)
                 previous = seg.speaker
-            row = Gtk.Box(spacing=SPACE_M)
+            elif not first:
+                row.set_margin_top(SPACE_S)     # the gap between two paragraphs of one voice
+            first = False
             row.append(Gtk.Label(label=clock(seg.start), yalign=0, valign=Gtk.Align.START,
                                  css_classes=["dim-label", "numeric", "caption"]))
-            text = Gtk.Label(label=seg.text.strip(), xalign=0, wrap=True, hexpand=True)
-            if seg.doubts:
-                text.set_label(f"{markdown.DOUBT_MARK} {seg.text.strip()}")
+            text = Gtk.Label(label=" ".join(" ".join(s.text.split()) for s in paragraph), xalign=0, wrap=True,
+                             hexpand=True)
+            doubts = tuple(dict.fromkeys(code for s in paragraph for code in s.doubts))
+            if doubts:
+                text.set_label(f"{markdown.DOUBT_MARK} {text.get_label()}")
                 text.add_css_class("dim-label")
-                text.set_tooltip_text(", ".join(reasons.get(code, code) for code in seg.doubts))
+                text.set_tooltip_text(", ".join(reasons.get(code, code) for code in doubts))
             row.append(text)
             box.append(row)
         if len(lines) > PREVIEW_MAX_LINES:

@@ -32,8 +32,8 @@ P3: Siamo oltre l'ora: il conteggio cambia forma.
 
 9
 01:00:01,250 --> 01:02:05,875
-P3: Ultima battuta, con i tempi di un'ora e due minuti.
+Ultima battuta, con i tempi di un'ora e due minuti.
 
 10
 01:02:06,000 --> 01:02:07,000
-P3: Grazie.
+Grazie.

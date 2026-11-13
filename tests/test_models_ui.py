@@ -67,6 +67,28 @@ class ModelsInterfaceTest(unittest.TestCase):
         self.assertFalse(hasattr(dialog, "_download"))
         self.assertFalse(hasattr(dialog, "precise_button"))
 
+    def test_the_download_bar_keeps_its_space_from_the_buttons_under_it(self):
+        from scriba.gui.style_values import SPACE_L
+        held, original = threading.Event(), self.engines.download
+        self.addCleanup(held.set)
+
+        def download(model, progress, cancelled):
+            progress(model.size * 0.4, model.size)
+            held.wait(3)
+            return original(model, progress, cancelled)
+        with mock.patch.object(self.engines, "download", side_effect=download):
+            self.engines._missing = [models.WHISPER_TURBO]
+            self.app.downloads.start_required()
+            self.window.present()                       # laid out: the space is measured, not assumed
+            self.window.show_models()
+            page = self.window.nav.get_visible_page()
+            self.assertTrue(_setup.spin(lambda: page.cancel_button.get_visible()
+                                        and page.cancel_button.get_height() > 0 and page.progress.get_height() > 0))
+            _ok, bar = page.progress.compute_bounds(page)
+            _ok, button = page.cancel_button.compute_bounds(page)
+            self.assertGreaterEqual(button.get_y() - (bar.get_y() + bar.get_height()), SPACE_L)
+            held.set()
+
     def test_file_choices_stay_accessible_while_required_models_are_missing(self):
         self.engines._missing = list(self.app.downloads.required)
         self.app.cfg.models_download_paused = True

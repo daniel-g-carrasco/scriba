@@ -42,6 +42,13 @@ WNDPROC = ctypes.WINFUNCTYPE(LRESULT, wintypes.HWND, wintypes.UINT, wintypes.WPA
 
 WM_NULL, WM_DESTROY, WM_CONTEXTMENU, WM_USER = 0x0000, 0x0002, 0x007B, 0x0400
 WM_CLOSE, WM_QUERYENDSESSION, WM_ENDSESSION = 0x0010, 0x0011, 0x0016
+# broadcast to every top-level window, this hidden one too; lParam names the
+# setting, "ImmersiveColorSet" when the Windows or app mode changes
+WM_SETTINGCHANGE = 0x001A
+COLOUR_SET = "ImmersiveColorSet"
+# the variant of an icon for a dark taskbar: ivory disc, dark nib
+# (tools/make_icons.py writes them from the normal ones)
+ON_DARK = "-on-dark"
 # the computer about to sleep and awake again (sent to every top-level window)
 WM_POWERBROADCAST, PBT_APMSUSPEND, PBT_APMRESUMEAUTOMATIC = 0x0218, 0x0004, 0x0012
 # at sign-out Windows waits a few seconds, then offers to end the apps still
@@ -124,12 +131,31 @@ ICON_SIZES = (16, 20, 24, 32, 40, 48, 64)
 TOAST_ICON_SIZE = 256
 
 
+# The app's SVGs keep the icon theme's margin (the disc's radius 240 of
+# 256), which on Linux sits well beside the other apps' icons. Windows
+# shrinks the icon to 16-24 pixels in the taskbar and the notification
+# area, where a margin is only a smaller disc: there the drawing is taken
+# without it, the view closed on the disc (512/480 = 1.0667 times larger
+# around the centre). tools/make_ico.py does the same for the exe's icon.
+FULL_VIEW = ('viewBox="0 0 512 512"', 'viewBox="16 16 480 480"')
+
+
+def windows_pixbuf(svg: str, size: int) -> GdkPixbuf.Pixbuf:
+    """The icon at `size` pixels as Windows shows it: the disc to the edge."""
+    text = Path(svg).read_text(encoding="utf-8")
+    loader = GdkPixbuf.PixbufLoader()
+    loader.set_size(size, size)
+    loader.write(text.replace(*FULL_VIEW).encode("utf-8"))
+    loader.close()
+    return loader.get_pixbuf()
+
+
 def ico_from_svg(svg: str, ico: Path) -> None:
     """An .ico with one PNG per size (Windows picks the one for the screen's
-    scale), drawn from the SVG of the icon theme."""
+    scale), drawn from the SVG of the icon theme, the disc to the edge."""
     images = []
     for size in ICON_SIZES:
-        pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(svg, size, size)
+        pixbuf = windows_pixbuf(svg, size)
         _ok, data = pixbuf.save_to_bufferv("png", [], [])
         images.append((size, bytes(data)))
     header = struct.pack("<HHH", 0, 1, len(images))
@@ -140,6 +166,36 @@ def ico_from_svg(svg: str, ico: Path) -> None:
         payload += png
     ico.parent.mkdir(parents=True, exist_ok=True)
     ico.write_bytes(header + entries + payload)
+
+
+def theme_svg(name: str, icon_theme_path: str = "") -> str | None:
+    """The SVG of an icon: in the scalable folder of the theme's paths
+    first (where an icon also has PNGs, as the app's own, the lookup
+    returns a PNG of the size asked), then as the theme finds it."""
+    theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+    for base in ([icon_theme_path] if icon_theme_path else []) + list(theme.get_search_path() or []):
+        candidate = Path(base) / "hicolor" / "scalable" / "apps" / f"{name}.svg"
+        if candidate.is_file():
+            return str(candidate)
+    paintable = theme.lookup_icon(name, None, 64, 1, Gtk.TextDirection.NONE, 0)
+    file = paintable.get_file() if paintable else None
+    path = file.get_path() if isinstance(file, Gio.File) else None
+    return path if path and path.endswith(".svg") else None
+
+
+def cached_ico(name: str, cache: Path, icon_theme_path: str = "") -> str:
+    """An .ico of an icon of the theme, drawn once into the cache and again
+    when the SVG is newer; "" when there is no such icon."""
+    svg = theme_svg(name, icon_theme_path)
+    if not svg:
+        return ""
+    ico = cache / f"{name}.ico"
+    try:
+        if not ico.exists() or ico.stat().st_mtime < os.stat(svg).st_mtime:
+            ico_from_svg(svg, ico)
+    except (OSError, GLib.Error):
+        return ""
+    return str(ico)
 
 
 def allow_dark_menus() -> None:
@@ -171,8 +227,16 @@ class WinTray:
                  on_quit: Callable[[], None] | None = None, has_quit: Callable[[], bool] | None = None,
                  on_suspend: Callable[[], None] | None = None, on_resume: Callable[[], None] | None = None,
                  on_availability: Callable[[bool], None] | None = None,
-                 on_prepare_update: Callable[[], int] | None = None):
+                 on_prepare_update: Callable[[], int] | None = None,
+                 taskbar_dark: Callable[[], bool] | None = None,
+                 on_taskbar_theme: Callable[[bool], None] | None = None):
+        """taskbar_dark reads whether the taskbar is dark (win32.taskbar_dark;
+        a test gives its own); the icon then takes its -on-dark variant, and
+        on_taskbar_theme hears when that changes with the program open."""
         self.available = False
+        self.taskbar_dark = taskbar_dark or (lambda: False)
+        self.on_taskbar_theme = on_taskbar_theme
+        self.dark = False
         self.on_availability = on_availability
         self.app_id, self.title, self.on_activate = app_id, title, on_activate
         self.on_quit, self.has_quit = on_quit, has_quit
@@ -201,6 +265,7 @@ class WinTray:
                          hInstance=instance, lpszClassName=name)
         user32.RegisterClassExW(ctypes.byref(wc))
         self._hwnd = user32.CreateWindowExW(0, name, self.title, 0, 0, 0, 0, 0, None, None, instance, None)
+        self.dark = self._read_dark()
         allow_dark_menus()
         self._add()
 
@@ -256,7 +321,8 @@ class WinTray:
         if flags & NIF_MESSAGE:
             data.uCallbackMessage = CALLBACK_MESSAGE
         if flags & NIF_ICON:
-            data.hIcon = self._icon(self.icon_name or self.app_id)
+            name = self.icon_name or self.app_id
+            data.hIcon = self._icon(name + ON_DARK if self.dark else name)
         if flags & NIF_TIP:
             data.szTip = self.tooltip[:127]
         return data
@@ -286,16 +352,12 @@ class WinTray:
         if name in self._icons:
             return self._icons[name]
         handle = 0
-        svg = self._svg(name)
-        if svg:
-            ico = self.cache / f"{name}.ico"
-            try:
-                if not ico.exists() or ico.stat().st_mtime < os.stat(svg).st_mtime:
-                    ico_from_svg(svg, ico)
-                size = user32.GetSystemMetrics(SM_CXSMICON)
-                handle = user32.LoadImageW(None, str(ico), IMAGE_ICON, size, size, LR_LOADFROMFILE) or 0
-            except (OSError, GLib.Error):
-                handle = 0
+        ico = cached_ico(name, self.cache, self.icon_theme_path)
+        if ico:
+            size = user32.GetSystemMetrics(SM_CXSMICON)
+            handle = user32.LoadImageW(None, ico, IMAGE_ICON, size, size, LR_LOADFROMFILE) or 0
+        if not handle and name.endswith(ON_DARK):
+            return self._icon(name.removesuffix(ON_DARK))     # the normal one rather than none
         if not handle and name != self.app_id:
             return self._icon(self.app_id)
         self._icons[name] = handle
@@ -316,20 +378,30 @@ class WinTray:
         return str(png)
 
     def _svg(self, name: str) -> str | None:
-        """The SVG of an icon: in the scalable folder of the theme's paths
-        first (where an icon also has PNGs, as the app's own, the lookup
-        returns a PNG of the size asked), then as the theme finds it."""
-        theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
-        for base in ([self.icon_theme_path] if self.icon_theme_path else []) + list(theme.get_search_path() or []):
-            candidate = Path(base) / "hicolor" / "scalable" / "apps" / f"{name}.svg"
-            if candidate.is_file():
-                return str(candidate)
-        paintable = theme.lookup_icon(name, None, 64, 1, Gtk.TextDirection.NONE, 0)
-        file = paintable.get_file() if paintable else None
-        path = file.get_path() if isinstance(file, Gio.File) else None
-        return path if path and path.endswith(".svg") else None
+        return theme_svg(name, self.icon_theme_path)
+
+    def _read_dark(self) -> bool:
+        try:
+            return bool(self.taskbar_dark())
+        except OSError as error:
+            complain("reading the taskbar's colours", error)
+            return False
+
+    def _taskbar_theme_changed(self) -> None:
+        """Windows changed its mode: the icon for the new taskbar, and the
+        windows' own (on_taskbar_theme)."""
+        dark = self._read_dark()
+        if dark != self.dark:
+            self.dark = dark
+            self._modify(NIF_ICON)
+            if self.on_taskbar_theme:
+                self.on_taskbar_theme(dark)
 
     def _window_proc(self, hwnd, message, wparam, lparam):
+        if message == WM_SETTINGCHANGE:
+            if lparam and ctypes.wstring_at(lparam) == COLOUR_SET:
+                GLib.idle_add(lambda: self._taskbar_theme_changed() and False)
+            return user32.DefWindowProcW(hwnd, message, wparam, lparam)
         if self._prepare_update_message and message == self._prepare_update_message:
             if self.on_prepare_update is None:
                 return 0

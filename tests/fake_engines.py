@@ -24,7 +24,7 @@ SENTENCES = (
     "Buongiorno a tutti, cominciamo con il punto sui cavedi del secondo piano.",
     "Sì.",
     "Il quadro generale va spostato di due metri verso il corridoio, come da ultima revisione.",
-    "Per il carroponte serve una linea dedicata, ne parliamo con Cantiere Esempio la settimana prossima.",
+    "Per il montacarichi serve una linea dedicata, ne parliamo con Cantiere Esempio la settimana prossima.",
     "D'accordo, mando io la mail con le tavole aggiornate.",
     "Ricordo che la consegna dell'esecutivo è fissata per fine mese.",
     "Chiaro, grazie.",
@@ -164,11 +164,11 @@ from scriba.app import recording as recordings  # noqa: E402
 from scriba.core import devices as dev  # noqa: E402
 
 SPEAKERS = dev.Device("out-speakers", "Altoparlanti (Realtek(R) Audio)", dev.OUTPUT, default=True)
-HEADSET = dev.Device("out-headset", "Cuffie (Free BYRD)", dev.OUTPUT, communications=True, container="byrd",
+HEADSET = dev.Device("out-headset", "Cuffie (Headset BT)", dev.OUTPUT, communications=True, container="headset",
                      bluetooth=True, programs=("ms-teams.exe",))
-WEBCAM = dev.Device("in-webcam", "Microfono (Trust Full HD Webcam)", dev.INPUT, default=True, container="trust")
-HEADSET_MIC = dev.Device("in-headset", "Cuffia auricolare (Free BYRD)", dev.INPUT, communications=True,
-                         container="byrd", bluetooth=True, programs=("ms-teams.exe",))
+WEBCAM = dev.Device("in-webcam", "Microfono (HD Webcam)", dev.INPUT, default=True, container="webcam")
+HEADSET_MIC = dev.Device("in-headset", "Cuffia auricolare (Headset BT)", dev.INPUT, communications=True,
+                         container="headset", bluetooth=True, programs=("ms-teams.exe",))
 ARRAY = dev.Device("in-array", "Gruppo microfoni (Tecnologia Intel® Smart Sound per microfoni digitali)", dev.INPUT)
 DEVICES = (SPEAKERS, HEADSET, WEBCAM, HEADSET_MIC, ARRAY)
 LEVELS = {"out-speakers": (-700.0, -350.0), "out-headset": (-24.0, -12.0), "in-webcam": (-48.0, -36.0),
@@ -204,6 +204,7 @@ class FakeRecorder:
         self.seconds_left = 9 * 3600.0
         self.takes = []
         self.fail = None                    # a Failure start() raises
+        self.follow_call, self.call_muted = False, False     # the call's mute, as the page asks and the test sets
 
     def start(self):
         if self.fail is not None:
@@ -229,7 +230,7 @@ class FakeRecorder:
 
     def snapshot(self):
         return recordings.Status(self.state, self.elapsed, tuple(self.takes), dict(self.levels), tuple(self.alerts),
-                                 tuple(self.events), self.seconds_left, self.error)
+                                 tuple(self.events), self.seconds_left, self.error, call_muted=self.call_muted)
 
 
 def install_recorder(backend, devices=DEVICES, levels=None, closed=(), failed=None):
@@ -248,7 +249,7 @@ def install_recorder(backend, devices=DEVICES, levels=None, closed=(), failed=No
         backend.recorders.append(made)
         return made
 
-    def finish(takes, folder, stem, cancelled=None):
+    def finish(takes, folder, stem, cancelled=None, progress=None):
         joined = Path(folder) / f"{stem}.mka"
         joined.write_bytes(b"made up")
         for take in takes:

@@ -10,7 +10,18 @@ audiorate, so every track's sample 0 is the recording's start), one
 branch per device, each branch to a FLAC file of its own:
 
     source ! queue ! audioconvert ! audioresample ! F32 48 kHz mono
-           ! audiorate ! level ! audioconvert ! S24 ! flacenc ! filesink
+           ! audiorate ! volume ! level ! audioconvert ! S24 ! flacenc ! filesink
+
+The `volume` is Scriba's own switch while recording (Recorder.switch): at
+1.0 it passes the sound as it is, muted it passes zeros with the same
+timestamps, so the track goes on, as long as the others, with digital
+silence where it was off (the meter after it falls to nothing). The mute
+inside a call program is not in the sound: that program sends nothing, and
+the microphone's device goes on hearing the room. On Windows 11, with the
+preference on (`follow_call`), Windows' microphone indicator is read once a
+second (app/callmute.py): the stretches muted in the call are kept in the
+microphone's `muted`, its sound untouched, and the transcript leaves out
+the microphone's speech there (core/callmute.py, app/jobs.py).
 
 The signal is never touched: no gain, no automatic level, float until the
 file and 24 bits in it (144 dB of room above the noise: a voice at -50 dB
@@ -39,6 +50,21 @@ The two ways in:
   continue-on-error: a device that goes away
   stops the recording, its files closed properly.
 
+The watch also follows the call's microphone (core/devices.py, Follow): in
+the automatic choice, when a call program opens a microphone other than
+the one recorded (Record pressed before the call began), a new track
+starts from that one and the old one's source is told it is the end, so
+its file closes where it is; the files of the microphone are joined at the
+end as the user's, one after the other.
+
+While recording, a probe after each branch's meter keeps the last seconds
+of its samples, and the watch measures every new ten seconds whether the
+microphone hears the computer (app/engines/echo.py, Live; core/echo.py):
+snapshot() says it as a warning while it lasts. Nothing is cleaned live:
+the raw tracks are the recording, and the computer's sound is taken out of
+the microphone afterwards, for the copy to listen to and the transcript
+(app/recording.py, app/jobs.py), the same way for recordings made before.
+
 GStreamer's bus is read in threads of this module (no main loop): the
 window reads snapshot() ten times a second and draws. Gst is the part of
 the toolkit's library this module may use (tests/test_strati.py,
@@ -62,18 +88,19 @@ gi.require_version("Gst", "1.0")
 from gi.repository import Gst  # noqa: E402
 
 from scriba import WINDOWS  # noqa: E402
-from scriba.core import devices as dev, levels, recording as rec  # noqa: E402
+from scriba.app.engines import echo as canceller  # noqa: E402
+from scriba.core import callmute, devices as dev, echo, levels, recording as rec  # noqa: E402
 from scriba.data import files  # noqa: E402
 from scriba.i18n import _  # noqa: E402
 
 from .log import complain  # noqa: E402
-from .recording import (ADDED, DISK_FULL, DISK_LOW, FAILED, GONE, SWITCHED, Event, Meters, Status,  # noqa: E402
-                        Take, file_words)
+from .recording import (ADDED, CALL_ELSEWHERE, DISK_FULL, DISK_LOW, FAILED, FOLLOWED, GONE, OFF, ON,  # noqa: E402
+                        SWITCHED, Event, Meters, Status, Take, file_words)
 from .task import Failure  # noqa: E402
 
 SOURCE = "wasapi2src" if WINDOWS else "pulsesrc"
-NEEDED = (SOURCE, "queue", "audioconvert", "audioresample", "capsfilter", "audiorate", "level", "flacenc",
-          "filesink", "fakesink")
+NEEDED = (SOURCE, "queue", "audioconvert", "audioresample", "capsfilter", "audiorate", "volume", "level",
+          "flacenc", "filesink", "fakesink")
 INTERVAL = 100 * Gst.MSECOND        # the meters' pace: ten levels a second
 WATCH_EVERY = 2.0                   # seconds between two looks at the devices
 SPACE_EVERY = 5.0                   # and at the disk
@@ -169,8 +196,9 @@ class _Branch:
     def __init__(self, pipeline: Gst.Pipeline, key: str, device: dev.Device, path: Path | None) -> None:
         self.key, self.device, self.path = key, device, path
         self.source = _source(device)
+        self.volume = _make("volume")
         chain = [self.source, _make("queue"), _make("audioconvert"), _make("audioresample"),
-                 _make("capsfilter", caps=Gst.Caps.from_string(TRACK_CAPS)), _make("audiorate"),
+                 _make("capsfilter", caps=Gst.Caps.from_string(TRACK_CAPS)), _make("audiorate"), self.volume,
                  _make("level", name=f"level:{key}", interval=INTERVAL, post_messages=True)]
         if path is not None:
             chain += [_make("audioconvert"), _make("capsfilter", caps=Gst.Caps.from_string(FILE_CAPS)),
@@ -178,6 +206,7 @@ class _Branch:
                                               async_=False)]
         else:
             chain.append(_make("fakesink", sync=False, async_=False))
+        self.level = chain[7]
         self.elements = chain
         for element in chain:
             pipeline.add(element)
@@ -347,6 +376,7 @@ class Recorder:
         self.plan, self.folder = plan, Path(folder)
         self._list = lister
         self._words = file_words()
+        self._made_folder = not self.folder.exists()    # removed again, empty, when the start fails
         self.folder.mkdir(parents=True, exist_ok=True)
         together = f"_{_('together')}.m4a"
         self.stem = files.free_stem(self.folder, stem, (".mka", together, f"_{self._words['me']}.flac",
@@ -363,18 +393,26 @@ class Recorder:
         self._began = 0.0
         self._paused_at: float | None = None
         self._paused_for = 0.0
+        self._ended_at: float | None = None     # when the stop was asked: the sources take no more sound
         self._eos = threading.Event()
         self._quit = threading.Event()
         self._threads: list[threading.Thread] = []
         self._left = math.inf
         self._counts = {"me": 0, "others": 0}
+        self._off: set[str] = set()             # the roles switched off in Scriba while recording
+        self._echo = canceller.Live(rec.RATE)   # whether the microphone hears the computer (look_for_echo)
+        self._follow = dev.Follow()             # the microphone a call program opens (_follow_the_call)
+        self._told: set[str] = set()            # the microphones said to be the call's, not followed
+        self.follow_call = False                # Windows: follow the call's mute (set before start)
+        self.call_indicator = None              # the indicator's opener for app/callmute.follow (tests)
+        self._call_muted = False                # the user is muted in the call now
 
     # -- the tracks ----------------------------------------------------------------
 
     def _path_for(self, role: str, device: dev.Device) -> Path:
         """A new file for the track, reserved at once (created empty, never
         over one that is there): "<stem>_microfono.flac", "<stem>_uscita 1
-        Cuffie (Free BYRD).flac"."""
+        Cuffie (Headset BT).flac"."""
         self._counts[role] += 1
         word = self._words[role]
         if role == "me":
@@ -398,6 +436,12 @@ class Recorder:
             path.unlink(missing_ok=True)
             raise
         take = Take(key, role, device.name, path, began=at)
+        if role in self._off:           # a device that comes while its side is off starts silent
+            branch.volume.set_property("mute", True)
+            take.off = ((at, None),)
+        if role == "me" and self._call_muted:
+            take.muted = ((at, None),)
+        branch.level.get_static_pad("src").add_probe(Gst.PadProbeType.BUFFER, self._heard, key)
         with self._lock:
             self._branches[key] = branch
             self._takes[key] = take
@@ -413,6 +457,7 @@ class Recorder:
         count = (1 if self.plan.input else 0) + len(self.plan.outputs)
         free = shutil.disk_usage(self.folder).free
         if not rec.may_start(free, count):
+            self._unmake_folder()
             raise Failure(_("There is not enough room on the disk for ten minutes of recording."),
                           f"{free} bytes free in {self.folder}")
         self._pipeline = Gst.Pipeline.new("scriba-recorder")
@@ -433,23 +478,41 @@ class Recorder:
             self._pipeline.set_state(Gst.State.NULL)
             for take in self._takes.values():
                 take.path.unlink(missing_ok=True)
+            self._unmake_folder()
             raise
         self._began = time.monotonic()
         self._state = "recording"
         self._left = rec.seconds_left(free, count)
-        for target, name in ((self._read_bus, "scriba-recorder-bus"), (self._watch_devices, "scriba-recorder-watch")):
+        watches = [(self._read_bus, "scriba-recorder-bus"), (self._watch_devices, "scriba-recorder-watch")]
+        if self.follow_call and (WINDOWS or self.call_indicator is not None):
+            watches.append((self._watch_call, "scriba-recorder-call"))
+        for target, name in watches:
             thread = threading.Thread(target=target, name=name, daemon=True)
             thread.start()
             self._threads.append(thread)
+
+    def _unmake_folder(self) -> None:
+        """The folder made for this recording, gone again when it did not
+        start: only when empty (rmdir), never one that was there."""
+        if self._made_folder:
+            try:
+                self.folder.rmdir()
+            except OSError as e:
+                complain("removing the folder of a recording that did not start", e)
 
     def _first_error(self) -> str:
         message = self._pipeline.get_bus().timed_pop_filtered(0, Gst.MessageType.ERROR)
         return _error_text(message)[1] if message is not None else ""
 
     def elapsed(self) -> float:
+        """The time recorded: it stops when the stop is asked, not when the
+        files are closed and joined (that can take a minute for an hour)."""
         if self._state == "new":
             return 0.0
-        end = self._paused_at if self._paused_at is not None else time.monotonic()
+        if self._ended_at is not None:
+            end = self._ended_at
+        else:
+            end = self._paused_at if self._paused_at is not None else time.monotonic()
         return max(end - self._began - self._paused_for, 0.0)
 
     def pause(self) -> None:
@@ -465,6 +528,56 @@ class Recorder:
             self._paused_at = None
             self._state = "recording"
 
+    def switch(self, role: str, on: bool) -> None:
+        """Scriba's own switch for the microphone ("me") or the computer's
+        sound ("others") while recording: off, their tracks get silence
+        (the file goes on, in step with the others); on, the sound again.
+        Each change is kept in the tracks' `off` and said as an event."""
+        if self._state not in ("recording", "paused"):
+            return
+        at = self.elapsed()
+        with self._lock:
+            if (role not in self._off) == on:
+                return
+            (self._off.discard if on else self._off.add)(role)
+            for key, take in self._takes.items():
+                if take.role != role or take.ended is not None:
+                    continue
+                self._branches[key].volume.set_property("mute", not on)
+                if on and take.off and take.off[-1][1] is None:
+                    take.off = take.off[:-1] + ((take.off[-1][0], at),)
+                elif not on:
+                    take.off = take.off + ((at, None),)
+            if on and role == "others":
+                self._watch.resume(time.monotonic())   # the silence while it was off is not the call's
+        self._say(ON if on else OFF, detail=role)
+
+    def call_state(self, state: str) -> None:
+        """The call's mute as Windows' indicator says it (core/callmute.py):
+        MUTED opens a stretch in each microphone's `muted`, anything else
+        closes it (UNKNOWN changes nothing it has not opened). The sound is
+        not touched."""
+        muted = state == callmute.MUTED
+        if self._state not in ("recording", "paused") or muted == self._call_muted:
+            return
+        at = self.elapsed()
+        with self._lock:
+            self._call_muted = muted
+            for take in self._takes.values():
+                if take.role != "me" or take.ended is not None:
+                    continue
+                if muted:
+                    take.muted = take.muted + ((at, None),)
+                elif take.muted and take.muted[-1][1] is None:
+                    take.muted = take.muted[:-1] + ((take.muted[-1][0], at),)
+
+    def _watch_call(self) -> None:
+        try:
+            from . import callmute as indicator
+            indicator.follow(self.call_state, self._quit, indicator.EVERY_S, self.call_indicator or indicator.Indicator)
+        except Exception as e:      # the thread's border: said, and the recording goes on
+            complain("following the call's mute", e)
+
     def stop(self) -> list[Take]:
         """The files closed properly (each source told it is the end, and the
         end waited for, at most STOP_WAIT seconds: after that they are cut
@@ -472,6 +585,8 @@ class Recorder:
         peaks."""
         if self._state in ("recording", "paused", "stopping"):
             self.resume()               # a paused source passes on nothing, the end neither
+            if self._ended_at is None:
+                self._ended_at = time.monotonic()
             self._state = "stopping"
             with self._lock:
                 branches = list(self._branches.values())
@@ -503,9 +618,18 @@ class Recorder:
     def snapshot(self) -> Status:
         with self._lock:
             now = time.monotonic()
-            alerts = tuple(self._watch.warnings(now)) if self._state == "recording" else ()
+            # no warning about a side switched off here: its silence is wanted
+            # nor about a microphone muted in the call: the user is not speaking in it
+            alerts = tuple(a for a in self._watch.warnings(now)
+                           if ("others" if a.kind == levels.SILENT else "me") not in self._off
+                           and (a.kind == levels.SILENT or not self._call_muted)) \
+                if self._state == "recording" else ()
+            # the microphone hears the computer: said while it lasts, with both sides on
+            if self._state == "recording" and self._echo.follow.echo and not self._off:
+                alerts += (levels.Alert(echo.ECHO, "", 0.0),)
             return Status(self._state, self.elapsed(), tuple(replace(t) for t in self._takes.values()),
-                          dict(self._now), alerts, tuple(self._events), self._left, self._error)
+                          dict(self._now), alerts, tuple(self._events), self._left, self._error,
+                          frozenset(self._off), self._call_muted)
 
     # -- the threads -------------------------------------------------------------------
 
@@ -542,6 +666,27 @@ class Recorder:
         except Exception as e:      # the thread's border: said; the recording is stopped by the window
             complain("the recording's bus", e)
 
+    def _heard(self, _pad, info, key: str):
+        """A buffer of a track on its way to the file (a pad probe, in
+        GStreamer's streaming thread): its samples kept for look_for_echo.
+        The buffer passes on as it is."""
+        buffer = info.get_buffer()
+        if buffer is not None and buffer.pts != Gst.CLOCK_TIME_NONE:
+            import numpy as np
+            samples = np.frombuffer(buffer.extract_dup(0, buffer.get_size()), dtype="<f4")
+            self._echo.feed(key, round(buffer.pts * rec.RATE / Gst.SECOND), samples)
+        return Gst.PadProbeReturn.OK
+
+    def _look_for_echo(self) -> None:
+        """Whether the microphone hears the computer now (engines/echo.py,
+        Live): the banner says it while it lasts (snapshot)."""
+        with self._lock:
+            live = [(key, take.role) for key, take in self._takes.items() if take.ended is None]
+        mics = [key for key, role in live if role == "me"]
+        outputs = [key for key, role in live if role == "others"]
+        if mics:
+            self._echo.look(mics[-1], outputs)
+
     def _stop_after_error(self) -> None:
         self.stop()
         self._state = "failed"
@@ -557,6 +702,7 @@ class Recorder:
                 if now - looked >= WATCH_EVERY and self._state == "recording":
                     looked = now
                     self._look_at_devices()
+                    self._look_for_echo()
         except Exception as e:      # the thread's border: said, and the recording goes on unwatched
             complain("watching the devices", e)
 
@@ -601,16 +747,48 @@ class Recorder:
             choice = dev.choose_input([d for d in present if d.id not in recorded])
             if choice.device is not None:
                 self._add_live(choice.device, "me", at, SWITCHED)
+        elif not lost_input:
+            mic = next(((key, device) for key, device, take in live if take.role == "me" and take.ended is None),
+                       None)
+            if mic is not None:
+                self._follow_the_call(*mic, present, at)
         if self.plan.automatic_output and self.plan.outputs:
             for device in present:
                 if device.kind == dev.OUTPUT and device.id not in recorded:
                     self._add_live(device, "others", at, ADDED)
 
-    def _add_live(self, device: dev.Device, role: str, at: float, kind: str) -> None:
+    def _follow_the_call(self, key: str, recorded: dev.Device, present: list[dev.Device], at: float) -> None:
+        """A call program has had another microphone open for a while
+        (core/devices.py, Follow): in the automatic choice the recording
+        goes on from that one, on a new track in step with the others, and
+        the track of the one before is closed where it is (still readable,
+        joined with the others at the end: the microphone's tracks are all
+        the user's). A microphone chosen by hand stays; that is said, once
+        for each microphone the call takes."""
+        found = self._follow.look(present, recorded.id)
+        if found is None:
+            return
+        program = dev.call_program(found)
+        if not self.plan.automatic_input:
+            if found.id not in self._told:
+                self._told.add(found.id)
+                self._say(CALL_ELSEWHERE, found.name, program)
+            return
+        if self._add_live(found, "me", at, FOLLOWED, program) is None:
+            return
+        with self._lock:
+            take, branch = self._takes[key], self._branches[key]
+            take.ended, take.replaced = at, True
+            self._watch.forget(key)
+            self._now.pop(key, None)
+        branch.source.send_event(Gst.Event.new_eos())
+
+    def _add_live(self, device: dev.Device, role: str, at: float, kind: str, detail: str = "") -> Take | None:
         try:
             take = self._add(device, role, at)
             self._branches[take.key].start()
         except Failure as e:
             complain(f"adding {device.name}", e)
-            return
-        self._say(kind, device.name)
+            return None
+        self._say(kind, device.name, detail)
+        return take

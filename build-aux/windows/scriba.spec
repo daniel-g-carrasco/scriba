@@ -116,13 +116,18 @@ for dist in ('numpy', 'scipy', 'scikit-learn', 'joblib', 'threadpoolctl', 'PyGOb
 # GTK's player itself asks for three more (seen in the frozen build with
 # GST_DEBUG, 11/11/2026: without them nothing plays): giostreamsrc (gio:
 # it reads the file through GIO), d3d12convert (d3d12: its video path on
-# Windows) and scaletempo (audiofx)
+# Windows) and scaletempo (audiofx). The echo canceller (app/engines/echo.py,
+# ELEMENTS) adds webrtcdsp (bad: webrtcdsp and webrtcechoprobe, on
+# libwebrtc-audio-processing-1-3.dll, BSD-3-Clause, and libgstbadaudio),
+# interleave (deinterleave) and wavenc (good); concat, queue and the file
+# elements are coreelements', wavparse is there already.
 GST_PLUGINS = [
     'coreelements', 'wasapi2', 'audioconvert', 'audioresample', 'audiorate', 'level', 'flac',
     'playback', 'typefindfunctions', 'autodetect', 'volume', 'gio', 'audiofx',
     'isomp4', 'matroska', 'wavparse', 'audioparsers', 'ogg',
     'mpg123', 'opus', 'vorbis', 'mediafoundation',
     'd3d11', 'd3d12', 'videoparsersbad', 'videoconvertscale',
+    'webrtcdsp', 'interleave', 'wavenc',
 ]
 
 a = Analysis(

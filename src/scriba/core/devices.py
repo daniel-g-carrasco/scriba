@@ -20,7 +20,10 @@ which one is shown as "the call's". The input is chosen by: a call
 program capturing it, being part of the chosen output's device (the
 headset), the communications default, the default, and the voice heard
 louder there than anywhere else while the page is open. One input only
-is recorded: two microphones would write the user twice.
+is recorded: two microphones would write the user twice. A call program
+that opens another microphone once the recording has started (the call
+began after Record was pressed) is followed there (Follow): the recording
+goes on from that one, on a new track.
 
 Plain data in, plain data out: the platform's module fills the Device
 records, the window shows the reasons.
@@ -44,8 +47,13 @@ CALL_PROGRAMS = frozenset((
 BROWSERS = frozenset(("msedge", "chrome", "firefox", "brave", "opera", "vivaldi", "chromium", "iexplore", "safari"))
 
 # what each sign is worth in the choice; a call program outweighs all the
-# others together, the user's own voice heard there outweighs the defaults
-CALL, BROWSER, OTHER_PROGRAM = 8, 4, 1
+# others together (an input's: same device 4, voice 3, communications 2,
+# default 1, a browser 4 besides: 14), the user's own voice heard there
+# outweighs the defaults. At 8 a laptop's own microphone, of the same device
+# as the loudspeakers the call plays on, default for both roles and with the
+# user's voice loudest there (4 + 2 + 1 + 3 = 10), beat the webcam's
+# microphone Teams had open.
+CALL, BROWSER, OTHER_PROGRAM = 16, 4, 1
 SAME_DEVICE = 4
 SOUND_NOW = 4
 VOICE_LOUDEST = 3
@@ -65,7 +73,7 @@ R_COMMUNICATIONS, R_DEFAULT, R_ONLY = "communications", "default", "only"
 @dataclass(frozen=True)
 class Device:
     id: str                             # the platform's own (WASAPI endpoint id, PulseAudio name)
-    name: str                           # as the system shows it: "Cuffie (Free BYRD)"
+    name: str                           # as the system shows it: "Cuffie (Headset BT)"
     kind: str                           # INPUT, or OUTPUT (recorded through its loopback, or its monitor)
     default: bool = False               # the system's default for this kind
     communications: bool = False        # Windows' default for communications (the same as default elsewhere)
@@ -89,8 +97,8 @@ def program_name(path: str) -> str:
 
 
 def product(name: str) -> str:
-    """The physical device in a name as Windows writes it: "Cuffie (Free
-    BYRD)" -> "free byrd"; "" when the name has none. Two endpoints with
+    """The physical device in a name as Windows writes it: "Cuffie (Headset
+    BT)" -> "headset bt"; "" when the name has none. Two endpoints with
     the same product are one device when the system gives no container."""
     found = re.findall(r"\(([^()]*)\)", name)
     return found[-1].strip().casefold() if found else ""
@@ -176,6 +184,53 @@ def choose_input(devices: Iterable[Device], output: Device | None = None,
         score, reasons = _score(device, signs)
         scored.append((score, reasons, n, device))
     return _best(scored)
+
+
+# looks at the devices in a row (the recorder's, WATCH_EVERY apart) in
+# which a call program must have another microphone open before the
+# recording follows it: a call program that opens a microphone for a moment
+# (the test of its settings) is not followed
+FOLLOW_AFTER = 2
+
+
+def call_program(device: Device) -> str:
+    """The call program that has the device open, as people call it ("Teams");
+    "" when none (a browser does not count: it may be a video)."""
+    return next((program_label(p) for p in device.programs if program_name(p) in CALL_PROGRAMS), "")
+
+
+def call_input(devices: Iterable[Device], recorded: str) -> Device | None:
+    """The microphone a call program has open now, when it is not the one
+    recorded (`recorded`, an id): None when a call program has the recorded
+    one open too, or no call program has a microphone open."""
+    inputs = [d for d in devices if d.kind == INPUT]
+    if any(d.id == recorded and call_program(d) for d in inputs):
+        return None
+    return choose_input([d for d in inputs if d.id != recorded and call_program(d)]).device
+
+
+class Follow:
+    """The call's microphone, followed while recording: look() is given each
+    listing of the devices and the microphone recorded, and answers the one
+    to record from instead once a call program has had it open for
+    FOLLOW_AFTER looks in a row (None otherwise). Scriba's own streams are
+    not in the listing (app/winaudio.py leaves its process out), so the
+    meters it keeps open are no sign."""
+
+    def __init__(self) -> None:
+        self._seen, self._count = "", 0
+
+    def look(self, devices: Iterable[Device], recorded: str) -> Device | None:
+        found = call_input(devices, recorded)
+        if found is None:
+            self._seen, self._count = "", 0
+            return None
+        self._count = self._count + 1 if found.id == self._seen else 1
+        self._seen = found.id
+        if self._count < FOLLOW_AFTER:
+            return None
+        self._seen, self._count = "", 0
+        return found
 
 
 def may_open(device: Device) -> bool:

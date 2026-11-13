@@ -64,10 +64,10 @@ def title_bars(dark: bool, background: tuple[int, int, int] | None = None,
                     break
             for attribute, colour in colours:
                 dwmapi.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(colour), ctypes.sizeof(colour))
-            # one pixel of DWM's frame under the content, at the top. The
-            # app is system DPI aware (GTK scales by whole numbers only): on a
-            # screen whose scale is not the main one's Windows stretches the
-            # window, and the seam between the title bar and the content
+            # one pixel of DWM's frame under the content, at the top. When
+            # Windows stretches the window (a system DPI aware process on a
+            # screen whose scale is not the main one's, as the app was until
+            # 2026-11-13) the seam between the title bar and the content
             # showed what was behind the window
             if user32.GetWindowLongW(hwnd, GWL_STYLE) & WS_CAPTION == WS_CAPTION:
                 dwmapi.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(MARGINS(0, 0, 1, 0)))
@@ -77,8 +77,75 @@ def title_bars(dark: bool, background: tuple[int, int, int] | None = None,
     user32.EnumWindows(visit, 0)
 
 
+# -- the screen's dpi ---------------------------------------------------------------
+
+PER_MONITOR_AWARE_V2 = -4               # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 (Windows 10 1703)
+PROCESS_PER_MONITOR_DPI_AWARE = 2       # Windows 8.1's per monitor, and DPI_AWARENESS_PER_MONITOR_AWARE
+
+
+def per_monitor_dpi() -> bool:
+    """The process follows each screen's dpi (per monitor v2, else Windows
+    8.1's per monitor), as the manifest asks for the built exe. Called
+    before GTK opens the display, it makes a run from the sources behave as
+    the exe (without it GDK makes the process system DPI aware). False when
+    it was set already (the manifest) or Windows does not know it."""
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    try:
+        user32.SetProcessDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+        user32.SetProcessDpiAwarenessContext.restype = wintypes.BOOL
+        return bool(user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(PER_MONITOR_AWARE_V2)))
+    except AttributeError:
+        pass
+    try:
+        shcore = ctypes.WinDLL("shcore")
+        shcore.SetProcessDpiAwareness.argtypes = [ctypes.c_int]
+        shcore.SetProcessDpiAwareness.restype = ctypes.c_long
+        return shcore.SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE) == 0
+    except (AttributeError, OSError):
+        return False
+
+
+def per_monitor_aware() -> bool:
+    """This thread's windows follow each screen's dpi (per monitor, v1 or v2);
+    False when system aware or unaware (Windows stretches the window)."""
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    try:
+        user32.GetThreadDpiAwarenessContext.argtypes = []
+        user32.GetThreadDpiAwarenessContext.restype = ctypes.c_void_p
+        user32.GetAwarenessFromDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+        user32.GetAwarenessFromDpiAwarenessContext.restype = ctypes.c_int
+        context = user32.GetThreadDpiAwarenessContext()
+        return user32.GetAwarenessFromDpiAwarenessContext(context) == PROCESS_PER_MONITOR_DPI_AWARE
+    except AttributeError:
+        pass
+    try:
+        shcore = ctypes.WinDLL("shcore")
+        shcore.GetProcessDpiAwareness.argtypes = [wintypes.HANDLE, ctypes.POINTER(ctypes.c_int)]
+        shcore.GetProcessDpiAwareness.restype = ctypes.c_long
+        awareness = ctypes.c_int()
+        return (shcore.GetProcessDpiAwareness(None, ctypes.byref(awareness)) == 0
+                and awareness.value == PROCESS_PER_MONITOR_DPI_AWARE)
+    except (AttributeError, OSError):
+        return False
+
+
+def window_dpi(hwnd: int) -> int:
+    """The dpi of the screen the window is on, as Windows draws it (240 at
+    250%); 0 when unknown (no window, Windows before 10 1607)."""
+    if not hwnd:
+        return 0
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    try:
+        user32.GetDpiForWindow.argtypes = [wintypes.HWND]
+        user32.GetDpiForWindow.restype = wintypes.UINT
+    except AttributeError:
+        return 0
+    return int(user32.GetDpiForWindow(hwnd))
+
+
 SM_CXICON, SM_CXSMICON = 11, 49
 ICON_SMALL, ICON_BIG, WM_SETICON = 0, 1, 0x0080
+IMAGE_ICON, LR_LOADFROMFILE = 1, 0x0010
 _icons: dict[tuple[str, int], int] = {}     # kept for the life of the process: a window does not copy its icon
 
 
@@ -92,11 +159,25 @@ def _exe_icon(exe: str, size: int) -> int:
     return _icons[(exe, size)]
 
 
-def window_icons(exe: str) -> None:
+def _file_icon(ico: str, size: int) -> int:
+    """The icon of an .ico file at this size; 0 when it cannot be read."""
+    if (ico, size) not in _icons:
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.LoadImageW.argtypes = [wintypes.HINSTANCE, wintypes.LPCWSTR, wintypes.UINT, ctypes.c_int,
+                                      ctypes.c_int, wintypes.UINT]
+        user32.LoadImageW.restype = wintypes.HANDLE
+        _icons[(ico, size)] = user32.LoadImageW(None, ico, IMAGE_ICON, size, size, LR_LOADFROMFILE) or 0
+    return _icons[(ico, size)]
+
+
+def window_icons(exe: str, small: str = "", big: str = "") -> None:
     """This process's windows with the exe's icon, at the sizes Windows draws
-    for each window's DPI (the title bar's small one, Alt+Tab's big one).
+    for each window's DPI (the title bar's small one; the big one, which
+    Alt+Tab and the taskbar button draw: measured on Windows 11, a window
+    with a red small icon and a blue big one has a blue taskbar button).
     GTK gives Windows a 48-pixel icon, which the title bar shrinks badly to
-    16."""
+    16. `small` and `big`, when given, are .ico files that take the exe's
+    place for that kind (the icon for a dark taskbar)."""
     user32 = ctypes.windll.user32
     user32.GetDpiForWindow.argtypes = [wintypes.HWND]
     user32.GetSystemMetricsForDpi.argtypes = [ctypes.c_int, wintypes.UINT]
@@ -110,13 +191,31 @@ def window_icons(exe: str) -> None:
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
         if owner.value == pid:
             dpi = user32.GetDpiForWindow(hwnd) or 96
-            for kind, metric in ((ICON_SMALL, SM_CXSMICON), (ICON_BIG, SM_CXICON)):
-                icon = _exe_icon(exe, user32.GetSystemMetricsForDpi(metric, dpi))
+            for kind, metric, ico in ((ICON_SMALL, SM_CXSMICON, small), (ICON_BIG, SM_CXICON, big)):
+                size = user32.GetSystemMetricsForDpi(metric, dpi)
+                icon = _file_icon(ico, size) if ico else _exe_icon(exe, size) if exe else 0
                 if icon:
                     user32.SendMessageW(hwnd, WM_SETICON, kind, icon)
         return True
 
     user32.EnumWindows(visit, 0)
+
+
+PERSONALIZE = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+
+
+def taskbar_dark() -> bool:
+    """Windows' own surfaces (taskbar, notification area, Start) are dark:
+    "Choose your Windows mode" in Settings, the value SystemUsesLightTheme
+    0 under HKCU. Read only. Before Windows 10 1903 the value did not exist
+    and the taskbar was always dark, hence dark when it is missing."""
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, PERSONALIZE) as key:
+            value, _kind = winreg.QueryValueEx(key, "SystemUsesLightTheme")
+    except OSError:
+        return True
+    return value == 0
 
 
 # -- a file that runs when it is opened ---------------------------------------------
@@ -209,6 +308,43 @@ def _com_method(pointer, slot, *types, result=ctypes.c_long):
 def _com_release(pointer):
     if pointer:
         _com_method(pointer, 2, result=ctypes.c_ulong)(pointer)
+
+
+_SHELL_LINK = _GUID.parse("00021401-0000-0000-C000-000000000046")
+_IID_SHELL_LINK_W = _GUID.parse("000214F9-0000-0000-C000-000000000046")
+_IID_PERSIST_FILE = _GUID.parse("0000010b-0000-0000-C000-000000000046")
+_RPC_E_CHANGED_MODE = 0x80010106
+
+
+def shortcut(target: str, link: str) -> None:
+    """A shortcut (.lnk) at `link` to the file `target`, made by the shell
+    (IShellLinkW::SetPath, IPersistFile::Save): what Explorer makes with
+    "Create shortcut", for a name in any language. OSError when it cannot
+    be made. COM is set up for this call's thread and left as it was."""
+    ole = ctypes.WinDLL("ole32")
+    ole.CoInitializeEx.argtypes = [ctypes.c_void_p, wintypes.DWORD]
+    ole.CoInitializeEx.restype = ctypes.c_long
+    ole.CoUninitialize.argtypes = []
+    ole.CoUninitialize.restype = None
+    ole.CoCreateInstance.argtypes = [ctypes.POINTER(_GUID), ctypes.c_void_p, wintypes.DWORD,
+                                    ctypes.POINTER(_GUID), ctypes.POINTER(ctypes.c_void_p)]
+    ole.CoCreateInstance.restype = ctypes.c_long
+    started = ole.CoInitializeEx(None, 2)       # STA; a thread already in another apartment keeps it
+    if started < 0 and started & 0xffffffff != _RPC_E_CHANGED_MODE:
+        _com_checked(started)
+    made, persist = ctypes.c_void_p(), ctypes.c_void_p()
+    try:
+        _com_checked(ole.CoCreateInstance(ctypes.byref(_SHELL_LINK), None, 1, ctypes.byref(_IID_SHELL_LINK_W),
+                                          ctypes.byref(made)))
+        _com_checked(_com_method(made, 20, wintypes.LPCWSTR)(made, target))                 # SetPath
+        _com_checked(_com_method(made, 0, ctypes.POINTER(_GUID), ctypes.POINTER(ctypes.c_void_p))(
+            made, ctypes.byref(_IID_PERSIST_FILE), ctypes.byref(persist)))
+        _com_checked(_com_method(persist, 6, wintypes.LPCWSTR, wintypes.BOOL)(persist, link, True))   # Save
+    finally:
+        _com_release(persist)
+        _com_release(made)
+        if started >= 0:
+            ole.CoUninitialize()
 
 
 def choose_folder_native(title: str, initial: str | None = None, owner: int = 0,

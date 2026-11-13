@@ -28,7 +28,7 @@ from pathlib import Path
 
 from scriba import ENV_PREFIX
 from scriba.app.task import Failure, Progress, tell
-from scriba.core import loudness
+from scriba.core import callmute, loudness
 from scriba.data import files
 from scriba.i18n import _
 
@@ -44,6 +44,9 @@ LANGUAGE_CODES = {"it": "ita", "en": "eng"}
 # computer's output (the other people in a call)
 ROLE_TAG = "SCRIBA_ROLE"
 ROLES = ("me", "others")
+# the stretches the user was muted in the call, on the microphone's track
+# (core/callmute.py, write_spans): its speech there is not transcribed
+MUTED_TAG = "SCRIBA_CALL_MUTED"
 
 
 @dataclass(frozen=True)
@@ -51,6 +54,7 @@ class Track:
     index: int              # among the sound tracks: 0 is the first (ffmpeg's -map 0:a:<index>)
     title: str = ""
     role: str = ""          # one of ROLES, or "" when the file does not say
+    muted: tuple = ()       # (from, to) seconds muted in the call (MUTED_TAG); to None: to the end
 
 
 @dataclass(frozen=True)
@@ -128,7 +132,8 @@ def parse_probe(text: str) -> Media:
         # Matroska's tags come back in capitals, the others as written
         tags = {str(k).upper(): str(v) for k, v in (stream.get("tags") or {}).items()}
         role = tags.get(ROLE_TAG, "").lower()
-        tracks.append(Track(len(tracks), tags.get("TITLE", ""), role if role in ROLES else ""))
+        tracks.append(Track(len(tracks), tags.get("TITLE", ""), role if role in ROLES else "",
+                            callmute.read_spans(tags.get(MUTED_TAG))))
     return Media(duration=duration, sound_tracks=len(tracks),
                  video=any(k == "video" and not p for k, p in kinds),
                  subtitle_tracks=sum(1 for k, _p in kinds if k == "subtitle"), tracks=tuple(tracks))
@@ -152,15 +157,16 @@ def probe(source: str | os.PathLike, cancelled: threading.Event | None = None) -
 
 
 def decode_arguments(ffmpeg: str, source: str, dest: str, start: float = 0.0, length: float = 0.0,
-                     stream: int = 0) -> list[str]:
+                     stream: int = 0, rate: int = audio.RATE) -> list[str]:
     """`start` and `length` (seconds; 0: from the beginning, to the end)
     cut a piece: the test of the graphics cards wants 30 s of an hour, and
     -ss before -i seeks without decoding what comes before. `stream` is
-    the sound track, 0 the first."""
+    the sound track, 0 the first; `rate` the WAV's (the transcription's
+    16 kHz unless asked otherwise)."""
     cut = ["-ss", f"{start:.3f}"] if start > 0 else []
     until = ["-t", f"{length:.3f}"] if length > 0 else []
     return [ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-nostats", "-progress", "pipe:1",
-            *cut, "-i", source, *until, "-map", f"0:a:{stream}", "-vn", "-ac", "1", "-ar", str(audio.RATE),
+            *cut, "-i", source, *until, "-map", f"0:a:{stream}", "-vn", "-ac", "1", "-ar", str(rate),
             "-c:a", "pcm_s16le", "-f", "wav", "-y", dest]
 
 
@@ -175,10 +181,10 @@ def progress_seconds(line: str) -> float | None:
 
 def decode(source: str | os.PathLike, dest: str | os.PathLike, duration: float = 0.0,
            progress: Progress | None = None, cancelled: threading.Event | None = None,
-           start: float = 0.0, length: float = 0.0, stream: int = 0) -> Path:
-    """The sound track `stream` (0: the first) of `source` as WAV 16 kHz
-    mono in `dest` (a file in a temporary folder of the caller's); with
-    `start` and `length` only that piece of it."""
+           start: float = 0.0, length: float = 0.0, stream: int = 0, rate: int = audio.RATE) -> Path:
+    """The sound track `stream` (0: the first) of `source` as WAV mono,
+    16 kHz unless `rate` says otherwise, in `dest` (a file in a temporary
+    folder of the caller's); with `start` and `length` only that piece."""
     name = Path(source).name
 
     def heard(line: str) -> None:
@@ -188,7 +194,7 @@ def decode(source: str | os.PathLike, dest: str | os.PathLike, duration: float =
 
     try:
         done = process.run(decode_arguments(str(_need("ffmpeg")), os.fspath(source), os.fspath(dest), start, length,
-                                            stream), on_stdout=heard, cancelled=cancelled)
+                                            stream, rate), on_stdout=heard, cancelled=cancelled)
     except OSError as e:
         raise Failure(_("ffmpeg could not be started."), str(e)) from e
     if done.returncode != 0 or not Path(dest).is_file():

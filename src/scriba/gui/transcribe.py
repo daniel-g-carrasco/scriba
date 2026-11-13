@@ -36,7 +36,7 @@ from scriba.data.timing import clock  # noqa: E402
 from scriba.i18n import _  # noqa: E402
 
 from .style_values import SPACE_XL  # noqa: E402
-from .ui import choose_folder, documents_folder, escape, report, run_in_thread  # noqa: E402
+from .ui import choose_folder, documents_folder, escape, recordings_folder, report, run_in_thread  # noqa: E402
 
 CLAMP = 520
 TICK_MS = 250
@@ -213,27 +213,37 @@ class TranscribePage(Adw.Bin):
                                         model=Gtk.StringList.new([_("Fast"), _("Precise, slower")]))
         self.quality_row.connect("notify::selected", lambda r, _p: self._chose("quality", QUALITIES[r.get_selected()]))
         group.add(self.quality_row)
-        self.voices_row = Adw.ExpanderRow(title=_("Tell the Voices Apart"), show_enable_switch=True,
-                                          subtitle=escape(_("Speaker 1, 2, 3…: the names are given afterwards")))
-        self.voices_row.connect("notify::enable-expansion", lambda r, _p: self._chose(
-            "speakers", r.get_enable_expansion()))
-        counts = [_("Counted by the App")] + [str(n) for n in range(2, MAX_SPEAKERS + 1)]
-        self.count_row = Adw.ComboRow(title=_("How Many People"), model=Gtk.StringList.new(counts),
-                                      subtitle=escape(_("If you know how many, the voices come out better")))
-        self.count_row.connect("notify::selected", lambda r, _p: self._chose(
-            "speaker_count", 0 if r.get_selected() == 0 else r.get_selected() + 1))
-        self.voices_row.add_row(self.count_row)
-        group.add(self.voices_row)
         self.video_row = Adw.SwitchRow(title=_("Video with Subtitles"), visible=False,
                                        subtitle=escape(_("A copy of the video with the subtitles inside (mkv)")))
         self.video_row.connect("notify::active", lambda r, _p: self._chose("subtitled_video", r.get_active()))
         group.add(self.video_row)
         page.add(group)
 
+        # how many people: the engine's speaker_count (app/jobs.py), 0 for automatic
+        group = Adw.PreferencesGroup(title=_("People Speaking"), description=escape(_(
+            "Count the people who can really be heard in the recording, you included: not everyone connected to "
+            "the call.")))
+        self.voices_row = Adw.SwitchRow(title=_("Tell the Voices Apart"),
+                                        subtitle=escape(_("Speaker 1, 2, 3…: the names are given afterwards")))
+        self.voices_row.connect("notify::active", lambda r, _p: self._chose("speakers", r.get_active()))
+        group.add(self.voices_row)
+        self.automatic_row = Adw.SwitchRow(title=_("Automatic Count"),
+                                           subtitle=escape(_("The app counts the voices it hears")))
+        self.automatic_row.connect("notify::active", lambda r, _p: self._chose(
+            "speaker_count", 0 if r.get_active() else int(self.count_row.get_value())))
+        group.add(self.automatic_row)
+        self.count_row = Adw.SpinRow.new_with_range(1, MAX_SPEAKERS, 1)
+        self.count_row.set_title(_("How Many People"))
+        self.count_row.set_subtitle(escape(_("If you know how many, the voices come out better")))
+        self.count_row.connect("notify::value", lambda r, _p: self._counted(int(r.get_value())))
+        group.add(self.count_row)
+        page.add(group)
+
         group = Adw.PreferencesGroup(title=_("Terms and Names"),
                                      description=escape(_("Names, acronyms and words of the trade to be written "
                                                           "right, separated by commas: the client, the project's "
-                                                          "code, the people in the call.")))
+                                                          "code, the surnames of those in the call. They are not "
+                                                          "used to count the voices.")))
         self.terms_row = Adw.EntryRow(title=_("Terms, separated by commas"))
         group.add(self.terms_row)
         page.add(group)
@@ -276,8 +286,10 @@ class TranscribePage(Adw.Bin):
                                            if cfg.speech_language in LANGUAGES else 1)
             self.quality_row.set_visible(True)
             self.quality_row.set_selected(QUALITIES.index(cfg.quality) if cfg.quality in QUALITIES else 0)
-            self.voices_row.set_enable_expansion(cfg.speakers)
-            self.count_row.set_selected(0 if cfg.speaker_count < 2 else min(cfg.speaker_count, MAX_SPEAKERS) - 1)
+            self.voices_row.set_active(cfg.speakers)
+            self.automatic_row.set_active(cfg.speaker_count < 1)
+            self.count_row.set_value(min(cfg.speaker_count, MAX_SPEAKERS) if cfg.speaker_count >= 1 else 2)
+            self._show_count()
             self.video_row.set_active(cfg.subtitled_video)
             self.terms_row.set_text(cfg.terms)
         finally:
@@ -287,8 +299,20 @@ class TranscribePage(Adw.Bin):
         if getattr(self, "_loading", False):
             return
         setattr(self.cfg, name, value)
+        self._show_count()
         self._update_model_gate()
         self.refresh_estimate()
+
+    def _counted(self, people: int) -> None:
+        if not self.automatic_row.get_active():
+            self._chose("speaker_count", people)
+
+    def _show_count(self) -> None:
+        """The number counts only when the voices are told apart, and is
+        typed only when it is not automatic."""
+        voices = self.voices_row.get_active()
+        self.automatic_row.set_sensitive(voices)
+        self.count_row.set_sensitive(voices and not self.automatic_row.get_active())
 
     def remember(self) -> None:
         """What the rows say, kept in the settings for next time."""
@@ -301,7 +325,22 @@ class TranscribePage(Adw.Bin):
             return self.out_override
         if self.cfg.output_folder:
             return Path(self.cfg.output_folder)
+        home = self._home()
+        if home is not None:
+            return home / self.source.stem      # as named at the start: the work takes a free name if it is taken
         return jobs.default_folder(self.source, documents_folder()) if self.source else documents_folder()
+
+    def _home(self) -> Path | None:
+        """Scriba's folder for the recordings, when the files of this one go
+        in a folder of their own there (app/jobs.py, home_folder): a file
+        kept elsewhere, no folder chosen, the preference so; not a recording
+        of Scriba's own (its tracks say whose they are), which stays with
+        its files wherever it is."""
+        if (self.source is None or self.out_override is not None or self.cfg.output_folder
+                or self.cfg.elsewhere != "scriba" or getattr(self.media, "roles", ())):
+            return None
+        home = recordings_folder(self.cfg)
+        return home if jobs.elsewhere(self.source, home) else None
 
     def _set_out(self, folder: Path | None) -> None:
         self.out_override = folder
@@ -374,7 +413,10 @@ class TranscribePage(Adw.Bin):
         self.refresh_estimate()
 
     def request(self) -> jobs.Request:
-        return self.backend.request(self.cfg, self.source, self.out_folder(), bool(self.media and self.media.video))
+        home = self._home()
+        request = self.backend.request(self.cfg, self.source, None if home else self.out_folder(),
+                                       bool(self.media and self.media.video))
+        return replace(request, home=home) if home else request
 
     def refresh_estimate(self) -> None:
         if self.source is None or self.media is None:
@@ -382,9 +424,13 @@ class TranscribePage(Adw.Bin):
         if self._missing_models():
             self.estimate_row.set_subtitle(escape(_("Waiting for the models selected above.")))
             return
-        seconds = self.backend.estimate(self.media.duration, self.request())
-        self.estimate_row.set_subtitle(escape(_("{about} for {duration} of audio").format(
-            about=estimate.about(seconds).capitalize(), duration=clock(self.media.duration))))
+        request = self.request()
+        seconds = self.backend.estimate(self.media.duration, request)
+        text = _("{about} for {duration} of audio").format(about=estimate.about(seconds).capitalize(),
+                                                           duration=clock(self.media.duration))
+        if self.backend.first_estimate(request):
+            text += " · " + _("a first estimate: not yet timed on this device")
+        self.estimate_row.set_subtitle(escape(text))
         self._show_device()
 
     # -- where whisper works: the test of the cards ---------------------------------

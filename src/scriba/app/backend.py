@@ -129,6 +129,10 @@ class Backend:
         return jobs.estimated_seconds(duration, request, self.device_label(request),
                                       jobs.load_speeds(self.speeds_file))
 
+    def first_estimate(self, request: jobs.Request) -> bool:
+        """The estimate is not yet measured for this work on this device."""
+        return jobs.first_estimate(request, self.device_label(request), jobs.load_speeds(self.speeds_file))
+
     def hour(self, request: jobs.Request) -> float:
         return self.estimate(3600, request)
 
@@ -153,6 +157,19 @@ class Backend:
 
     def save_balance(self, result: jobs.Result, balance: float) -> jobs.Named:
         return jobs.save_balance(result, balance)
+
+    def balance_preview(self, result: jobs.Result, balance: float, cancelled: threading.Event):
+        """A few seconds of the listening copy with this balance, where the
+        user and the others both speak (speakers.both_heard)."""
+        from scriba.core import speakers
+        from scriba.i18n import _
+
+        from . import preview
+        from .task import Failure
+        if result.source is None:
+            raise Failure(_("The original recording is missing: a new listening copy cannot be made."), "no source")
+        start, end = speakers.both_heard(result.segments, result.me, duration=result.duration)
+        return preview.balanced(result.source, start, end, balance, cancelled)
 
     @staticmethod
     def about(seconds: float) -> str:
@@ -180,10 +197,10 @@ class Backend:
         from scriba.app import recorder
         return recorder.Recorder(plan, folder, stem)
 
-    def finish(self, takes, folder: Path, stem: str, cancelled: threading.Event | None = None):
+    def finish(self, takes, folder: Path, stem: str, cancelled: threading.Event | None = None, progress=None):
         """The tracks made one file and a mix (app/recording.py, finish)."""
         from scriba.app import recording
-        return recording.finish(takes, folder, stem, cancelled)
+        return recording.finish(takes, folder, stem, cancelled, progress)
 
     def free_space(self, folder: Path) -> int:
         import shutil

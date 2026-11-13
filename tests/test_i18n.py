@@ -45,6 +45,17 @@ class LanguageTest(unittest.TestCase):
             i18n.use()
         self.assertEqual(i18n._("Preferences"), "Preferences")
 
+    def test_the_compiled_catalogue_is_not_older_than_its_translations(self):
+        # 13/11/2026: a catalogue compiled before the strings of the echo were added left the note of a
+        # transcript made from the sources in English, under an Italian interface
+        source = _setup.ROOT / "po" / "it.po"
+        self.assertGreaterEqual(CATALOGUE.stat().st_mtime, source.stat().st_mtime,
+                                "po/it.po is newer than its catalogue: run tools/compile_po.py")
+        i18n.setup(TEXTDOMAIN, _setup.ROOT, "it")
+        self.assertTrue(i18n._("The microphone heard the computer's sound (loudspeakers) in {share} of the "
+                               "recording ({time}): there it was taken out of your track before transcribing, so "
+                               "the others' words come from the computer's track only.").startswith("Il microfono"))
+
     def test_plurals(self):
         i18n.setup(TEXTDOMAIN, _setup.ROOT, "it")
         self.assertEqual(i18n.ngettext("{n} doubtful line", "{n} doubtful lines", 1), "{n} battuta dubbia")

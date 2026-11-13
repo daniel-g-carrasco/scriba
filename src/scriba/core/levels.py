@@ -10,9 +10,12 @@ measures ten times a second on every track (RMS and peak, dBFS):
   and nothing afterwards brings it back (turn the microphone's level down
   in the system's settings);
 - QUIET: someone speaks (the level goes up and down by more than
-  SPEAKING_SWING over the noise of the room) and the loud part stays under
-  QUIET_BELOW: a distant microphone may hear speech at -44 to -53 dB,
-  where a speech engine can invent words;
+  SPEAKING_SWING over the noise of the room) and the loud part stays between
+  SPEECH_FROM and QUIET_BELOW for QUIET_FOR seconds: a distant microphone
+  may hear speech at -44 to -53 dB, where a speech engine can invent words.
+  Under SPEECH_FROM it is silence or the room, never a voice: on 13/11/2026
+  the right microphone of a user who was simply not speaking during a call
+  read -73 dB and was warned about;
 - SILENT: no sound at all from the computer's output for SILENT_AFTER
   seconds (the call plays on another device, or the others are muted). A
   call has pauses: the warning is a question, not an error.
@@ -29,6 +32,8 @@ from dataclasses import dataclass
 FLOOR = -90.0               # dBFS shown as the bottom of a meter: digital silence is -inf, or -700 from GStreamer
 CLIP_AT = -0.1              # dBFS of peak: the source is cut there
 QUIET_BELOW = -40.0         # dBFS of the voice's loud part
+SPEECH_FROM = -60.0         # dBFS: under this no voice (silence measured at -73, faint speech at -44 to -53)
+QUIET_FOR = 15.0            # seconds of faint speech before it is said: longer than WINDOW: one cough cannot hold it
 SPEAKING_SWING = 12.0       # dB between the room's noise and the loud part: someone is speaking
 WINDOW = 10.0               # seconds of levels looked at for QUIET
 SILENT_BELOW = -70.0        # dBFS of peak: nothing comes out (the loopback of a silent output is exact zeros)
@@ -61,7 +66,7 @@ def percentile(values, share: float) -> float:
 
 @dataclass(frozen=True)
 class Alert:
-    kind: str           # CLIPPING, QUIET or SILENT
+    kind: str           # CLIPPING, QUIET or SILENT; the recorder adds core/echo.py's ECHO
     track: str          # the track's key; for SILENT, "" when it is every output
     level: float        # dBFS: the peak, the voice's level, or the outputs' loudest peak
     seconds: float = 0.0    # SILENT: for how long
@@ -79,6 +84,7 @@ class Watch:
         self._outputs: set[str] = set()
         self._clipped: dict[str, tuple[float, float]] = {}  # track -> (when, peak)
         self._quiet: dict[str, tuple[float, float]] = {}    # track -> (when, level)
+        self._faint_since: dict[str, float] = {}     # track -> when its faint speech began
         self._sound_at: float | None = None     # the last time an output had sound
         self._began: float | None = None
         self.loudest: dict[str, float] = {}     # track -> the loudest peak heard, for keeping it or not
@@ -102,10 +108,13 @@ class Watch:
             loud = percentile([r for _t, r, _p in levels], 0.9)
             noise = percentile([r for _t, r, _p in levels], 0.1)
             span = levels[-1][0] - levels[0][0]
-            if span >= WINDOW / 2 and loud - noise >= SPEAKING_SWING and loud < QUIET_BELOW:
-                self._quiet[key] = (when, loud)
-            elif loud >= QUIET_BELOW:
-                self._quiet.pop(key, None)
+            if span >= WINDOW / 2 and loud - noise >= SPEAKING_SWING and SPEECH_FROM <= loud < QUIET_BELOW:
+                if when - self._faint_since.setdefault(key, when) >= QUIET_FOR:
+                    self._quiet[key] = (when, loud)
+            else:
+                self._faint_since.pop(key, None)
+                if loud >= QUIET_BELOW:
+                    self._quiet.pop(key, None)
         elif key in self._outputs and peak > SILENT_BELOW:
             self._sound_at = when
 
@@ -131,11 +140,17 @@ class Watch:
                                    loudest, now - since))
         return out
 
+    def resume(self, when: float) -> None:
+        """The outputs switched back on by the user: the silence while they
+        were off was wanted, not a sign the call plays elsewhere."""
+        self._sound_at = when
+
     def forget(self, key: str) -> None:
         """A track that ended (its device is gone): no more warnings about it."""
         self._levels.pop(key, None)
         self._clipped.pop(key, None)
         self._quiet.pop(key, None)
+        self._faint_since.pop(key, None)
         self._inputs.discard(key)
         self._outputs.discard(key)
 

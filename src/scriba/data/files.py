@@ -2,8 +2,8 @@
 
 Two rules hold for every file Scriba writes for the user. It never takes
 the place of a file that is already there: a name that is taken becomes
-`name_R01.ext`, `name_R02.ext`... (as trascrivi.py did, the convention of
-Daniel's revisions). And it appears whole or not at all: the text goes to
+`name_R01.ext`, `name_R02.ext`... (as trascrivi.py did, the usual convention
+of revisions). And it appears whole or not at all: the text goes to
 a temporary file in the same folder (so that the rename never crosses a
 disk), is flushed to the disk, and only then takes its name, so a crash or
 a full disk leaves at most a stray temporary file, never half a transcript
@@ -116,6 +116,65 @@ def write_new(folder: str | os.PathLike, stem: str, ext: str, text: str) -> Path
     free_name and claim), atomically; the path it got."""
     folder = Path(folder)
     return claim(_temporary(folder, text), folder, stem, ext)
+
+
+def move_new(source: str | os.PathLike, dest: str | os.PathLike) -> None:
+    """`source` to `dest` on the same disk, never over a file that is there
+    (FileExistsError): a hard link and the old name removed, or where the
+    disk has no hard links a rename after looking that the name is free.
+    OSError when it cannot be moved (a file open in another program on
+    Windows): then it is where it was."""
+    source, dest = os.fspath(source), os.fspath(dest)
+    try:
+        os.link(source, dest)
+    except FileExistsError:
+        raise
+    except OSError:
+        if os.path.lexists(dest):
+            raise FileExistsError(dest) from None
+        os.rename(source, dest)
+        return
+    try:
+        os.unlink(source)
+    except OSError:
+        _discard(dest)
+        raise
+
+
+def to_revisions(folder: str | os.PathLike, stem: str, suffixes, exts, into: str) -> list[Path]:
+    """The files of one set in `folder` (`stem` + a suffix + an extension:
+    "x.md", "x_nomi.md"...) moved into its subfolder `into`, all under the
+    same revision, `stem_R01` + suffix + extension, `stem_R02`... the first
+    under which none of them is there: nothing is deleted, nothing replaced.
+    Their new paths; [] when none is there. OSError when one cannot be
+    moved: those moved before are put back, and the set stays whole."""
+    folder = Path(folder)
+    found = [(suffix, ext) for suffix in suffixes for ext in exts
+             if os.path.isfile(folder / f"{stem}{suffix}{_dotted(ext)}")]
+    if not found:
+        return []
+    revisions = folder / into
+    revisions.mkdir(exist_ok=True)
+    for n in range(1, MAX_REVISIONS + 1):
+        names = [f"{stem}_R{n:02d}{suffix}{_dotted(ext)}" for suffix, ext in found]
+        if not any(os.path.lexists(revisions / name) for name in names):
+            break
+    else:
+        raise FileExistsError(f"{revisions / stem}: {MAX_REVISIONS} revisions already there")
+    moved: list[tuple[Path, Path]] = []
+    try:
+        for (suffix, ext), name in zip(found, names, strict=True):
+            source = folder / f"{stem}{suffix}{_dotted(ext)}"
+            move_new(source, revisions / name)
+            moved.append((source, revisions / name))
+    except OSError:
+        for source, dest in reversed(moved):
+            try:
+                move_new(dest, source)
+            except OSError:
+                pass            # it stays in the revisions, under its new name: nothing is lost
+        raise
+    return [dest for _source, dest in moved]
 
 
 def replace(path: str | os.PathLike, text: str) -> None:

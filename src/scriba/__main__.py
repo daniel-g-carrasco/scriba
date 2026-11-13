@@ -35,9 +35,13 @@ def main() -> int:
     if len(sys.argv) > 1 and sys.argv[1] in COMMANDS:
         from .cli import main as cli_main
         return cli_main(sys.argv[1:])
-    from scriba.app import log
-    from scriba.gui.application import main as app_main
+    from scriba.app import errorlog, log
+    from scriba.app.services import app_paths
     log.setup(SLUG)
+    # the window's errors kept in a file too: started from the desktop
+    # nobody reads stderr (app/errorlog.py)
+    errorlog.install(errorlog.log_file(app_paths().state))
+    from scriba.gui.application import main as app_main
     return app_main(sys.argv)
 
 

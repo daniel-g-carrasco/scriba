@@ -163,19 +163,19 @@ class PreviewFileTest(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.folder = Path(tmp.name)
 
-    def test_a_nonzero_excerpt_has_the_right_samples_and_is_capped_at_twelve_seconds(self):
+    def test_a_nonzero_excerpt_has_the_right_samples_and_is_capped_at_fifteen_seconds(self):
         import numpy as np
         from scriba.app import preview
         source = self.folder / "recording.wav"
-        samples = np.concatenate([np.zeros(2 * audio.RATE, np.int16), np.full(16 * audio.RATE, 7000, np.int16)])
+        samples = np.concatenate([np.zeros(2 * audio.RATE, np.int16), np.full(20 * audio.RATE, 7000, np.int16)])
         audio.write(source, samples)
         before = source.read_bytes()
         clip = preview.prepare(source, 2, 30)
         try:
             got = audio.read(clip.path)
-            self.assertEqual(len(got), 12 * audio.RATE)
+            self.assertEqual(len(got), 15 * audio.RATE)
             self.assertEqual(int(got[audio.RATE]), 7000)
-            self.assertEqual(clip.duration, 12)
+            self.assertEqual(clip.duration, 15)
             self.assertEqual(source.read_bytes(), before)
         finally:
             clip.close()

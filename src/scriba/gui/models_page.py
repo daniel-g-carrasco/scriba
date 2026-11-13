@@ -13,7 +13,7 @@ from gi.repository import Adw, Gtk  # noqa: E402
 from scriba.app import models  # noqa: E402
 from scriba.i18n import _  # noqa: E402
 
-from .style_values import SPACE_L  # noqa: E402
+from .style_values import SPACE_L, SPACE_XS  # noqa: E402
 from .ui import escape, header_bar  # noqa: E402
 
 SITES = {"huggingface.co": "Hugging Face", "raw.githubusercontent.com": "GitHub"}
@@ -49,10 +49,15 @@ class ModelsPage(Adw.NavigationPage):
         group = Adw.PreferencesGroup(title=_("Preparing Transcription"), description=_(
             "These models are needed to transcribe speech. You can record immediately while they download. "
             "Files are checked before use and stay on this computer."))
+        # A group's own box puts no space between widgets that are not rows:
+        # the bar, the error and the buttons get it from a box of their own
+        # (the button touched the bar: 13/11/2026)
+        status = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=SPACE_L, margin_top=SPACE_XS)
+        group.add(status)
         self.progress = Gtk.ProgressBar(show_text=True)
-        group.add(self.progress)
+        status.append(self.progress)
         self.error = Gtk.Label(wrap=True, visible=False, css_classes=["error"])
-        group.add(self.error)
+        status.append(self.error)
         buttons = Gtk.Box(spacing=SPACE_L, halign=Gtk.Align.CENTER)
         self.cancel_button = Gtk.Button(label=_("Pause Downloads"))
         self.cancel_button.connect("clicked", lambda *_: self.downloads.pause())
@@ -60,7 +65,7 @@ class ModelsPage(Adw.NavigationPage):
         self.download_button.connect("clicked", lambda *_: self.download())
         buttons.append(self.cancel_button)
         buttons.append(self.download_button)
-        group.add(buttons)
+        status.append(buttons)
         page.add(group)
         self.rows = {}
         base = Adw.PreferencesGroup(title=_("Required for Transcription"))

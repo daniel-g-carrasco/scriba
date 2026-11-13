@@ -87,6 +87,48 @@ class BalanceFileTest(unittest.TestCase):
         for path, content in before.items():
             self.assertEqual(path.read_bytes(), content, path.name)
 
+    def test_the_preview_is_a_stretch_of_the_same_mix_in_a_temporary_wav(self):
+        import wave
+
+        import numpy as np
+        from scriba.app import preview
+        takes = [Take("0", "me", "Microphone", flac(self.folder / "mic.flac", 8, 0.05, 440)),
+                 Take("1", "others", "Output", flac(self.folder / "out.flac", 8, 0.3, 660))]
+        joined = recording.join(takes, self.folder, "call")
+        before = {p: p.read_bytes() for p in self.folder.iterdir()}
+
+        def spectrum(samples):
+            return np.abs(np.fft.rfft(samples))           # one second: bins of 1 Hz
+
+        spectra = {}
+        for position in (-1, 0, 0.5, 1):
+            work = self.folder / f"preview{position}"
+            work.mkdir()
+            made = recording.balance_preview(joined, 2, 4, position, work)
+            self.assertEqual([p.name for p in work.iterdir()], ["preview.wav"])     # its own pieces cleared
+            with wave.open(str(made), "rb") as wav:
+                self.assertEqual(wav.getframerate(), recording.PREVIEW_RATE)
+                self.assertAlmostEqual(wav.getnframes() / wav.getframerate(), 4, delta=0.05)
+                samples = np.frombuffer(wav.readframes(wav.getnframes()), np.int16).astype(float)
+            spectra[position] = spectrum(samples[48000:96000])
+        for position in (-1, 1):
+            for hz, role in ((440, "me"), (660, "others")):
+                change = 20 * math.log10(spectra[position][hz] / spectra[0][hz])
+                expected = -12 if (position > 0 and role == "others") or (position < 0 and role == "me") else 0
+                self.assertAlmostEqual(change, expected, delta=0.05, msg=f"{position}: {role}")
+        # the same road as the copy saved: the same ratio of the two sides
+        _made, whole = self.balanced_samples(joined, 0.5, "half")
+        saved = np.abs(np.fft.rfft(whole[3 * audio.RATE:4 * audio.RATE]))        # 16 kHz, also 1 Hz bins
+        self.assertAlmostEqual(20 * math.log10(spectra[0.5][440] / spectra[0.5][660]),
+                               20 * math.log10(saved[440] / saved[660]), delta=0.1)
+        clip = preview.balanced(joined, 2, 6, 0)
+        self.assertTrue(clip.path.parent.name.startswith("scriba-preview-"))
+        self.assertAlmostEqual(clip.duration, 4, delta=0.05)
+        clip.close()
+        self.assertFalse(clip.path.parent.exists())
+        for path, content in before.items():
+            self.assertEqual(path.read_bytes(), content, path.name)
+
     def test_the_limiter_still_holds_a_coherent_sum_and_every_copy_has_a_free_name(self):
         tone = flac(self.folder / "tone.flac", 3, 0.2)
         takes = [Take(str(n), "me" if n % 2 else "others", f"Device {n}", tone) for n in range(12)]

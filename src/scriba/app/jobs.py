@@ -22,7 +22,10 @@ own, and the lines are merged in the order of time (core/segments.py,
 merge): the microphone's lines are one voice, the user's (Result.me),
 never told apart from the others by ear; the output's voices are told
 apart among themselves when asked, each track's labels kept apart from
-the other tracks' (prefix_speakers) before the voices are numbered.
+the other tracks' (prefix_speakers) before the voices are numbered. A
+microphone that heard the loudspeakers has the computer's sound taken out
+first, where it heard it (_without_echo), so that the others' words are
+not written twice, the second time as the user's.
 
 The work runs in the caller's thread (the window gives it one): Progress
 says which step is going and how far, a threading.Event stops it between
@@ -42,13 +45,17 @@ import shutil
 import tempfile
 import threading
 import time
+import wave
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
 from scriba import PACKAGE_DIR, WINDOWS, __version__
-from scriba.core import estimate, loudness, segments as seg, speakers, timeline, words
+from scriba.core import callmute, estimate, loudness, segments as seg, speakers, timeline, words
+from scriba.core.paragraphs import paragraphs
+from scriba.core.subtitles import subtitles as cut_subtitles
 from scriba.data import files, markdown, session as sessions, srt, txt
+from scriba.data.timing import clock
 from scriba.i18n import _
 
 from . import models
@@ -74,6 +81,16 @@ def stage_names() -> dict[str, str]:
 # the voices 26 s, decoding and the filter a second or two each
 WEIGHTS = {"decode": 2.0, "speech": 2.0, "transcribe": 40.0, "speakers": 30.0, "write": 0.5, "video": 3.0}
 SPEEDS_FILE = "speeds.json"
+# Precise (large-v3) before it ever ran on a device: as slow as Fast
+# (large-v3-turbo, timed by the test of the cards) by this factor. They
+# share the encoder; Precise has 32 decoder layers to Fast's 4 and searches
+# wider. On the RTX A2000 of the PC it was written on (speeds.json,
+# 13/11/2026) Fast ran at 7.3 times real time and Precise at 8.4: the
+# encoder is most of the work on a card. On a processor the decoder weighs
+# more [I]. Twice as slow keeps the first estimate on the safe side without
+# the old default (as long as the audio), which said about 40 minutes for a
+# work done in under 10.
+PRECISE_SLOWER = 2.0
 # the silence between two stretches of speech given to whisper, measured on
 # the test clip (11/11/2026, turbo on the card): glued with none, whisper
 # lost the first sentence and wrote "cavelli" for "cavedi" seven times (the
@@ -107,6 +124,10 @@ class Request:
     tracks: tuple[Track, ...] = ()      # each track on its own (see the docstring); (): as the file says
     my_name: str = "Io"                 # the microphone's name, written in the first files
     normalise: bool = NORMALISE         # the engines hear each track at the same loudness
+    # Scriba's folder for the recordings, for a file kept elsewhere (an OBS
+    # video): with `out` None the files go in a folder of its own there,
+    # with a link to the file (home_folder, link_to); None: output_folder
+    home: Path | None = None
 
 
 class Progress:
@@ -225,6 +246,89 @@ def output_folder(source: Path, out: Path | None) -> Path:
     return Path(source).resolve().parent
 
 
+def elsewhere(source: str | os.PathLike, recordings: str | os.PathLike) -> bool:
+    """The file is outside Scriba's folder for the recordings (an OBS video,
+    a phone's recording): its transcripts may go in a folder of their own
+    there (home_folder) instead of next to it."""
+    try:
+        Path(source).resolve().relative_to(Path(recordings).resolve())
+    except ValueError:
+        return True
+    return False
+
+
+def home_folder(source: str | os.PathLike, recordings: str | os.PathLike) -> Path:
+    """The folder in `recordings` for the transcripts of a file kept
+    elsewhere: named as the file, the one whose meeting files are of this
+    very file when there is one (a new transcription goes with the ones
+    before), else the first free name (`name_R01`...)."""
+    source, recordings = Path(source), Path(recordings)
+    wanted = full_path(source)
+    for n in range(files.MAX_REVISIONS + 1):
+        folder = recordings / (source.stem if n == 0 else f"{source.stem}_R{n:02d}")
+        if not os.path.lexists(folder):
+            return folder
+        if folder.is_dir() and any(_meeting_of(path) == wanted for path in folder.glob("*.json")):
+            return folder
+    raise FileExistsError(f"{recordings / source.stem}: {files.MAX_REVISIONS} folders already there")
+
+
+def _meeting_of(path: Path) -> str:
+    """The recording a meeting file is of; "" when it is not one or cannot be read."""
+    try:
+        return sessions.load(path).source
+    except sessions.SessionError:
+        return ""
+
+
+def link_to(source: Path, folder: Path) -> list[str]:
+    """A link to the file in the folder of its transcripts, under its own
+    name, unless there is one already; what to tell the user when it cannot
+    be made. On Windows a shortcut (.lnk, made by the shell: it follows the
+    file's name in any language, and Explorer opens the file with it), a
+    symbolic link elsewhere. Never a copy: the original stays where it is,
+    and the meeting file names it too."""
+    try:
+        if WINDOWS:
+            link = folder / f"{source.name}.lnk"
+            if not os.path.lexists(link):
+                from . import win32
+                win32.shortcut(full_path(source), full_path(link))
+        else:
+            link = folder / source.name
+            if not os.path.lexists(link):
+                os.symlink(os.path.abspath(source), link)
+    except OSError as e:
+        return [_("The link to the original file could not be made ({reason}): it is at {path}.").format(
+            reason=e, path=full_path(source))]
+    return []
+
+
+def transcript_stem(source: str | os.PathLike) -> str:
+    """The name the files of a transcript share: "<recording>_trascrizione"."""
+    return f"{Path(source).stem}_{_('transcript')}"
+
+
+def revisions_folder() -> str:
+    return _("Previous revisions")
+
+
+def _previous_to_revisions(folder: Path, source: Path) -> list[str]:
+    """A new transcript of the same audio takes the place of the one before
+    in view; the one before (its automatic files, those with the names, its
+    meeting files) goes to the folder of the previous revisions with
+    `_R01`, `_R02`... Nothing is deleted or replaced. When a file cannot be
+    moved (open in another program) the set stays where it is, the new one
+    takes the next free name beside it, and that is said."""
+    try:
+        files.to_revisions(folder, transcript_stem(source), ("", f"_{_('names')}", f"_{_('balanced')}"),
+                           (".md", ".txt", ".srt", ".json"), revisions_folder())
+    except OSError as e:
+        return [_("The previous transcript could not be moved to “{folder}” ({reason}): the new one is next to "
+                  "it, under another name.").format(folder=revisions_folder(), reason=e)]
+    return []
+
+
 def needed_models(request: Request) -> list[models.Model]:
     out = [models.WHISPER[request.model], models.SILERO_VAD]
     if request.speakers:
@@ -259,13 +363,35 @@ def remember_speeds(path: Path | None, measured: dict[str, float]) -> None:
     files.replace(path, json.dumps(speeds, indent=2, sort_keys=True) + "\n")
 
 
+def model_speed(model: str, device: str, speeds: dict[str, float]) -> tuple[float | None, bool]:
+    """The speed of whisper's `model` on `device`, and whether it was
+    measured there. A model never run on a device takes the other model's
+    speed there (the test of the cards times Fast only), Precise at
+    1 / PRECISE_SLOWER of it; None when neither was measured."""
+    own = speeds.get(speed_key(model, device))
+    if own:
+        return own, True
+    other = {"large": "turbo", "turbo": "large"}.get(model)
+    known = speeds.get(speed_key(other, device)) if other else None
+    if not known:
+        return None, False
+    return (known / PRECISE_SLOWER if model == "large" else known), False
+
+
 def estimated_seconds(duration: float, request: Request, device: str, speeds: dict[str, float]) -> float:
     """How long the work will take for `duration` seconds of audio, from
     the speeds measured last time on this computer (core/estimate.py)."""
-    total = estimate.work_time(duration, speeds.get(speed_key(request.model, device)))
+    total = estimate.work_time(duration, model_speed(request.model, device, speeds)[0])
     if request.speakers:
         total += estimate.work_time(duration, speeds.get(speed_key("speakers", "cpu")), default=20.0)
     return total
+
+
+def first_estimate(request: Request, device: str, speeds: dict[str, float]) -> bool:
+    """The estimate rests on no measure of this very work on this computer:
+    the model never ran on the device, or the voices were never told apart."""
+    return not model_speed(request.model, device, speeds)[1] or (
+        request.speakers and not speeds.get(speed_key("speakers", "cpu")))
 
 
 def _pick_device(request: Request, cancelled: threading.Event | None):
@@ -293,11 +419,16 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
     if lacking:
         raise Failure(_("Models to download first: {names}.").format(names=", ".join(m.filename for m in lacking)),
                       str(models.folder() if models_dir is None else models_dir))
-    folder = output_folder(source, request.out)
-    folder.mkdir(parents=True, exist_ok=True)
+    notes: list[str] = []
+    if request.home is not None and request.out is None:
+        folder = home_folder(source, request.home)
+        folder.mkdir(parents=True, exist_ok=True)
+        notes += link_to(source, folder)
+    else:
+        folder = output_folder(source, request.out)
+        folder.mkdir(parents=True, exist_ok=True)
     stages = stages_for(request)
     progress.stages = tuple(stages)
-    notes: list[str] = []
     timings: dict[str, float] = {}
     work = Path(tempfile.mkdtemp(prefix="scriba-job-"))
     began = time.perf_counter()
@@ -310,9 +441,14 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
         tracks = [t for t in (request.tracks or media.roles) if t.index < media.sound_tracks]
         parts = [_Part(t) for t in tracks] if tracks else [_Part(Track(0))]
         request = replace(request, tracks=tuple(tracks))
-        for n, part in enumerate(parts):
-            wav = ffmpeg.decode(source, work / f"audio{n}.wav", media.duration, _within(progress, n, len(parts)),
-                                cancelled, stream=part.track.index)
+        echo_check = _hears_and_plays(parts)
+        slots = len(parts) + echo_check
+        wavs = [ffmpeg.decode(source, work / f"audio{n}.wav", media.duration, _within(progress, n, slots),
+                              cancelled, stream=part.track.index) for n, part in enumerate(parts)]
+        if echo_check:
+            wavs, said = _without_echo(parts, wavs, work, _within(progress, len(parts), slots), cancelled)
+            notes += said
+        for part, wav in zip(parts, wavs, strict=True):
             _prepare(part, wav, request.normalise, cancelled)
         duration = max(part.duration for part in parts)
         timings["decode"] = progress.finish()
@@ -321,6 +457,10 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
         for n, part in enumerate(parts):
             _find_speech(part, work / f"speech{n}.wav", request.speech_filter, models_dir,
                          _within(progress, n, len(parts)), cancelled)
+            if part.left_out > 0:
+                notes.append(_("{time} of speech on your microphone fell where you were muted in the call: it was "
+                               "not transcribed, and its sound stays in the recording.").format(
+                    time=clock(part.left_out)))
         timings["speech"] = progress.finish()
 
         progress.begin("transcribe")
@@ -359,6 +499,7 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
 
         check(cancelled)
         progress.begin("write")
+        notes += _previous_to_revisions(folder, source)
         names = {me: " ".join(request.my_name.split()) or "Io"} if me else {}
         outputs, stem, header = _write(request, source, folder, duration, language, language_probability, used,
                                        lines, voices, names)
@@ -400,6 +541,7 @@ class _Part:
         self.heard = None           # what the engines hear: the same, at the target loudness when asked
         self.gain = 0.0             # dB given to `heard`
         self.pieces: list = []      # the speech found, as timeline.Piece
+        self.left_out = 0.0         # seconds of the microphone's speech left out, muted in the call
         self.lines: list[seg.Segment] = []
 
     @property
@@ -414,6 +556,51 @@ def _within(progress: Progress, n: int, count: int):
     def advance(done: float, total: float) -> None:
         progress.advance(n + (done / total if total else 0.0), count)
     return advance
+
+
+def _hears_and_plays(parts: list[_Part]) -> bool:
+    """A microphone's track and a computer's: the microphone may have heard
+    the computer (core/echo.py)."""
+    return {part.track.role for part in parts} >= {"me", "others"}
+
+
+def _without_echo(parts: list[_Part], wavs: list[Path], work: Path, advance,
+                  cancelled: threading.Event | None) -> tuple[list[Path], list[str]]:
+    """Each microphone's track with the computer's sound taken out where it
+    heard it (core/echo.py says where, app/engines/echo.py takes it out),
+    the raw track elsewhere; the decoded files to use, and what to tell the
+    user. The others' lines then come from the computer's track only, and
+    the microphone's stay the user's. Without the canceller, or when it
+    fails, the raw track is used and that is said."""
+    from scriba.app.engines import audio, echo as canceller
+    from scriba.core import echo
+
+    mics = [n for n, part in enumerate(parts) if part.track.role == "me"]
+    computer = [audio.read(wav) for part, wav in zip(parts, wavs, strict=True) if part.track.role == "others"]
+    out, notes = list(wavs), []
+    for k, n in enumerate(mics):
+        def step(done, total, k=k):
+            advance(k + (done / total if total else 0.0), len(mics))
+        try:
+            pair = canceller.write_pair(work / f"echo{n}-pair.wav", audio.read(wavs[n]), computer, audio.RATE)
+            windows, duration = canceller.measure(pair, lambda done, total: step(done, 2 * total), cancelled)
+            stretches = echo.stretches(windows, duration)
+            heard = echo.echo_seconds(stretches)
+            if heard <= 0:
+                continue
+            cleaned = canceller.cancel(pair, work / f"echo{n}-cleaned.wav",
+                                       lambda done, total: step(total + done, 2 * total), cancelled)
+            out[n] = canceller.splice(pair, cleaned, stretches, work / f"audio{n}-without-echo.wav", cancelled)
+        except (Failure, OSError, EOFError, wave.Error) as e:
+            notes.append(_("The computer's sound heard by the microphone could not be taken out: {reason} Your "
+                           "track was transcribed as recorded, and the others' words may be written as yours.").format(
+                reason=e))
+            continue
+        notes.append(_("The microphone heard the computer's sound (loudspeakers) in {share} of the recording "
+                       "({time}): there it was taken out of your track before transcribing, so the others' words "
+                       "come from the computer's track only.").format(share=percent(echo.share(stretches)),
+                                                                       time=clock(heard)))
+    return out, notes
 
 
 def _prepare(part: _Part, wav: Path, normalise: bool, cancelled: threading.Event | None) -> None:
@@ -435,10 +622,18 @@ def _prepare(part: _Part, wav: Path, normalise: bool, cancelled: threading.Event
 def _find_speech(part: _Part, dest: Path, settings: vad.Settings, models_dir, advance,
                  cancelled: threading.Event | None) -> None:
     """Where somebody speaks in the track, and that speech alone in `dest`
-    for whisper, the pieces apart by GAP seconds of silence."""
+    for whisper, the pieces apart by GAP seconds of silence. On the
+    microphone's track the stretches muted in the call are left out (the
+    sound stays in the recording): what it heard there was not said in the
+    call. A stretch switched off in Scriba needs nothing: it is digital
+    silence, where no speech is found."""
     from scriba.app.engines import audio
     found = vad.detect(part.heard, models.path_of(models.SILERO_VAD, models_dir), settings, advance, cancelled)
-    part.pieces = timeline.pack(vad.seconds(found, len(part.heard), settings), GAP)
+    speech = vad.seconds(found, len(part.heard), settings)
+    if part.track.role == "me" and part.track.muted:
+        part.left_out = callmute.taken(speech, part.track.muted)
+        speech = callmute.outside(speech, part.track.muted)
+    part.pieces = timeline.pack(speech, GAP)
     if part.pieces:
         import numpy as np
         rate = audio.RATE
@@ -454,9 +649,10 @@ def _brought_back(part: _Part, segments) -> list[seg.Segment]:
     as recorded (before any gain: QUIET is about the recording)."""
     from scriba.app.engines import audio
     lines = []
-    for s in segments:
-        start, end = timeline.original(part.pieces, s.start), timeline.original(part.pieces, s.end, is_end=True)
-        lines.append(replace(s, start=start, end=end, level=audio.level(part.samples, start, end)))
+    for s, (start, end) in zip(segments, timeline.spans(part.pieces, [(s.start, s.end) for s in segments]),
+                               strict=True):
+        lines.append(replace(s, start=start, end=end, level=audio.level(part.samples, start, end),
+                             words=timeline.words(part.pieces, s.words, start, end)))
     return seg.spoken(lines)
 
 
@@ -522,7 +718,7 @@ def _write(request: Request, source: Path, folder: Path, duration: float, langua
            voices: int, names: dict[str, str] | None = None) -> tuple[list[sessions.Output], str, markdown.Header]:
     """The md, txt and srt under one free name (the meeting's own file
     takes it too, at the end); the outputs, the name and the header."""
-    stem = files.free_stem(folder, f"{source.stem}_{_('transcript')}", (".md", ".txt", ".srt", ".json"))
+    stem = files.free_stem(folder, transcript_stem(source), (".md", ".txt", ".srt", ".json"))
     model = models.WHISPER[request.model]
     header = markdown.Header(source=full_path(source), duration=duration, language=language,
                              language_probability=language_probability,
@@ -532,9 +728,11 @@ def _write(request: Request, source: Path, folder: Path, duration: float, langua
     # "Parlante 2" in an Italian file, as trascrivi.py wrote it; the
     # subtitles keep their short tags (P2)
     shown = speakers.display_names(seg.speakers_of(lines), names or {})
-    outputs = [sessions.Output("md", full_path(markdown.write(folder, stem, header, lines, shown))),
-               sessions.Output("txt", full_path(txt.write(folder, stem, header, lines, shown))),
-               sessions.Output("srt", full_path(srt.write(folder, stem, speakers.rename(lines, names or {}), speakers=bool(voices))))]
+    # the files in paragraphs, the subtitles cut to the conventions' size
+    outputs = [sessions.Output("md", full_path(markdown.write(folder, stem, header, lines, shown, paragraphs))),
+               sessions.Output("txt", full_path(txt.write(folder, stem, header, lines, shown, paragraphs))),
+               sessions.Output("srt", full_path(srt.write(folder, stem, speakers.rename(lines, names or {}),
+                                                          speakers=bool(voices), cut=cut_subtitles)))]
     return outputs, stem, header
 
 
@@ -562,6 +760,21 @@ def _save_session(result: Result, request: Request) -> Path:
     return files.write_new(result.folder, result.stem, ".json", sessions.dumps(meeting))
 
 
+def _saved_words(item: dict) -> tuple[tuple[float, float], ...]:
+    """A saved line's word times, or () when there are none (a meeting
+    saved before 13/11/2026) or they do not fit its text: its subtitles
+    then share the line's time, as for any line without them."""
+    try:
+        times = tuple((float(a), float(b)) for a, b in item.get("words") or ())
+    except (TypeError, ValueError):
+        return ()
+    text = item.get("text")
+    if (not isinstance(text, str) or len(times) != len(text.split())
+            or not all(math.isfinite(a) and math.isfinite(b) for a, b in times)):
+        return ()
+    return times
+
+
 def open_session(path: str | os.PathLike) -> tuple[Result, Request]:
     """Read a saved result without loading models or reading its recording.
 
@@ -579,7 +792,7 @@ def open_session(path: str | os.PathLike) -> tuple[Result, Request]:
         if snapshot is not None:
             lines = []
             for item in snapshot["segments"]:
-                item = {**item, "doubts": tuple(item.get("doubts", ())) }
+                item = {**item, "doubts": tuple(item.get("doubts", ())), "words": _saved_words(item)}
                 line = seg.Segment(**item)
                 if (not isinstance(line.text, str) or not isinstance(line.doubts, tuple)
                         or not all(isinstance(d, str) for d in line.doubts)
@@ -640,38 +853,46 @@ class Named:
     notes: list[str] = field(default_factory=list)
 
 
+NAMED = ("md-named", "txt-named", "srt-named")
+
+
 def save_names(result: Result, names: dict[str, str]) -> Named:
-    """New files with the names the user gave the voices (Markdown, plain
-    text, subtitles), under a free name next to the automatic ones, which
-    are not touched (the plan: the version with the names is a new file).
-    A new meeting file keeps the names and lists the new files;
-    when it cannot be written the files are there all the same, and that is
-    said. Failure when no voice was given a name."""
+    """The files with the names the user gave the voices (Markdown, plain
+    text, subtitles), `<transcript>_nomi`, next to the automatic ones, which
+    are never touched. Names are no new revision (13/11/2026): saved
+    again, the files with the names are rewritten whole (each atomically)
+    and the meeting file keeps the names in place. When the meeting file
+    cannot be written the files are there all the same, and that is said.
+    Failure when no voice was given a name."""
     names = speakers.clean(names)
     if not names and not result.names:
         raise Failure(_("Give a name to at least one voice first."), "no names")
     if result.folder is None or result.header is None:
         raise Failure(_("This transcript cannot be saved again."), "no folder or header in the result")
     folder = Path(result.folder)
-    stem = files.free_stem(folder, f"{result.stem}_{_('names')}", (".md", ".txt", ".srt", ".json"))
+    stem = f"{result.stem}_{_('names')}"
     header = replace(result.header, named=True)
     shown = speakers.display_names(seg.speakers_of(result.segments), names)
     renamed = speakers.rename(result.segments, names)
-    outputs = [sessions.Output("md-named", full_path(markdown.write(folder, stem, header, result.segments, shown))),
-               sessions.Output("txt-named", full_path(txt.write(folder, stem, header, result.segments, shown))),
-               sessions.Output("srt-named", full_path(srt.write(folder, stem, renamed, speakers=True)))]
+    texts = (("md-named", ".md", markdown.render(header, result.segments, shown, paragraphs)),
+             ("txt-named", ".txt", txt.render(header, result.segments, shown, paragraphs)),
+             ("srt-named", ".srt", srt.render(renamed, speakers=True, cut=cut_subtitles)))
+    outputs = []
+    for kind, ext, text in texts:
+        files.replace(folder / f"{stem}{ext}", text)
+        outputs.append(sessions.Output(kind, full_path(folder / f"{stem}{ext}")))
     notes = []
     try:
         meeting = sessions.load(result.session)
         meeting.names = dict(names)
-        meeting.outputs = [*meeting.outputs, *outputs]
+        meeting.outputs = [*(o for o in meeting.outputs if o.kind not in NAMED), *outputs]
         meeting.extra["transcript"] = _snapshot(result)
-        result.session = files.write_new(folder, stem, ".json", sessions.dumps(meeting))
+        files.replace(result.session, sessions.dumps(meeting))
         result.names = dict(names)
     except (sessions.SessionError, OSError) as e:
         notes.append(_("The files are written, but the meeting file could not keep the names: {reason}").format(
             reason=e))
-    result.outputs = [*result.outputs, *outputs]
+    result.outputs = [*(o for o in result.outputs if o.kind not in NAMED), *outputs]
     return Named(outputs, notes)
 
 

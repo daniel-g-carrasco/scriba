@@ -24,6 +24,20 @@ SVG = ROOT / "data" / "icons" / "hicolor" / "scalable" / "apps" / f"{APP_ID}.svg
 SMALL_SVG = ROOT / "build-aux" / "windows" / f"{SLUG}-small.svg"     # optional: drawn for 16-24 pixels
 SMALL = (16, 20, 24)
 SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256)
+# The SVG keeps the icon theme's margin (the disc's radius 240 of 256), for
+# Linux; on Windows the disc goes to the edge, the view closed on it
+# (512/480 = 1.0667 times larger around the centre): the same as
+# gui/wintray.py's FULL_VIEW for the notification area.
+FULL_VIEW = ('viewBox="0 0 512 512"', 'viewBox="16 16 480 480"')
+
+
+def windows_pixbuf(svg: Path, size: int) -> GdkPixbuf.Pixbuf:
+    """The icon at `size` pixels as Windows shows it: the disc to the edge."""
+    loader = GdkPixbuf.PixbufLoader()
+    loader.set_size(size, size)
+    loader.write(svg.read_text(encoding="utf-8").replace(*FULL_VIEW).encode("utf-8"))
+    loader.close()
+    return loader.get_pixbuf()
 
 
 def main() -> int:
@@ -31,7 +45,7 @@ def main() -> int:
     images = []
     for size in SIZES:
         source = SMALL_SVG if size in SMALL and SMALL_SVG.is_file() else SVG
-        pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(str(source), size, size)
+        pixbuf = windows_pixbuf(source, size)
         _ok, data = pixbuf.save_to_bufferv("png", [], [])
         images.append((size, bytes(data)))
     offset = 6 + 16 * len(images)

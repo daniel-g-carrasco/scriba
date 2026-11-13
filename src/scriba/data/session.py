@@ -4,8 +4,10 @@ step took. It is what lets the result page open again tomorrow, and the
 names be changed without transcribing again.
 
 The reader preserves optional additions, including the transcript snapshot
-written by app/jobs.py. A correction writes a new meeting file beside its
-transcripts: the previous meeting and its outputs are never replaced.
+written by app/jobs.py. Names given to the voices are kept in the same
+meeting file, rewritten whole (save_names); a new transcription of the
+same audio moves the previous meeting file and its transcripts to the
+folder of the previous revisions (app/jobs.py), never over a file.
 The low-level save() below can replace an app-owned file atomically.
 
 Read as app/config.py reads the settings: keys this version does not know

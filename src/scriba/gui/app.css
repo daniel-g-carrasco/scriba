@@ -6,7 +6,7 @@
 
 /* With the system's title bar (Windows: the class is given to every window
    there): a hairline between it and the content, in the text's colour,
-   faint. Daniel, 10/11/2026: on a screen where Windows stretches the
+   faint. 10/11/2026: on a screen where Windows stretches the
    window a line stood there by itself, and the edge it gave was liked. */
 window.system-titlebar headerbar {
   box-shadow: inset 0 var(--line-hair) alpha(currentColor, 0.09);

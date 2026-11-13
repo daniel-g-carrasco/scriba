@@ -40,17 +40,19 @@ TOOLKIT = ("gi",)                               # the Qt apps: ("PySide6", "shib
 # live on them: Spola's engine on GLib's main loop and Gio's D-Bus. For Qt
 # it would be ("PySide6.QtCore",).
 # Scriba's recorder drives GStreamer pipelines through gi without windows,
-# in app/recorder.py and there only.
+# in app/recorder.py; the echo canceller (WebRTC's, a GStreamer plugin: it
+# takes the computer's sound out of the microphone's track after the
+# recording) in app/engines/echo.py. There only.
 WINDOWLESS: tuple[str, ...] = ("gi.repository.Gst",)
 # The files of app/ that may use WINDOWLESS; () lets every file of app/.
-WINDOWLESS_FILES: tuple[str, ...] = ("app/recorder.py",)
+WINDOWLESS_FILES: tuple[str, ...] = ("app/recorder.py", "app/engines/echo.py")
 NETWORK = ("urllib.request", "http.client", "http.server", "socket", "ssl", "ftplib", "smtplib", "requests")
 ROOT_FOR_ALL = ("i18n",)                        # the one module of the root every layer may import
 # The modules every app of mine has, the same: they know no app. Name, id
 # and version reach them as arguments (app/services.py gives this app's), so
 # they import the standard library and each other, never the package's names.
 SHARED = {"i18n.py", "app/paths.py", "app/log.py", "app/updates.py", "app/minisign.py", "app/win32.py",
-          "app/wintoast.py", "app/diagnostics.py"}
+          "app/wintoast.py", "app/diagnostics.py", "app/errorlog.py"}
 # "file -> what it imports": "why it is still there, and when it goes"
 DEBTS: dict[str, str] = {}
 # gui modules that do not import the toolkit: plain logic in the wrong layer.

@@ -29,6 +29,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, Gtk  # noqa: E402
 
 from scriba import APP_NAME, WINDOWS  # noqa: E402
+from scriba.app import errorlog  # noqa: E402
 from scriba.i18n import _  # noqa: E402
 
 from .cards import CardTest  # noqa: E402
@@ -38,6 +39,7 @@ from .result import ResultPage  # noqa: E402
 from .style_values import SPACE_S  # noqa: E402
 from .transcribe import TranscribePage  # noqa: E402
 from .ui import escape, file_dialog_done, header_bar, report, run_in_thread  # noqa: E402
+from .ui import open_path as ui_open_path  # noqa: E402
 
 STATE_VERSION = 1       # window.json of another layout is ignored
 NARROW = "max-width: 500sp"     # under this the view switcher goes to the bottom of the window
@@ -110,8 +112,11 @@ class MainWindow(_WindowBase):
             section.append(_("Check for Updates…"), "app.check-updates")
         section.append(_("Models"), "app.models")
         section.append(_("Preferences"), "app.preferences")
-        section.append(_("About {app}").format(app=APP_NAME), "app.about")
         menu.append_section(None, section)
+        about = Gio.Menu()
+        about.append(_("Open the Error Log"), "app.error-log")
+        about.append(_("About {app}").format(app=APP_NAME), "app.about")
+        menu.append_section(None, about)
         button = Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu, primary=True,
                                 tooltip_text=_("Main Menu"))
         if WINDOWS:
@@ -201,6 +206,15 @@ class MainWindow(_WindowBase):
     def settings_changed(self) -> None:
         """A preference changed: what the page shows from it, again."""
         self.transcribe.settings_changed()
+
+    def show_error_log(self) -> None:
+        """The file the app's errors go to (app/errorlog.py), with the
+        default app for text; a toast when nothing went wrong yet."""
+        path = errorlog.log_file(self.app.paths.state)
+        if not path.is_file():
+            self.toast(_("No errors have been recorded."))
+            return
+        ui_open_path(self, str(path))
 
     # -- recordings --------------------------------------------------------------------
 

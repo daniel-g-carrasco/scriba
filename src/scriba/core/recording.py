@@ -5,7 +5,9 @@ began ("2026-11-11 10-54-08 registrazione"), so that they sort in the
 order they were made and say when; each track adds what it is (the
 microphone, an output and the device's name), and the finished recording
 is "<name>.mka" with every track inside, next to "<name>_insieme.m4a",
-the mix to listen to. The words come in the user's language, from the
+the mix to listen to. They all go in a folder of the recording's own,
+named with the date and the time ("2026-11-11 10-54-08"), where its
+transcripts go too. The words come in the user's language, from the
 caller.
 
 The disk: a track is FLAC of 24 bits at 48 kHz, one channel, which never
@@ -30,10 +32,17 @@ STOP_MINUTES = 1            # the recording is stopped, its files closed properl
 NAME_LIMIT = 40             # characters of a device's name in a file's name
 
 
+def folder_name(when: datetime.datetime) -> str:
+    """"2026-11-11 10-54-08": the folder of a recording, in the folder for
+    the recordings, with all its files (colons are not allowed in a file's
+    name on Windows)."""
+    return f"{when:%Y-%m-%d %H-%M-%S}"
+
+
 def stem(when: datetime.datetime, word: str) -> str:
     """"2026-11-11 10-54-08 <word>": the name the files of a recording
-    share (colons are not allowed in a file's name on Windows)."""
-    return f"{when:%Y-%m-%d %H-%M-%S} {word}"
+    share, its folder's name first."""
+    return f"{folder_name(when)} {word}"
 
 
 def safe(name: str, limit: int = NAME_LIMIT) -> str:

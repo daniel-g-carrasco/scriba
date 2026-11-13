@@ -102,7 +102,9 @@ class RecordingLayoutTest(unittest.TestCase):
         self.assertIs(self.page.input_side.row, first)
         self.assertIs(self.page.output_side.row, second)
         self.assertTrue(first.get_sensitive())
-        self.assertFalse(self.page.input_side.switch_button.get_sensitive())
+        # the switch stays usable (Scriba's own mute); the choice of device does not
+        self.assertTrue(self.page.input_side.switch_button.get_sensitive())
+        self.assertFalse(self.page.input_side.auto_check.get_sensitive())
         self.assertFalse(self.page.choose_button.get_sensitive())
         first.set_expanded(True)
         self.assertTrue(first.get_expanded())

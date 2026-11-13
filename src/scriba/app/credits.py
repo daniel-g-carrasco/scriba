@@ -54,6 +54,12 @@ THIRD_PARTY = (
            "LGPL-2.1-or-later", "The FFmpeg developers", "https://ffmpeg.org"),
     Credit("GStreamer", "records the microphone and the computer's sound, plays Listen (with its plugins)",
            "LGPL-2.1-or-later", "The GStreamer developers", "https://gstreamer.freedesktop.org"),
+    # through GStreamer's webrtcdsp (gst-plugins-bad), as a library of the
+    # build on Windows (its COPYING goes with the bundle's licences) and of
+    # the GNOME runtime in the Flatpak
+    Credit("WebRTC Audio Processing", "takes the computer's sound out of the microphone's track (echo cancelling, "
+           "through GStreamer's webrtcdsp)", "BSD-3-Clause", "Google Inc. and the WebRTC project authors",
+           "https://gitlab.freedesktop.org/pulseaudio/webrtc-audio-processing"),
     Credit("«Le avventure di Pinocchio», chapter I, read by Simona Pagliari for LibriVox",
            "the sample of speech the graphics cards are tested on (the first 27 seconds; Carlo Collodi, 1883)",
            "CC-PDDC", "Public domain (LibriVox)", "https://archive.org/details/avventure_pinocchio_librivox"),

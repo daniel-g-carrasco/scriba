@@ -672,6 +672,20 @@ msgid "The files are written, but the meeting file could not keep the names: {re
 msgstr "I file sono scritti, ma il file della riunione non ha potuto conservare i nomi: {reason}"
 
 #: src/scriba/app/jobs.py
+#, python-brace-format
+msgid "The link to the original file could not be made ({reason}): it is at {path}."
+msgstr "Non si è potuto creare il collegamento al file originale ({reason}): si trova in {path}."
+
+#: src/scriba/app/jobs.py
+msgid "Previous revisions"
+msgstr "Revisioni precedenti"
+
+#: src/scriba/app/jobs.py
+#, python-brace-format
+msgid "The previous transcript could not be moved to “{folder}” ({reason}): the new one is next to it, under another name."
+msgstr "Non si è potuta spostare la trascrizione precedente in «{folder}» ({reason}): la nuova è accanto, con un altro nome."
+
+#: src/scriba/app/jobs.py
 msgid "The recording is too short to test the graphics cards on."
 msgstr "La registrazione è troppo corta per provarci le schede video."
 
@@ -798,6 +812,22 @@ msgstr "Scegli una cartella…"
 #: src/scriba/gui/preferences.py
 msgid "Choose the Usual Folder for the Files"
 msgstr "Scegli la cartella abituale dei file"
+
+#: src/scriba/gui/preferences.py
+msgid "Files Kept Elsewhere"
+msgstr "File che stanno altrove"
+
+#: src/scriba/gui/preferences.py
+msgid "The transcripts of a file outside the folder for the recordings, when no usual folder is chosen: in a folder of their own there, with a link to the file, or next to it"
+msgstr "Le trascrizioni di un file fuori dalla cartella delle registrazioni, quando non è scelta una cartella abituale: in una cartella loro lì dentro, con un collegamento al file, oppure accanto al file"
+
+#: src/scriba/gui/preferences.py
+msgid "In Scriba’s Folder"
+msgstr "Nella cartella di Scriba"
+
+#: src/scriba/gui/preferences.py
+msgid "Next to the Original File"
+msgstr "Accanto al file originale"
 
 #: src/scriba/gui/preferences.py src/scriba/gui/transcribe.py
 msgid "Automatic"
@@ -930,8 +960,8 @@ msgid "Voices"
 msgstr "Voci"
 
 #: src/scriba/gui/result.py
-msgid "Give each voice the name of who speaks: “Save with the Names” writes new files, and the automatic ones stay as they are."
-msgstr "Dai a ogni voce il nome di chi parla: «Salva con i nomi» scrive file nuovi, e quelli automatici restano come sono."
+msgid "Give each voice the name of who speaks: “Save with the Names” writes the files with the names, and the automatic ones stay as they are."
+msgstr "Dai a ogni voce il nome di chi parla: «Salva con i nomi» scrive i file con i nomi, e quelli automatici restano come sono."
 
 #: src/scriba/gui/result.py
 #, python-brace-format
@@ -953,11 +983,8 @@ msgid "Save with the Names"
 msgstr "Salva con i nomi"
 
 #: src/scriba/gui/result.py
-#, python-brace-format
-msgid "Saved with the names: {n} new file"
-msgid_plural "Saved with the names: {n} new files"
-msgstr[0] "Salvato con i nomi: {n} file nuovo"
-msgstr[1] "Salvato con i nomi: {n} file nuovi"
+msgid "Saved with the names: the automatic transcript stays as it is."
+msgstr "Salvato con i nomi: la trascrizione automatica resta com’è."
 
 #: src/scriba/gui/result.py
 #, python-brace-format
@@ -1522,6 +1549,18 @@ msgid "went away at {time}"
 msgstr "sparito alle {time}"
 
 #: src/scriba/gui/record.py
+msgid "until {time}"
+msgstr "fino alle {time}"
+
+#: src/scriba/gui/record.py
+msgid "Now recording from the microphone {program} is using: {device}."
+msgstr "Ora registro dal microfono che usa {program}: {device}."
+
+#: src/scriba/gui/record.py
+msgid "{program} is using another microphone, {device}: Scriba goes on with the one you chose."
+msgstr "{program} usa un altro microfono, {device}: Scriba continua con quello che hai scelto tu."
+
+#: src/scriba/gui/record.py
 msgid "The recording could not be finished: {error}"
 msgstr "Non si riesce a completare la registrazione: {error}"
 
@@ -1738,11 +1777,17 @@ msgstr "La riunione non può essere riaperta: la trascrizione salvata o i sottot
 msgid "Listening copy with the balance"
 msgstr "File di ascolto con il bilanciamento"
 
-msgid "Listening Balance"
-msgstr "Bilanciamento di ascolto"
+msgid "Balance of the Listening Copy"
+msgstr "Bilanciamento del file di ascolto"
 
-msgid "Save a new listening file from the original tracks. The centre repeats the automatic balance."
-msgstr "Salva un nuovo file di ascolto dalle tracce originali. Al centro il bilanciamento è quello automatico."
+msgid "Only the copy to listen to changes: the recording and the transcript stay as they are. “Listen to a Preview” plays {seconds} seconds where you and the others both speak, with the balance chosen; then save a new listening file from the original tracks. The centre repeats the automatic balance."
+msgstr "Cambia solo il file da ascoltare: la registrazione e la trascrizione restano come sono. «Ascolta l’anteprima» fa sentire {seconds} secondi in cui parlate sia tu sia gli altri, con il bilanciamento scelto; poi salva un nuovo file di ascolto dalle tracce originali. Al centro il bilanciamento è quello automatico."
+
+msgid "Listen to a Preview"
+msgstr "Ascolta l’anteprima"
+
+msgid "Stop the Preview"
+msgstr "Ferma l’anteprima"
 
 msgid "More Others"
 msgstr "Più gli altri"
@@ -1989,3 +2034,131 @@ msgstr "La registrazione richiede attenzione"
 
 msgid "Transcription Needs Attention"
 msgstr "La trascrizione richiede attenzione"
+
+msgid "closing the recording files…"
+msgstr "sto chiudendo i file della registrazione…"
+
+msgid "joining the tracks in one file…"
+msgstr "sto unendo le tracce in un solo file…"
+
+msgid "levelling the voices for the copy to listen to…"
+msgstr "sto livellando le voci per la copia da ascoltare…"
+
+#, python-brace-format
+msgid "Recording stopped · step {n} of {total}: {what}"
+msgstr "Registrazione fermata · passo {n} di {total}: {what}"
+
+msgid "Switched off in Scriba · silence on its track"
+msgstr "Spento in Scriba · silenzio sulla sua traccia"
+
+#, python-brace-format
+msgid "From {time} the microphone is off in Scriba: its track records silence."
+msgstr "Dalle {time} il microfono è spento in Scriba: la sua traccia registra silenzio."
+
+#, python-brace-format
+msgid "From {time} the computer's sound is off in Scriba: its track records silence."
+msgstr "Dalle {time} l'audio del computer è spento in Scriba: la sua traccia registra silenzio."
+
+#, python-brace-format
+msgid "From {time} the microphone is recorded again."
+msgstr "Dalle {time} il microfono è di nuovo registrato."
+
+#, python-brace-format
+msgid "From {time} the computer's sound is recorded again."
+msgstr "Dalle {time} l'audio del computer è di nuovo registrato."
+
+#, python-brace-format
+msgid "{track}: switched off in Scriba from {start} to {end}, silence on its track."
+msgstr "{track}: spento in Scriba da {start} a {end}, silenzio sulla sua traccia."
+
+#, python-brace-format
+msgid "{track}: switched off in Scriba from {start} to the end, silence on its track."
+msgstr "{track}: spento in Scriba da {start} alla fine, silenzio sulla sua traccia."
+
+msgid "People Speaking"
+msgstr "Persone che parlano"
+
+msgid "Count the people who can really be heard in the recording, you included: not everyone connected to the call."
+msgstr "Conta le persone che si sentono davvero nella registrazione, te compreso: non tutti i collegati alla call."
+
+msgid "Automatic Count"
+msgstr "Conteggio automatico"
+
+msgid "The app counts the voices it hears"
+msgstr "L'app conta le voci che sente"
+
+msgid "Names, acronyms and words of the trade to be written right, separated by commas: the client, the project's code, the surnames of those in the call. They are not used to count the voices."
+msgstr "Nomi, sigle e parole del mestiere da scrivere giusti, separati da virgole: il cliente, il codice del progetto, i cognomi di chi è nella call. Non servono a contare le voci."
+
+msgid "a first estimate: not yet timed on this device"
+msgstr "prima stima: non ancora misurata su questo dispositivo"
+
+msgid "The audio prepared for the echo check is not as expected."
+msgstr "L'audio preparato per il controllo dell'eco non è come previsto."
+
+msgid "The microphone without echo is not as expected."
+msgstr "Il microfono senza eco non è come previsto."
+
+#, python-brace-format
+msgid "GStreamer's echo canceller is missing ({names})."
+msgstr "Manca il cancellatore d'eco di GStreamer ({names})."
+
+#, python-brace-format
+msgid "The echo canceller cannot work at {rate} Hz."
+msgstr "Il cancellatore d'eco non può lavorare a {rate} Hz."
+
+msgid "The echo canceller could not start."
+msgstr "Il cancellatore d'eco non è partito."
+
+#, python-brace-format
+msgid "The echo canceller stopped: {reason}"
+msgstr "Il cancellatore d'eco si è fermato: {reason}"
+
+#, python-brace-format
+msgid "The computer's sound heard by the microphone could not be taken out: {reason} Your track was transcribed as recorded, and the others' words may be written as yours."
+msgstr "Non è stato possibile togliere l'audio del computer sentito dal microfono: {reason} La tua traccia è stata trascritta così come è stata registrata, e le parole degli altri potrebbero risultare tue."
+
+#, python-brace-format
+msgid "The microphone heard the computer's sound (loudspeakers) in {share} of the recording ({time}): there it was taken out of your track before transcribing, so the others' words come from the computer's track only."
+msgstr "Il microfono ha sentito l'audio del computer (altoparlanti) nel {share} della registrazione ({time}): lì è stato tolto dalla tua traccia prima della trascrizione, così le parole degli altri vengono solo dalla traccia del computer."
+
+msgid "checking whether the microphone heard the computer's sound…"
+msgstr "sto controllando se il microfono ha sentito l'audio del computer…"
+
+#, python-brace-format
+msgid "The computer's sound heard by the microphone could not be taken out of the copy to listen to: {reason}"
+msgstr "Non è stato possibile togliere dalla copia da ascoltare l'audio del computer sentito dal microfono: {reason}"
+
+#, python-brace-format
+msgid "The microphone heard the computer's sound (loudspeakers) in {share} of the recording: in the copy to listen to it was taken out there, so the others are not heard twice."
+msgstr "Il microfono ha sentito l'audio del computer (altoparlanti) nel {share} della registrazione: lì è stato tolto dalla copia da ascoltare, così gli altri non si sentono due volte."
+
+msgid "The microphone hears the computer's sound: with earphones the transcript comes out better. Scriba will take that sound out of your track."
+msgstr "Il microfono sente l'audio del computer: con le cuffie la trascrizione viene meglio. Scriba toglierà quell'audio dalla tua traccia."
+
+#, python-brace-format
+msgid "{track}: muted in the call from {start} to {end}; what the microphone heard there stays in the recording but not in the transcript."
+msgstr "{track}: in silenzio nella chiamata da {start} a {end}; ciò che il microfono ha sentito lì resta nella registrazione ma non nella trascrizione."
+
+#, python-brace-format
+msgid "{track}: muted in the call from {start} to the end; what the microphone heard there stays in the recording but not in the transcript."
+msgstr "{track}: in silenzio nella chiamata da {start} alla fine; ciò che il microfono ha sentito lì resta nella registrazione ma non nella trascrizione."
+
+#, python-brace-format
+msgid "{time} of speech on your microphone fell where you were muted in the call: it was not transcribed, and its sound stays in the recording."
+msgstr "{time} di parlato del tuo microfono cadevano mentre eri in silenzio nella chiamata: non sono stati trascritti, e il suono resta nella registrazione."
+
+msgid "Muted in the call"
+msgstr "In silenzio nella chiamata"
+
+msgid "Follow the Call’s Mute"
+msgstr "Segui il silenzioso della chiamata"
+
+msgid "While you are muted in the call, what your microphone hears is recorded but not transcribed as yours. Windows 11, for apps that tell Windows, such as Teams; it reads Windows’ own words, so it depends on Windows’ language."
+msgstr "Mentre sei in silenzio nella chiamata, ciò che sente il tuo microfono viene registrato ma non trascritto come tuo. Windows 11, per le app che lo comunicano a Windows, come Teams; legge le parole di Windows, quindi dipende dalla lingua di Windows."
+
+msgid "Open the Error Log"
+msgstr "Apri il registro degli errori"
+
+msgid "No errors have been recorded."
+msgstr "Nessun errore registrato."

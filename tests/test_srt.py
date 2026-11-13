@@ -33,6 +33,12 @@ class WriteTest(unittest.TestCase):
         text = srt.render([Segment(0, 1, "Ciao.", "Zoë Ågren")])
         self.assertEqual(text, "1\n00:00:00,000 --> 00:00:01,000\nZoë Ågren: Ciao.\n")
 
+    def test_the_voice_is_named_where_it_changes(self):
+        lines = [Segment(0, 1, "uno", "Speaker 1"), Segment(1, 2, "due", "Speaker 1"), Segment(2, 3, "tre", "Anna"),
+                 Segment(3, 4, "quattro", "Speaker 1")]
+        bodies = [block.split("\n")[2] for block in srt.render(lines).split("\n\n")]
+        self.assertEqual(bodies, ["P1: uno", "due", "Anna: tre", "P1: quattro"])
+
     def test_a_doubtful_line_is_marked_after_the_voice(self):
         line = Segment(0, 1, "Grazie a tutti.", "Speaker 2", doubts=(sg.REPEATED,))
         self.assertIn("\nP2: (?) Grazie a tutti.\n", srt.render([line]))
@@ -76,7 +82,13 @@ class ReadTest(unittest.TestCase):
             path = Path(tmp) / "x.srt"
             path.write_bytes(text.encode("utf-8"))
             cues = srt.read(path)
-        self.assertEqual(cues, [Cue(1.0, 2.5, "prima", "Speaker 1"), Cue(3.0, 4.0, "seconda")])
+        self.assertEqual(cues, [Cue(1.0, 2.5, "prima", "Speaker 1"), Cue(3.0, 4.0, "seconda", "Speaker 1")])
+
+    def test_a_cue_without_a_tag_is_the_voice_of_the_cue_before(self):
+        text = ("1\n00:00:01,000 --> 00:00:02,000\nsenza voce\n\n2\n00:00:02,000 --> 00:00:03,000\nP2: uno\n\n"
+                "3\n00:00:03,000 --> 00:00:04,000\ndue\n\n4\n00:00:04,000 --> 00:00:05,000\nP1: tre\n")
+        self.assertEqual([c.speaker for c in srt.parse(text)], [None, "Speaker 2", "Speaker 2", "Speaker 1"])
+        self.assertEqual([c.speaker for c in srt.parse(text, speakers=False)], [None] * 4)
 
     def test_a_text_on_several_lines_and_a_time_inside_the_text(self):
         text = ("1\n00:00:01,000 --> 00:00:02,000 X1:10 X2:20\nuno --> due\n00:00:05,000 --> 00:00:06,000\n42\n\n"

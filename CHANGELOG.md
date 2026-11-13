@@ -7,6 +7,57 @@ available from GitHub Releases. Linux Flatpak builds and runtime checks use GNOM
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-13
+
+### Added
+- Echo removal: where the microphone picked up the computer's
+  loudspeakers, Scriba takes that sound out of the microphone's track
+  before transcribing and in the copy to listen to (WebRTC audio
+  processing), so remote voices are no longer heard twice or written as
+  yours. The Record page warns while the microphone hears the computer;
+  with headphones nothing changes.
+- With automatic device selection, when a call program opens another
+  microphone after recording has started, Scriba switches to it and says
+  so (Windows).
+- On Windows 11 Scriba follows the call's mute while recording: what the
+  microphone hears while you are muted in the call is still recorded but
+  not transcribed as yours. It can be switched off in Preferences.
+- The microphone and the computer's sound can be switched off and on while
+  recording; the track stays aligned and records silence meanwhile.
+- The listening balance can be heard as a 20-second preview before it is
+  saved.
+- Every recording gets a folder of its own. A file opened from elsewhere
+  gets a folder in the recordings folder with a link to the original, or
+  its results go beside the original (a new preference). A new
+  transcription of the same audio keeps the previous transcripts in a
+  folder of previous revisions.
+- Unexpected errors are written to a local `errors.log` (kept under 1 MB),
+  which the main menu opens; nothing is sent anywhere.
+
+### Changed
+- Transcripts (Markdown, text and the Result page) are written in
+  paragraphs per speaker instead of one line per recognised fragment.
+- Subtitles follow common conventions: at most two lines of 42 characters
+  and 7 seconds, cut at the end of a phrase where possible, timed from the
+  words; the speaker's name only where the speaker changes.
+- Each voice's sample is its longest stretch heard alone, up to 15 seconds.
+- After Stop, the recording's clock stops and each finishing step is named.
+- The number of people speaking has its own group on the Transcribe page.
+- The Precise quality's first time estimate starts from the Fast quality's
+  speed on the same device and is marked as a first estimate.
+- Windows: text stays sharp and at the right size on high-resolution
+  screens, following each screen's scale; the taskbar icon follows a light
+  or dark taskbar.
+
+### Fixed
+- The Fast quality no longer repeats one sentence for the rest of a long
+  recording.
+- The faint microphone warning no longer appears for silence.
+- A line that the speech engine joined to a short scrap heard minutes
+  earlier now gets the time of the speech it is.
+- The models' download bar no longer touches the buttons under it.
+- The tray icon's status mark is no longer cut on Windows.
+
 ## [0.1.1] - 2026-11-12
 
 ### Fixed

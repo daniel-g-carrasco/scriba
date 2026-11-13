@@ -11,6 +11,7 @@ import platform
 import sys
 from pathlib import Path
 
+from .errorlog import log_file
 from .paths import Paths, in_flatpak
 
 
@@ -52,6 +53,7 @@ def summary(name: str, version: str, cfg, paths: Paths, toolkit: str) -> str:
         f"settings: {paths.config_file}",
         f"state: {paths.state}",
         f"data: {paths.data}",
+        f"errors: {log_file(paths.state)}" + ("" if log_file(paths.state).is_file() else " (none)"),
         f"preferences: theme {cfg.theme!r}, language {cfg.language!r}, check updates {cfg.check_updates}",
     ]
     if cfg.notices:

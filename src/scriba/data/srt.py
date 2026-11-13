@@ -2,7 +2,8 @@
 from what Scriba or another program wrote.
 
 A cue is its number, `start --> end` and the text; cues are parted by an
-empty line. With voices, the text starts with a short tag: `P3: ` for the
+empty line. With voices, the text of a cue where the voice changes starts
+with a short tag: `P3: ` for the
 anonymous "Speaker 3" (the tag trascrivi.py used, short enough not to push
 the words off a video's line), the name itself for a voice the user named
 (`Anna: `). A doubtful line (core/segments.py, flag_doubtful) starts with
@@ -18,7 +19,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from scriba.i18n import _
@@ -60,26 +61,40 @@ def tag(speaker: str | None) -> str:
     return f"P{number}: " if number is not None else f"{speaker}: "
 
 
-def render(lines: Iterable[Line], speakers: bool = True, mark_doubtful: bool = True) -> str:
-    """The subtitles as text. Lines with no words are left out (and not
-    numbered), as trascrivi.py left them out. `speakers` puts the voice's
-    tag before the text, `mark_doubtful` the "(?) "."""
+# What cuts the lines into subtitles (core/subtitles.py: data does not know
+# core, app gives it), told what goes before a subtitle's first row
+Lead = Callable[[Line, bool], str]
+Cut = Callable[[Iterable[Line], Lead], Iterable[Line]]
+
+
+def render(lines: Iterable[Line], speakers: bool = True, mark_doubtful: bool = True, cut: Cut | None = None) -> str:
+    """The subtitles as text, one per line or, with `cut`, as it cuts them.
+    Lines with no words are left out (and not numbered), as trascrivi.py
+    left them out. `speakers` puts the voice's tag before the text where
+    the voice changes, as subtitles name a speaker (13/11/2026: once the
+    lines are cut to subtitle size, a tag on each would repeat "P2: " three
+    or four times in a row and take a tenth of the row); `mark_doubtful`
+    puts the "(?) " on every subtitle of a doubtful line."""
+    def lead(line: Line, new_voice: bool) -> str:
+        return ((tag(line.speaker) if speakers and new_voice else "")
+                + (DOUBT_MARK if mark_doubtful and line.doubts else ""))
     cues = []
-    for line in lines:
+    previous: object = object()
+    for line in (cut(lines, lead) if cut is not None else lines):
         words = _text_lines(line.text)
         if not words:
             continue
-        lead = (tag(line.speaker) if speakers else "") + (DOUBT_MARK if mark_doubtful and line.doubts else "")
-        body = "\n".join([lead + words[0], *words[1:]])
+        body = "\n".join([lead(line, line.speaker != previous) + words[0], *words[1:]])
+        previous = line.speaker
         cues.append(f"{len(cues) + 1}\n{srt_time(line.start)} --> {srt_time(line.end)}\n{body}\n")
     return "\n".join(cues)
 
 
 def write(folder: str | os.PathLike, stem: str, lines: Iterable[Line], speakers: bool = True,
-          mark_doubtful: bool = True) -> Path:
+          mark_doubtful: bool = True, cut: Cut | None = None) -> Path:
     """The subtitles in a new file `stem.srt` in `folder` (or `stem_R01.srt`
     if that is taken: never over a file that is there); its path."""
-    return files.write_new(folder, stem, ".srt", render(lines, speakers, mark_doubtful))
+    return files.write_new(folder, stem, ".srt", render(lines, speakers, mark_doubtful, cut))
 
 
 def _untag(text: str, names: Iterable[str]) -> tuple[str | None, str]:
@@ -95,7 +110,9 @@ def _untag(text: str, names: Iterable[str]) -> tuple[str | None, str]:
 def parse(text: str, speakers: bool = True, names: Iterable[str] = ()) -> list[Cue]:
     """The cues in the subtitles' text. With `speakers`, a leading `P3: `
     becomes the voice "Speaker 3"; a leading `Name: ` is taken as a voice
-    only for the `names` given, since "Note: ..." may well be what was said.
+    only for the `names` given, since "Note: ..." may well be what was said;
+    a cue without a tag is the voice of the cue before (the tag is written
+    where the voice changes).
     A leading "(?) " marks the cue doubtful. The cue numbers are not
     trusted (editors renumber, or do not): the order is the file's.
     SrtError when there is text and no cue."""
@@ -121,11 +138,12 @@ def parse(text: str, speakers: bool = True, names: Iterable[str] = ()) -> list[C
     if not cues and text.strip():
         raise SrtError(_("This is not a subtitle file: no time line was found."))
     out = []
+    speaker = None
     for start, end, body in cues:
         words = "\n".join(body)
-        speaker = None
         if speakers:
-            speaker, words = _untag(words, names)
+            tagged, words = _untag(words, names)
+            speaker = tagged or speaker
         doubts: tuple[str, ...] = ()
         if words.startswith(DOUBT_MARK):
             doubts, words = (UNSPECIFIED,), words[len(DOUBT_MARK):]

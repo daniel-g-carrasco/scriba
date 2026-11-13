@@ -35,6 +35,17 @@ class ConfigTest(unittest.TestCase):
             self.assertNotIn("extra", data)
             self.assertNotIn("notices", data)
 
+    def test_the_call_s_mute_is_followed_unless_the_user_switched_it_off(self):
+        # 0.1.1's settings have no such key: the update takes the default, on
+        self.assertTrue(Config().follow_call_mute)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            path.write_text(json.dumps({"version": config.CONFIG_VERSION, "theme": "dark"}), encoding="utf-8")
+            self.assertTrue(load(path).follow_call_mute)
+            path.write_text(json.dumps({"version": config.CONFIG_VERSION, "follow_call_mute": False}),
+                            encoding="utf-8")
+            self.assertFalse(load(path).follow_call_mute)
+
     def test_the_previous_save_is_kept_and_used_when_the_file_is_damaged(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.json"

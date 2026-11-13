@@ -26,7 +26,7 @@ floating window whose borders drag wrong. Maximized by Windows instead
 What is no longer here, and why. Until 2026-11-10 a maximize made by Windows
 was made GTK's own, so that the menu would not shrink the window: that turned
 every restore into the broken kind, and a second workaround put the size
-back after it, acting after the user's drag. Tried side by side by Daniel,
+back after it, acting after the user's drag. Tried side by side,
 the build with no workaround at all resized, maximized and dragged best; the
 two quirks of the menu were all it lacked. A maximize that stays Windows' own
 needs no repair.

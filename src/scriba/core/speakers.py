@@ -9,8 +9,9 @@ and the automatic files are never touched (the plan, risks).
 
 from __future__ import annotations
 
+import bisect
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 
 from scriba.i18n import _
@@ -40,8 +41,8 @@ def display_names(labels: Iterable[str], names: Mapping[str, str]) -> dict[str, 
     return {label: names.get(label) or shown_label(label) for label in labels}
 
 
-LISTEN_MIN = 2.0        # a stretch shorter than this ("Sì.") says little about who speaks
-LISTEN_MAX = 12.0       # and a longer one is cut: enough to know the voice
+LISTEN_MAX = 15.0       # the stretch to know a voice by is cut there: a few sentences
+RUN_GAP = 1.0           # lines of one voice this close are one stretch of speech
 
 
 @dataclass(frozen=True)
@@ -52,20 +53,92 @@ class Voice:
     listen: tuple[float, float]     # a stretch to play to know it (see voices)
 
 
+def _runs(lines: Sequence[Segment], label: str, sure: bool) -> list[tuple[float, float]]:
+    """The stretches where `label` speaks and no other voice does: its
+    lines in a row (in the order of all the lines) with less than RUN_GAP
+    between them, cut where another voice's line reaches into them. With
+    `sure` its own doubtful lines cut them as another voice's would."""
+    out: list[tuple[float, float]] = []
+    start = end = None
+    others_until = 0.0                  # the end of the latest line of another voice so far
+    for line in lines:
+        if line.speaker != label or (sure and line.doubts):
+            if start is not None:
+                out.append((start, min(end, line.start)))
+                start = None
+            others_until = max(others_until, line.end)
+            continue
+        if start is not None and line.start - end > RUN_GAP:
+            out.append((start, end))
+            start = None
+        if start is None:
+            start, end = max(line.start, others_until), line.end
+        else:
+            end = max(end, line.end)
+    if start is not None:
+        out.append((start, end))
+    return [(a, b) for a, b in out if b > a]
+
+
 def voices(segments: Iterable[Segment]) -> list[Voice]:
     """The voices in order of appearance, each with a stretch of the
-    recording to play when the user wants to know who it is: its first line
-    of at least LISTEN_MIN seconds (its very first if none is that long),
-    at most LISTEN_MAX seconds of it."""
-    lines: dict[str, list[Segment]] = {}
-    for seg in segments:
-        if seg.speaker and seg.text.strip():
-            lines.setdefault(seg.speaker, []).append(seg)
+    recording to play when the user wants to know who it is: the longest
+    stretch where that voice alone speaks (_runs), its first LISTEN_MAX
+    seconds. Its first line was taken before, and on the meeting of
+    13/11/2026 that gave 2 to 5 seconds for four voices out of five, too
+    little to tell who it is. A doubtful line (no speech, a faint voice)
+    is left out of the stretches unless the voice has nothing else; the
+    stretch never takes in another voice."""
+    lines = sorted((s for s in segments if s.speaker and s.text.strip()), key=lambda s: s.start)
+    own: dict[str, list[Segment]] = {}
+    for seg in lines:
+        own.setdefault(seg.speaker, []).append(seg)
     out = []
-    for label, own in lines.items():
-        chosen = next((s for s in own if s.end - s.start >= LISTEN_MIN), own[0])
-        out.append(Voice(label, own[0].start, len(own), (chosen.start, min(chosen.end, chosen.start + LISTEN_MAX))))
+    for label, mine in own.items():
+        runs = _runs(lines, label, sure=True) or _runs(lines, label, sure=False) or [(mine[0].start, mine[0].end)]
+        start, end = max(runs, key=lambda run: run[1] - run[0])        # the first of the longest
+        out.append(Voice(label, mine[0].start, len(mine), (start, min(end, start + LISTEN_MAX))))
     return out
+
+
+PREVIEW_SECONDS = 20.0  # the balance's preview: two of the echo check's 10-second windows
+
+
+def both_heard(segments: Iterable[Segment], me: str, length: float = PREVIEW_SECONDS,
+               duration: float = 0.0) -> tuple[float, float]:
+    """The stretch of `length` seconds where the user (the voice `me`) and
+    the others are both heard the most: what the balance between them is
+    judged on. Each line's start is a candidate; the score is the lesser of
+    the two sides' seconds of speech in the stretch, then all the speech in
+    it. Without `me` (not known) the two loudest voices of the stretch
+    stand for the two sides. Held within `duration` when it is given (>0);
+    from the start when there are no lines."""
+    lines = sorted((s for s in segments if s.text.strip() and s.end > s.start), key=lambda s: s.start)
+    if not lines:
+        return 0.0, min(length, duration) if duration > 0 else length
+    longest = max(s.end - s.start for s in lines)
+    starts = [s.start for s in lines]
+    best: tuple[tuple[float, float], float] | None = None
+    for line in lines:
+        start = max(0.0, min(line.start, duration - length)) if duration > 0 else line.start
+        end = start + length
+        heard: dict[str, float] = {}
+        # only the lines that can overlap the stretch (bisect: a long meeting has thousands)
+        for other in lines[bisect.bisect_left(starts, start - longest):bisect.bisect_left(starts, end)]:
+            overlap = min(other.end, end) - max(other.start, start)
+            if overlap > 0:
+                heard[other.speaker or ""] = heard.get(other.speaker or "", 0.0) + overlap
+        if me:
+            mine = heard.get(me, 0.0)
+            others = sum(seconds for label, seconds in heard.items() if label != me)
+            score = (min(mine, others), mine + others)
+        else:
+            ranked = sorted(heard.values(), reverse=True)
+            score = (ranked[1] if len(ranked) > 1 else 0.0, sum(ranked))
+        if best is None or score > best[0]:
+            best = (score, start)
+    start = best[1]
+    return start, min(start + length, duration) if duration > 0 else start + length
 
 
 def rename(segments: Iterable[Segment], names: Mapping[str, str]) -> list[Segment]:

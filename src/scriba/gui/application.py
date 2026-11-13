@@ -9,6 +9,8 @@ from __future__ import annotations
 import os
 import sys
 import time
+from collections.abc import Callable
+from pathlib import Path
 
 import gi
 
@@ -79,26 +81,117 @@ def larger_system_font(factor: float = 7 / 6) -> int:
     return settings.connect("notify::gtk-font-name", apply)
 
 
-def native_windows() -> None:
+FOLLOW_SCREEN_S = 1     # the window's dpi looked at again: a scale changed between 225 and 275% moves no GTK signal
+
+
+def text_follows_screen(main_window: Callable[[], Gtk.Window | None],
+                        moved: Callable[[], None] = lambda: None) -> Callable[[], None]:
+    """Windows, per monitor: the text as large as the screen's scale asks,
+    where GTK's whole scale falls short (250%: GTK at 2, the text 1.25
+    times; core/textscale.py), for the screen the active window, else the
+    main one, is on. GTK's text dpi is one for the whole app: a dialog on
+    another screen than its window follows the window's until it is the
+    active one. Looked at when a window is realized or mapped, when its GTK
+    scale changes (another screen, a scale changed in Windows) and once a
+    second. With no active window and no main one, the first shown. `moved` is called when the dpi changed (the icons are taken at
+    the new size). A system DPI aware process is left to GDK, which does
+    the same with the system's dpi. Returns the function that stops."""
+    from scriba.app import win32
+    from scriba.core import textscale
+
+    from .winquirks import hwnd_of
+    settings = Gtk.Settings.get_default()
+    if settings is None or not win32.per_monitor_aware():
+        return lambda: None
+    start = settings.props.gtk_xft_dpi
+    state = {"base": start, "ours": None, "screen": None}
+
+    def window() -> Gtk.Window | None:
+        realized = [candidate for candidate in Gtk.Window.list_toplevels() if candidate.get_realized()]
+        main = main_window()
+        for candidate in realized:
+            if candidate.is_active():
+                return candidate
+        return main if main in realized else realized[0] if realized else None
+
+    def look(*_args) -> bool:
+        target = window()
+        if target is None:
+            return True
+        screen = (win32.window_dpi(hwnd_of(target)), target.get_scale_factor())
+        if screen[0] <= 0 or screen == state["screen"]:
+            return True
+        state["screen"] = screen
+        value = textscale.text_dpi(state["base"], *screen)
+        if value != settings.props.gtk_xft_dpi:
+            state["ours"] = value
+            settings.props.gtk_xft_dpi = value
+        moved()
+        return True
+
+    def changed(*_args):
+        value = settings.props.gtk_xft_dpi
+        if value != state["ours"]:      # not ours: the new base (GTK's default when <= 0)
+            state["base"], state["screen"] = value, None
+            look()
+
+    handlers = []
+
+    def watch(model, position, _removed, count):
+        for i in range(position, position + count):
+            toplevel = model.get_item(i)
+            for signal in ("realize", "map", "notify::scale-factor", "notify::is-active"):
+                handlers.append((toplevel, toplevel.connect(signal, look)))
+
+    toplevels = Gtk.Window.get_toplevels()
+    watch(toplevels, 0, 0, toplevels.get_n_items())
+    handlers.append((toplevels, toplevels.connect("items-changed", watch)))
+    handlers.append((settings, settings.connect("notify::gtk-xft-dpi", changed)))
+    timer = [GLib.timeout_add_seconds(FOLLOW_SCREEN_S, look)]
+
+    def stop():
+        if timer:
+            GLib.source_remove(timer.pop())
+        for source, handler in handlers:
+            if source.handler_is_connected(handler):
+                source.disconnect(handler)
+        handlers.clear()
+    return stop
+
+
+def native_windows(cache: Path, taskbar_dark: Callable[[], bool] | None = None) -> Callable[[], None]:
     """Windows: each window of the app, as it shows (the main one and every
     dialog, a window of its own with the system's title bar), gets the title
     bar the content has (dark or light, and on Windows 11 the window's own
     background and text colours: bar and content read as one surface), and
     the exe's icon at the sizes the title bar and Alt+Tab draw (a run from
-    the sources has no icon of its own to give)."""
+    the sources has no icon of its own: the one drawn from the SVG). On a
+    dark surface the icon is the -on-dark variant, ivory disc and dark nib,
+    which does not sink into the dark: the big icon (taskbar button, Alt+Tab)
+    as the taskbar is (taskbar_dark), the small one as the title bar is.
+    Returns the function that does it again (the taskbar changed colour)."""
     from scriba.app import win32
 
     from . import winquirks
     from .ui import window_colours
+    from .wintray import ON_DARK, cached_ico
     style = Adw.StyleManager.get_default()
     exe = os.path.normpath(sys.executable) if getattr(sys, "frozen", False) else ""
+    source = str(SOURCE_ICONS) if SOURCE_ICONS.is_dir() else ""
+    taskbar_dark = taskbar_dark or win32.taskbar_dark
+
+    def icon_file(dark: bool) -> str:
+        if dark:
+            return cached_ico(APP_ID + ON_DARK, cache, source)
+        return "" if exe else cached_ico(APP_ID, cache, source)     # "": the exe's own
 
     def native(*_args):
         windows = Gtk.Window.list_toplevels()
         background, text = window_colours(windows[0]) if windows else (None, None)
         win32.title_bars(style.get_dark(), background, text)
-        if exe:
-            win32.window_icons(exe)
+        small, big = icon_file(style.get_dark()), icon_file(taskbar_dark())
+        if exe or small or big:
+            win32.window_icons(exe, small, big)
 
     def restyled(*_args):
         # the style's colours follow the scheme a moment later: now for the
@@ -118,6 +211,7 @@ def native_windows() -> None:
     toplevels.connect("items-changed", added)
     for change in ("notify::dark", "notify::high-contrast", "notify::accent-color"):
         style.connect(change, restyled)
+    return native
 
 
 def apply_theme(theme: str) -> None:
@@ -154,6 +248,7 @@ class App(Adw.Application):
         self._update_dialog = None
         self._verified_installer = None
         self.toasts = None          # Windows: wintoast.Toasts, when the Windows Runtime answers
+        self.restyle_windows: Callable[[], None] = lambda: None     # Windows: native_windows()
 
     # -- start-up -------------------------------------------------------------------
 
@@ -164,7 +259,8 @@ class App(Adw.Application):
             i18n.use(self.cfg.language)         # the preference over the desktop's language
         if WINDOWS:
             larger_system_font()
-            native_windows()
+            self.restyle_windows = native_windows(self.paths.cache_folder / "tray-icons")
+            text_follows_screen(lambda: self.window, lambda: self.restyle_windows())
         for refused in load_style(Gdk.Display.get_default()):
             print(f"{SLUG}: style: {refused}", file=sys.stderr, flush=True)
         GLib.set_application_name(APP_NAME)
@@ -179,7 +275,8 @@ class App(Adw.Application):
                               ("about", lambda: about_dialog(self._window(), self.cfg, self.paths)),
                               ("models", lambda: self._window().show_models()),
                               ("preferences", lambda: PreferencesDialog(self._window(), self).present(self._window())),
-                              ("check-updates", lambda: self.check_updates(manual=True))):
+                              ("check-updates", lambda: self.check_updates(manual=True)),
+                              ("error-log", lambda: self._window().show_error_log())):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", lambda _a, _p, h=handler: h())
             self.add_action(action)
@@ -646,4 +743,9 @@ def main(argv=None) -> int:
         # the system title bar on the main window, before GTK starts (see
         # gui/window.py): with GTK's own, Windows does not snap the window
         os.environ.setdefault("GTK_CSD", "0")
+        # each screen's own dpi, sharp everywhere: the manifest asks it for
+        # the exe, this call for a run from the sources (it fails, harmless,
+        # when the manifest did it); before GDK opens the display
+        from scriba.app import win32
+        win32.per_monitor_dpi()
     return App().run(sys.argv if argv is None else argv)

@@ -93,6 +93,23 @@ class WindowTest(unittest.TestCase):
     def state(self, window) -> str:
         return window.transcribe.stack.get_visible_child_name()
 
+    def test_the_main_menu_opens_the_error_log(self):
+        window = self.window()
+        model = window.menu_button().get_menu_model()
+        actions = [model.get_item_link(s, "section").get_item_attribute_value(i, "action", None).unpack()
+                   for s in range(model.get_n_items())
+                   for i in range(model.get_item_link(s, "section").get_n_items())]
+        self.assertIn("app.error-log", actions)
+        log = self.app.paths.state / "errors.log"
+        with mock.patch("scriba.gui.window.ui_open_path") as opened, mock.patch.object(window, "toast") as toast:
+            window.show_error_log()
+            opened.assert_not_called()
+            toast.assert_called_once()
+            log.parent.mkdir(parents=True, exist_ok=True)
+            log.write_text("--- 2026-11-13 12:00:00 ---\n", encoding="utf-8")
+            window.show_error_log()
+            opened.assert_called_once_with(window, str(log))
+
     def test_both_downloaded_models_remain_selectable(self):
         self.engines.precise = True
         window = self.opened()
@@ -181,6 +198,21 @@ class WindowTest(unittest.TestCase):
         self.assertIn("10:00", page.estimate_row.get_subtitle())
         self.assertEqual(page.folder_row.get_subtitle(), jobs.full_path(self.out))
         self.assertEqual(self.app.cfg.last_folder, str(self.tmp))
+
+    def test_a_file_kept_elsewhere_goes_to_a_folder_of_its_own_in_scriba_s_unless_the_preference_says_beside(self):
+        window = self.window()
+        window.present()
+        window.open_path(str(self.recording))
+        page = window.transcribe
+        self.assertTrue(_setup.spin(lambda: page.media is not None))
+        recordings = self.tmp / "recordings"
+        self.assertEqual(page.folder_row.get_subtitle(), jobs.full_path(recordings / "call"))
+        request = page.request()
+        self.assertEqual((request.out, request.home), (None, recordings))
+        PreferencesDialog(window, self.app).elsewhere_row.set_selected(1)
+        self.assertEqual(self.app.cfg.elsewhere, "beside")
+        request = page.request()
+        self.assertEqual((request.out, request.home), (self.tmp, None))
 
     # -- the test of the graphics cards ---------------------------------------------
 
@@ -282,6 +314,38 @@ class WindowTest(unittest.TestCase):
         window.settings_changed()
         self.assertEqual(page.terms_row.get_text(), "QG&UPS, UPS")
         self.assertTrue(page.quality_row.get_visible())
+
+    def test_the_expected_time_says_when_it_is_only_a_first_estimate(self):
+        self.engines.precise = True
+        window = self.opened()
+        page = window.transcribe
+        page.quality_row.set_selected(0)
+        request = page.request()
+        jobs.remember_speeds(self.engines.speeds_file, {
+            jobs.speed_key("turbo", self.engines.device_label(request)): 8.0, jobs.speed_key("speakers", "cpu"): 30.0})
+        page.refresh_estimate()
+        self.assertNotIn("first estimate", page.estimate_row.get_subtitle())
+        page.quality_row.set_selected(1)                        # Precise, never run on this card
+        self.assertIn("first estimate", page.estimate_row.get_subtitle())
+
+    def test_the_people_speaking_reach_the_engine_counted_or_automatic(self):
+        window = self.opened()
+        page = window.transcribe
+        page.voices_row.set_active(True)
+        self.assertTrue(page.automatic_row.get_active())        # automatic unless told
+        self.assertFalse(page.count_row.get_sensitive())
+        self.assertIsNone(page.request().speaker_count)
+        page.automatic_row.set_active(False)
+        self.assertTrue(page.count_row.get_sensitive())
+        page.count_row.set_value(1)                             # one person heard is a count too
+        self.assertEqual(page.request().speaker_count, 1)
+        page.count_row.set_value(4)
+        self.assertEqual(page.request().speaker_count, 4)
+        page.automatic_row.set_active(True)
+        self.assertIsNone(page.request().speaker_count)
+        page.voices_row.set_active(False)                       # no voices told apart: nothing to count
+        self.assertFalse(page.automatic_row.get_sensitive())
+        self.assertFalse(page.count_row.get_sensitive())
 
     def test_a_video_offers_its_copy_with_the_subtitles(self):
         window = self.opened(VIDEO)
@@ -391,9 +455,10 @@ class WindowTest(unittest.TestCase):
         window = self.result_window()
         result = window.result
         wav = self.tmp / "listening.wav"
-        audio.write(wav, np.zeros(20 * audio.RATE, np.int16))
-        result.result.listen = wav
         voice = next(v for v in speakers.voices(result.result.segments) if v.label == "Speaker 1")
+        # long enough for the voice's stretch, wherever in the meeting it is
+        audio.write(wav, np.zeros(int(voice.listen[1] + 1) * audio.RATE, np.int16))
+        result.result.listen = wav
         result.listen(voice)
         self.assertTrue(_setup.spin(lambda: result.media is not None and result.media.is_prepared()))
         self.assertEqual(result.listen_buttons["Speaker 1"].get_icon_name(), "media-playback-stop-symbolic")
@@ -424,8 +489,12 @@ class WindowTest(unittest.TestCase):
         previous = window.result.result.session
         window.result.save_names()
         self.assertTrue(_setup.spin(lambda: "Anna" in self.app.cfg.speaker_names))
-        self.assertNotEqual(window.result.result.session, previous)
+        self.assertEqual(window.result.result.session, previous)        # names: no new meeting file
         self.assertIn("Anna", self.app.cfg.speaker_names)
+        # the files with the names, saved twice, are listed once
+        named = [o.path for o in window.result.result.outputs if o.kind == "md-named"]
+        self.assertEqual(len(named), 1)
+        self.assertEqual(len(window.result._shown_outputs & set(named)), 1)
 
     def test_a_saved_anonymous_microphone_stays_anonymous_when_reopened(self):
         from scriba.app import jobs
@@ -530,6 +599,50 @@ class WindowTest(unittest.TestCase):
             self.assertTrue(_setup.spin(lambda: bool(said)))
         self.assertIn("original recording is missing", said[0])
         self.assertTrue(page.balance_button.get_sensitive())
+
+    def test_the_balance_preview_plays_the_sliders_balance_and_the_same_button_stops_it(self):
+        import numpy as np
+        from scriba.app.engines import audio
+        from scriba.app.preview import Clip
+        from scriba.i18n import _
+        made = fake_engines.made_result(self.out, self.recording, fake_engines.lines(2, 4, 0))
+        self.engines.balanceable = True
+        window = self.window()
+        window.show_result(made, jobs.Request(self.recording))
+        page = window.result
+        self.assertTrue(_setup.spin(lambda: page.balance_group.get_visible()))
+        before = sorted(p.name for p in self.out.iterdir())
+        asked = []
+
+        def balance_preview(result, balance, cancelled):        # the player's file, never the user's
+            asked.append((result, balance))
+            folder = Path(tempfile.mkdtemp(prefix="scriba-preview-", dir=self.tmp))
+            audio.write(folder / "preview.wav", np.zeros(audio.RATE, np.int16))
+            return Clip(folder / "preview.wav", 1.0)
+
+        def playing():
+            return page.media is not None and page.media.is_prepared()
+
+        with mock.patch.object(self.engines, "balance_preview", balance_preview):
+            page.balance_scale.set_value(-0.5)
+            page.preview_button.emit("clicked")
+            self.assertTrue(_setup.spin(playing))
+            self.assertEqual(asked, [(made, -0.5)])
+            self.assertEqual(page.preview_content.get_label(), _("Stop the Preview"))
+            clip = Path(page.media.get_file().get_path())
+            page.preview_button.emit("clicked")                 # the same button stops it
+            self.assertIsNone(page.media)
+            self.assertEqual(page.preview_content.get_label(), _("Listen to a Preview"))
+            self.assertTrue(_setup.spin(lambda: not clip.parent.exists()))
+            page.preview_button.emit("clicked")
+            self.assertTrue(_setup.spin(playing))
+            page.balance_scale.set_value(0.25)                  # a new balance: the old preview stops
+            self.assertIsNone(page.media)
+            page.preview_button.emit("clicked")                 # and the next one is made with it
+            self.assertTrue(_setup.spin(playing))
+            self.assertEqual(asked[-1], (made, 0.25))
+            page.stop()
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()), before)
 
     def test_my_name_preference_reaches_new_transcriptions(self):
         window = self.opened()
@@ -651,7 +764,7 @@ class RecordPageTest(unittest.TestCase):
         window.present()
         self.assertTrue(_setup.spin(lambda: window.get_mapped(), 5))
         page = window.record
-        self.assertTrue(_setup.spin(lambda: "Free BYRD" in (page.input_side.row.get_subtitle() or ""), 5))
+        self.assertTrue(_setup.spin(lambda: "Headset BT" in (page.input_side.row.get_subtitle() or ""), 5))
         return window
 
     def recording(self, window):
@@ -674,10 +787,10 @@ class RecordPageTest(unittest.TestCase):
     def test_the_automatic_choice_says_which_devices_and_why(self):
         page = self.window().record
         microphone = page.input_side.row.get_subtitle()
-        self.assertIn("Automatic · Cuffia auricolare (Free BYRD)", microphone)
+        self.assertIn("Automatic · Cuffia auricolare (Headset BT)", microphone)
         self.assertIn("in use by Teams", page.input_side.auto.get_subtitle())
         sound = page.output_side.row.get_subtitle()
-        self.assertIn("All outputs · Cuffie (Free BYRD)", sound)
+        self.assertIn("All outputs · Cuffie (Headset BT)", sound)
         self.assertIn("the silent ones are left out", page.output_side.auto.get_subtitle())
         # every device has its row and its meter, moving
         self.assertEqual(len(page.input_side.rows), 3)
@@ -697,6 +810,26 @@ class RecordPageTest(unittest.TestCase):
         self.assertEqual(recorder.plan.input.id, "in-webcam")
         self.assertEqual([d.id for d in recorder.plan.outputs], ["out-headset", "out-speakers"])
 
+    def test_muted_in_the_call_the_microphone_says_so_and_the_preference_reaches_the_recorder(self):
+        from scriba import WINDOWS
+        self.app.cfg.follow_call_mute = True
+        page, recorder = self.recording(self.window())
+        self.assertEqual(recorder.follow_call, WINDOWS)
+        recorder.call_muted = True
+        self.assertTrue(_setup.spin(lambda: page.input_side.row.get_subtitle() == "Muted in the call", 5))
+        recorder.call_muted = False
+        self.assertTrue(_setup.spin(lambda: "Recording · " in (page.input_side.row.get_subtitle() or ""), 5))
+
+    def test_the_call_s_mute_is_followed_by_default(self):
+        from scriba import WINDOWS
+        _page, recorder = self.recording(self.window())
+        self.assertEqual(recorder.follow_call, WINDOWS)
+
+    def test_the_call_s_mute_is_not_followed_when_switched_off(self):
+        self.app.cfg.follow_call_mute = False
+        _page, recorder = self.recording(self.window())
+        self.assertFalse(recorder.follow_call)
+
     def test_with_both_switches_off_there_is_nothing_to_record(self):
         page = self.window().record
         page.input_side.row.set_enable_expansion(False)
@@ -713,13 +846,15 @@ class RecordPageTest(unittest.TestCase):
         page, recorder = self.recording(window)
         self.assertTrue(window.record.busy)
         self.assertEqual([t.role for t in recorder.takes], ["me", "others", "others"])
-        self.assertEqual(Path(recorder.folder), self.tmp / "recordings")
+        # a folder of its own, named with the date and the time its files begin with
+        self.assertEqual(Path(recorder.folder).parent, self.tmp / "recordings")
+        self.assertTrue(recorder.stem.startswith(Path(recorder.folder).name + " "))
         self.assertTrue(_setup.spin(lambda: len(page._track_rows) == 3, 5))
         self.assertTrue(page.sources.get_visible())
         self.assertTrue(page.stop_button.get_visible())
         recorder.elapsed = 75.0
         recorder.alerts = (levels.Alert(levels.QUIET, "me-1", -46.0),)
-        recorder.events = (recordings.Event(70.0, recordings.GONE, "Cuffie (Free BYRD)"),)
+        recorder.events = (recordings.Event(70.0, recordings.GONE, "Cuffie (Headset BT)"),)
         recorder.takes[1].ended = 70.0
         self.assertTrue(_setup.spin(lambda: page.time_label.get_label() == "01:15", 5))
         self.assertTrue(_setup.spin(lambda: page.banner.get_revealed(), 5))
@@ -731,11 +866,23 @@ class RecordPageTest(unittest.TestCase):
         self.assertEqual(recorder.state, "recording")
         page.stop_button.emit("clicked")
         self.assertTrue(_setup.spin(lambda: not page.busy, 5))
-        joined = self.tmp / "recordings" / f"{recorder.stem}.mka"
+        joined = Path(recorder.folder) / f"{recorder.stem}.mka"
         self.assertTrue(joined.is_file())
         self.assertEqual(window.views.get_visible_child_name(), "transcribe")
         self.assertEqual(window.transcribe.source, joined)
         self.assertTrue(_setup.spin(lambda: window.transcribe.media is not None, 5))
+
+    def test_the_banner_says_the_microphone_hears_the_computer_while_it_does(self):
+        from scriba.core import echo, levels
+        window = self.window()
+        page, recorder = self.recording(window)
+        recorder.alerts = (levels.Alert(echo.ECHO, "", 0.0),)
+        self.assertTrue(_setup.spin(lambda: page.banner.get_revealed(), 5))
+        self.assertIn("sound: with earphones the transcript comes out better", page.banner.get_title())
+        recorder.alerts = ()
+        self.assertTrue(_setup.spin(lambda: not page.banner.get_revealed(), 5))
+        page.stop_button.emit("clicked")
+        self.assertTrue(_setup.spin(lambda: not page.busy, 5))
 
     def test_a_recording_that_cannot_start_is_said_and_the_meters_come_back(self):
         self.engines.recorder_fails = Failure("There is not enough room on the disk for ten minutes of recording.")
@@ -835,6 +982,50 @@ class FontTest(unittest.TestCase):
         settings.props.gtk_font_name = "Segoe UI Bold 9"
         self.assertEqual(settings.props.gtk_font_name, "Segoe UI Bold 10.5")
         self.assertTrue(before)
+
+    def test_the_text_follows_the_screen_the_window_is_on(self):
+        from scriba.app import win32
+        from scriba.core import textscale
+        settings = Gtk.Settings.get_default()
+        self.addCleanup(settings.reset_property, "gtk-xft-dpi")
+        settings.props.gtk_xft_dpi = -1             # GTK's default, as per monitor
+        dpi, moved = [240], []
+        with mock.patch.object(win32, "per_monitor_aware", return_value=True), \
+                mock.patch.object(win32, "window_dpi", side_effect=lambda _hwnd: dpi[0]):
+            stop = app_mod.text_follows_screen(lambda: None, lambda: moved.append(dpi[0]))
+            self.addCleanup(stop)
+            window = Gtk.Window(default_width=120, default_height=80)
+            window.set_opacity(0.02)
+            self.addCleanup(window.destroy)
+            window.present()
+            self.assertTrue(_setup.spin(window.get_mapped, 5))
+            scale = window.get_scale_factor()
+            self.assertEqual(settings.props.gtk_xft_dpi, textscale.text_dpi(-1, 240, scale))
+            dpi[0] = 144                            # moved to a 150% screen
+            window.notify("scale-factor")
+            self.assertEqual(settings.props.gtk_xft_dpi, textscale.text_dpi(-1, 144, scale))
+            self.assertEqual(moved, [240, 144])
+            settings.props.gtk_xft_dpi = 110 * 1024     # someone else's dpi: kept, and multiplied
+            self.assertEqual(settings.props.gtk_xft_dpi, textscale.text_dpi(110 * 1024, 144, scale))
+            stop()
+            dpi[0] = 240
+            window.notify("scale-factor")
+            self.assertEqual(settings.props.gtk_xft_dpi, textscale.text_dpi(110 * 1024, 144, scale))
+
+    def test_a_system_aware_process_is_left_to_gdk(self):
+        from scriba.app import win32
+        settings = Gtk.Settings.get_default()
+        before = settings.props.gtk_xft_dpi
+        with mock.patch.object(win32, "per_monitor_aware", return_value=False), \
+                mock.patch.object(win32, "window_dpi", return_value=240):
+            stop = app_mod.text_follows_screen(lambda: None)
+            window = Gtk.Window()
+            self.addCleanup(window.destroy)
+            window.set_opacity(0.02)
+            window.present()
+            self.assertTrue(_setup.spin(window.get_mapped, 5))
+            stop()
+        self.assertEqual(settings.props.gtk_xft_dpi, before)
 
 
 class TitleBarColoursTest(unittest.TestCase):

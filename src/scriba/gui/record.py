@@ -9,7 +9,9 @@ sound, each an Adw.ExpanderRow whose switch says whether it is recorded,
 whose one-line summary identifies the choice, and whose details explain
 why and list "Automatic" and every device with its Gtk.LevelBar, to choose
 by hand (core/devices.py decides; this page shows). The two source rows
-stay in place while recording; their details show tracks with meters. The warnings of
+stay in place while recording; their details show tracks with meters, and
+their switches turn the side off and on in Scriba (silence on its track,
+Recorder.switch), not in the settings. The warnings of
 core/levels.py come in the banner at the top; what happens to the devices
 (earphones unplugged, a device that comes) is said in a toast and in the
 track's row.
@@ -31,10 +33,10 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
-from scriba import APP_NAME  # noqa: E402
+from scriba import APP_NAME, WINDOWS  # noqa: E402
 from scriba.app import jobs, recording  # noqa: E402
 from scriba.app.task import Failure  # noqa: E402
-from scriba.core import devices as dev, levels, recording as rec  # noqa: E402
+from scriba.core import devices as dev, echo, levels, recording as rec  # noqa: E402
 from scriba.data.timing import clock  # noqa: E402
 from scriba.i18n import _  # noqa: E402
 
@@ -89,6 +91,9 @@ def alert_words(alert: levels.Alert, names: dict[str, str]) -> str:
     if alert.kind == levels.CLIPPING:
         return _("The microphone is clipping (peaks at 0 dB): turn its level down in the system's sound "
                  "settings.")
+    if alert.kind == echo.ECHO:
+        return _("The microphone hears the computer's sound: with earphones the transcript comes out better. "
+                 "Scriba will take that sound out of your track.")
     if alert.kind == levels.QUIET:
         return _("The microphone hears you faintly ({level:.0f} dB): is it the one you speak into? A headset has "
                  "its own.").format(level=alert.level)
@@ -98,6 +103,21 @@ def alert_words(alert: levels.Alert, names: dict[str, str]) -> str:
 
 def event_words(event: recording.Event, minutes: int = 0) -> str:
     at = clock(event.at)
+    if event.kind in (recording.OFF, recording.ON):
+        mine = event.detail == "me"
+        if event.kind == recording.OFF:
+            text = _("From {time} the microphone is off in Scriba: its track records silence.") if mine else \
+                _("From {time} the computer's sound is off in Scriba: its track records silence.")
+        else:
+            text = _("From {time} the microphone is recorded again.") if mine else \
+                _("From {time} the computer's sound is recorded again.")
+        return text.format(time=at)
+    if event.kind == recording.FOLLOWED:
+        return _("Now recording from the microphone {program} is using: {device}.").format(
+            program=event.detail, device=event.device)
+    if event.kind == recording.CALL_ELSEWHERE:
+        return _("{program} is using another microphone, {device}: Scriba goes on with the one you chose.").format(
+            program=event.detail, device=event.device)
     return {
         recording.GONE: _("{device} went away at {time}: what it recorded is kept, the rest goes on."),
         recording.SWITCHED: _("From {time} the microphone is {device}."),
@@ -106,6 +126,20 @@ def event_words(event: recording.Event, minutes: int = 0) -> str:
         recording.DISK_FULL: _("The disk is almost full: the recording was stopped at {time}."),
         recording.FAILED: _("The recording stopped at {time}: {detail}"),
     }.get(event.kind, event.kind).format(device=event.device, time=at, detail=event.detail, minutes=minutes)
+
+
+def finishing_words(step: str) -> str:
+    """What the app is doing after the stop, with the step's place: the
+    time recorded stands still meanwhile."""
+    what = {
+        recording.CLOSING: _("closing the recording files…"),
+        recording.JOINING: _("joining the tracks in one file…"),
+        recording.CLEANING: _("checking whether the microphone heard the computer's sound…"),
+        recording.MIXING: _("levelling the voices for the copy to listen to…"),
+    }.get(step, step)
+    number = recording.FINISHING.index(step) + 1 if step in recording.FINISHING else 1
+    return _("Recording stopped · step {n} of {total}: {what}").format(n=number, total=len(recording.FINISHING),
+                                                                         what=what)
 
 
 class Side:
@@ -145,6 +179,10 @@ class Side:
     def switch(self) -> str:
         return "record_input" if self.kind == dev.INPUT else "record_output"
 
+    @property
+    def role(self) -> str:
+        return "me" if self.kind == dev.INPUT else "others"
+
     def load(self) -> None:
         self._loading = True
         try:
@@ -155,10 +193,17 @@ class Side:
     def _switched(self, on: bool) -> None:
         if self.switch_button.get_active() != on:
             self.switch_button.set_active(on)
-        if not self._loading:
-            setattr(self.page.cfg, self.switch, on)
-            self.page.app.save_config()
-            self.page.refresh()
+        if self._loading:
+            return
+        if self._recording:
+            # while recording the switch is this recording's: silence on the
+            # track, the settings for the next one untouched
+            if self.page.recorder is not None:
+                self.page.recorder.switch(self.role, on)
+            return
+        setattr(self.page.cfg, self.switch, on)
+        self.page.app.save_config()
+        self.page.refresh()
 
     def _chose(self, device_id: str) -> None:
         if not self._loading:
@@ -250,9 +295,13 @@ class Side:
             self.rows[device.id] = (row, check, bar)
 
     def set_recording(self, active: bool) -> None:
-        """The source stays expandable; choices are frozen before recording starts."""
+        """The source stays expandable; choices are frozen before recording
+        starts. The switch works on once a track of this side is recorded
+        (show_recording); at the end it says the settings again."""
         self._recording = active
         self.switch_button.set_sensitive(not active)
+        if not active:
+            self.load()
         self.auto.set_visible(not active)
         self.auto_check.set_sensitive(not active)
         for row, check, _bar in self.rows.values():
@@ -260,10 +309,17 @@ class Side:
             check.set_sensitive(not active)
 
     def show_recording(self, status: recording.Status) -> None:
-        role = "me" if self.kind == dev.INPUT else "others"
+        role = self.role
         takes = [take for take in status.tracks if take.role == role and take.ended is None]
+        off = role in status.off
+        # a side not recorded from the start has no track to switch
+        self.switch_button.set_sensitive(self._recording and any(t.role == role for t in status.tracks))
         if not getattr(self.page.cfg, self.switch):
             text = _("Not recorded")
+        elif off:
+            text = _("Switched off in Scriba · silence on its track")
+        elif role == "me" and status.call_muted:
+            text = _("Muted in the call")
         elif self.kind == dev.OUTPUT and getattr(self.page.cfg, self.setting) == "":
             text = _("All outputs · {count} active").format(count=len(takes))
         elif takes:
@@ -273,7 +329,7 @@ class Side:
         self.row.set_subtitle(escape(text))
         self.row.set_tooltip_text(text)
         peaks = [levels.fraction(status.levels[take.key][1]) for take in takes if take.key in status.levels]
-        self.meter.set_value(max(peaks, default=0.0) if status.state == "recording" else 0.0)
+        self.meter.set_value(max(peaks, default=0.0) if status.state == "recording" and not off else 0.0)
 
 
 class RecordPage(Adw.Bin):
@@ -285,6 +341,7 @@ class RecordPage(Adw.Bin):
         self.folder = None
         self._tick_id = 0
         self._starting = self._stopping = False
+        self._finishing = recording.CLOSING     # the step after the stop, set by the worker (one assignment)
         self._stop_requested = False
         self.last_error = ""
         self.last_finished: recording.Finished | None = None
@@ -543,7 +600,8 @@ class RecordPage(Adw.Bin):
         if refused:
             self._banner(refused)
             return
-        stem = rec.stem(datetime.datetime.now(), recording.file_words()["recording"])
+        now = datetime.datetime.now()
+        stem = rec.stem(now, recording.file_words()["recording"])
         monitor, self.monitor = self.monitor, None
         self._starting = True
         self._stop_requested = False
@@ -555,13 +613,18 @@ class RecordPage(Adw.Bin):
         self.record_button.set_sensitive(False)
         self.state_label.set_label(_("Starting…"))
 
+        meeting = []
+
         def work():
             monitor.stop()          # the meters' streams closed before the recording's open
-            recorder = self.backend.recorder(plan, folder, stem)
+            # a folder of its own for each recording, with every file of it (the transcripts too)
+            meeting.append(recording.meeting_folder(folder, now))
+            recorder = self.backend.recorder(plan, meeting[0], stem)
+            recorder.follow_call = WINDOWS and self.cfg.follow_call_mute
             recorder.start()
             return recorder
 
-        run_in_thread(work, lambda recorder, error: self._started(recorder, error, folder))
+        run_in_thread(work, lambda recorder, error: self._started(recorder, error, meeting[0] if meeting else folder))
 
     def _started(self, recorder, error, folder) -> None:
         self._starting = False
@@ -620,7 +683,7 @@ class RecordPage(Adw.Bin):
                  "stopped": _("Stopped"), "failed": _("Stopped")}
         state = words.get(status.state, status.state)
         if self._stopping:
-            state = _("Closing the files…")
+            state = finishing_words(self._finishing)
         elif status.seconds_left < rec.WARN_MINUTES * 60:
             state += " · " + _("room on the disk for about {minutes} minutes").format(
                 minutes=max(int(status.seconds_left // 60), 0))
@@ -639,7 +702,8 @@ class RecordPage(Adw.Bin):
             if take.began > 0:
                 what += " · " + _("from {time}").format(time=clock(take.began))
             if take.ended is not None:
-                what += " · " + _("went away at {time}").format(time=clock(take.ended))
+                what += " · " + (_("until {time}") if take.replaced else _("went away at {time}")).format(
+                    time=clock(take.ended))
                 row.add_css_class("dim-label")
             row.set_subtitle(escape(what))
             level = status.levels.get(take.key)
@@ -651,7 +715,7 @@ class RecordPage(Adw.Bin):
             self.window.toast(event_words(event, max(int(status.seconds_left // 60), 0)))
         self._events = len(status.events)
         names = {t.key: t.device for t in status.tracks}
-        order = {levels.CLIPPING: 0, levels.QUIET: 1, levels.SILENT: 2}
+        order = {levels.CLIPPING: 0, levels.QUIET: 1, levels.SILENT: 2, echo.ECHO: 3}
         alerts = sorted(status.alerts, key=lambda a: order.get(a.kind, 9))
         if status.error:
             self._remember_error(status.error)
@@ -691,15 +755,19 @@ class RecordPage(Adw.Bin):
             return
         self._stop_requested = False
         self._stopping = True
-        self.state_label.set_label(_("Closing the files…"))
+        self._finishing = recording.CLOSING
+        self.state_label.set_label(finishing_words(self._finishing))
         self.pause_button.set_sensitive(False)
         self.stop_button.set_sensitive(False)
         self.window.page_changed()
 
+        def step(name: str) -> None:
+            self._finishing = name          # read by the tick on the main loop
+
         def work():
             takes = recorder.stop()
             status = recorder.snapshot()
-            return self.backend.finish(takes, recorder.folder, recorder.stem), status
+            return self.backend.finish(takes, recorder.folder, recorder.stem, progress=step), status
 
         run_in_thread(work, self._stopped)
 

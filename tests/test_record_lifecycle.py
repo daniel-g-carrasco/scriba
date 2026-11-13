@@ -48,6 +48,10 @@ class Recorder:
         self.state = "new"
         self.takes = []
         self.stops = 0
+        self.switched = []
+
+    def switch(self, role, on):
+        self.switched.append((role, on))
 
     def start(self):
         self.backend.start_entered.set()
@@ -98,8 +102,10 @@ class Backend:
         self.recorders.append(recorder)
         return recorder
 
-    def finish(self, takes, folder, stem):
+    def finish(self, takes, folder, stem, progress=None):
         self.finishes += 1
+        if progress is not None:
+            progress(recording.JOINING)
         self.finish_entered.set()
         if not self.finish_release.wait(3):
             raise TimeoutError("the test finalization was not released")
@@ -258,6 +264,34 @@ class RecordLifecycleTest(unittest.TestCase):
         self.assertEqual(completed, ["first"])
         self.assertEqual(recorder.stops, 1)
         self.assertEqual(self.backend.finishes, 1)
+
+    def test_after_the_stop_the_page_names_the_finishing_step_and_offers_no_second_stop(self):
+        recorder = self.begin()
+        self.backend.finish_release.clear()
+        self.page.stop()
+        self.assertTrue(_setup.spin(self.backend.finish_entered.is_set))
+        self.page._show_status(recorder.snapshot())
+        self.assertIn("step 2 of 4: joining the tracks", self.page.state_label.get_label())
+        self.assertFalse(self.page.stop_button.get_sensitive())
+        self.assertFalse(self.page.pause_button.get_sensitive())
+        self.backend.finish_release.set()
+        self.complete()
+        self.assertEqual(recorder.stops, 1)
+
+    def test_while_recording_the_switch_silences_its_side_without_changing_the_settings(self):
+        recorder = self.begin()
+        self.page._show_status(recorder.snapshot())
+        switch = self.page.input_side.switch_button
+        self.assertTrue(switch.get_sensitive())
+        self.assertFalse(self.page.output_side.switch_button.get_sensitive())    # no track of its own
+        switch.set_active(False)
+        self.assertEqual(recorder.switched, [("me", False)])
+        self.assertTrue(self.app.cfg.record_input)
+        self.page._show_status(replace(recorder.snapshot(), off=frozenset({"me"})))
+        self.assertIn("silence", self.page.input_side.row.get_subtitle())
+        self.page.stop()
+        self.complete()
+        self.assertTrue(switch.get_active())        # the next recording as the settings say
 
     def test_success_during_exit_does_not_open_transcribe_or_restart_meters_even_without_a_callback(self):
         self.begin()
