@@ -4,6 +4,7 @@ a damaged file or a newer one refused with a sentence to show."""
 
 import json
 import math
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -118,6 +119,22 @@ class SessionTest(unittest.TestCase):
         self.assertEqual([p.name for p in self.dir.iterdir()], ["call.json"])      # no temporary file left behind
         session.save(changed, self.path)
         self.assertEqual(session.load(self.path).names["Speaker 3"], "Anna")
+
+    def test_a_file_held_for_an_instant_by_another_program_is_still_saved(self):
+        session.save(sample(), self.path)
+        changed = sample()
+        changed.names["Speaker 3"] = "Anna"
+        real, refusals = os.replace, [PermissionError(13, "held"), PermissionError(13, "held")]
+
+        def held_at_first(src, dst):
+            if refusals:
+                raise refusals.pop()
+            return real(src, dst)
+
+        with mock.patch("os.replace", side_effect=held_at_first), mock.patch("time.sleep"):
+            session.save(changed, self.path)
+        self.assertEqual(session.load(self.path).names["Speaker 3"], "Anna")
+        self.assertEqual([p.name for p in self.dir.iterdir()], ["call.json"])
 
     def test_an_empty_session_is_a_session(self):
         session.save(Session(), self.path)

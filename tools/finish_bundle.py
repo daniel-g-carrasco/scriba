@@ -68,9 +68,6 @@ REQUIRED = (
     "_internal/gi_typelibs/Gst-1.0.typelib", "_internal/gdbus.exe", "_internal/certs/ca-bundle.crt",
     "_internal/share/locale/it/LC_MESSAGES/scriba.mo",
     "_internal/share/icons/hicolor/scalable/apps/io.github.daniel_g_carrasco.scriba.svg",
-    # the icon for a dark taskbar (gui/wintray.py, tools/make_icons.py), the states' beside it
-    "_internal/share/icons/hicolor/scalable/apps/io.github.daniel_g_carrasco.scriba-on-dark.svg",
-    "_internal/share/icons/hicolor/scalable/apps/io.github.daniel_g_carrasco.scriba-recording-on-dark.svg",
     "_internal/share/glib-2.0/schemas/gschemas.compiled",
     "_internal/scriba/samples/sample-it.flac", "_internal/scriba/samples/sample-it.txt",
     "_internal/scriba/samples/SOURCES.md", "_internal/scriba/gui/style.css",

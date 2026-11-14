@@ -5,7 +5,44 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 are `0.x` while the app evolves. Stable Windows and Linux packages are
 available from GitHub Releases. Linux Flatpak builds and runtime checks use GNOME Platform 50. The app's metainfo carries a shorter description.
 
-## [Unreleased]
+## [0.1.3] - 2026-11-14
+
+### Added
+- Files of terms: in Preferences, under Terms, choose one or more plain
+  text files with one term or phrase a line (lines starting with `#` are
+  left out). Scriba reads them at every transcription, after the terms
+  typed for the meeting, each term once. Each file shows how many terms it
+  has, or why it cannot be read; a missing file does not stop the work and
+  is said on the Result page. When there are more terms than the engine
+  can read, the meeting's come first and the Result page says how many
+  were used. The command line takes `--terms-file`, more than once.
+- A line with far more text than could be said in its time, as when the
+  engine writes the same word over and over, is now marked `(?)` with the
+  reason "too much text for its length".
+- When more than a quarter of the text is doubtful, the transcript files
+  say so at the top and advise listening to the recording again, and the
+  Result page shows the same warning in a banner.
+
+### Changed
+- The whole transcript opens on a page of its own from "Read the Whole
+  Transcript", with a single scroll bar as tall as the window; the Result
+  page shows only its first lines instead of a small scrolling box inside
+  the scrolling page. The text can be selected and copied across
+  paragraphs, and nothing is cut any more for long meetings.
+- Updates are looked for at start and whenever the window is opened again,
+  at most every 4 hours, instead of once a day (Windows). They are still
+  offered with a banner, never with a dialog in the middle of a recording
+  or a transcription.
+- The icon is the same everywhere again, a dark disc with a light nib, on
+  a light or dark Windows taskbar, in the notification area and on Linux.
+
+### Fixed
+- With the window minimized, or in the tray after a recording that could
+  not start or be finished, the level meters kept the microphone and the
+  computer's sound open: now no sound device stays open while the window
+  is out of sight and nothing is being recorded.
+- Saving the names of the voices no longer fails when another program
+  (an antivirus, the search index) holds the meeting's file for an instant.
 
 ## [0.1.2] - 2026-11-13
 

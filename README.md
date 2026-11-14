@@ -6,9 +6,9 @@
 
 Record meetings and transcribe them on your own computer, with speakers and subtitles.
 
-**[Download Scriba 0.1.2 for Windows](https://github.com/daniel-g-carrasco/scriba/releases/download/v0.1.2/scriba-setup-v0.1.2-windows-x64.exe)**. Install it once; Scriba checks for newer stable releases and offers signed updates. Windows may show a SmartScreen warning because the installer has no Authenticode certificate.
+**[Download Scriba 0.1.3 for Windows](https://github.com/daniel-g-carrasco/scriba/releases/download/v0.1.3/scriba-setup-v0.1.3-windows-x64.exe)**. Install it once; Scriba checks for newer stable releases and offers signed updates. Windows may show a SmartScreen warning because the installer has no Authenticode certificate.
 
-[All downloads and corresponding sources](https://github.com/daniel-g-carrasco/scriba/releases/tag/v0.1.2) include the Windows portable ZIP and Linux Flatpak. Extract the entire portable ZIP before opening `Scriba.exe`. The Linux Flatpak uses GNOME Platform 50 with CPU and Vulkan transcription.
+[All downloads and corresponding sources](https://github.com/daniel-g-carrasco/scriba/releases/tag/v0.1.3) include the Windows portable ZIP and Linux Flatpak. Extract the entire portable ZIP before opening `Scriba.exe`. The Linux Flatpak uses GNOME Platform 50 with CPU and Vulkan transcription.
 
 Scriba records the microphone and computer sound on separate tracks, or opens an existing audio or video recording. It writes Markdown, plain text and subtitles, and can add subtitles to a copy of a video. Audio and text are processed locally. Network access is used to download speech models and check for updates.
 
@@ -16,7 +16,7 @@ Device selection uses the system's call-device information and sound levels. Che
 
 When the microphone picks up the computer's loudspeakers, Scriba removes that echo from the microphone's track before transcribing and in the copy to listen to; the original recording is kept unchanged. Headphones still give the best transcript.
 
-Every recording has a folder of its own. Transcripts are written in paragraphs per speaker; subtitles are cut to at most two lines of 42 characters and 7 seconds. The microphone's voice uses the configurable **My Name** preference, initially **Io**. Other voices can be named, and a meeting JSON can be reopened to correct names without transcribing again. A new transcription of the same audio keeps the previous transcripts in a folder of previous revisions. Doubtful lines stay in the text, marked `(?)`.
+Every recording has a folder of its own. Transcripts are written in paragraphs per speaker; subtitles are cut to at most two lines of 42 characters and 7 seconds. The microphone's voice uses the configurable **My Name** preference, initially **Io**. Other voices can be named, and a meeting JSON can be reopened to correct names without transcribing again. A new transcription of the same audio keeps the previous transcripts in a folder of previous revisions. Doubtful lines stay in the text, marked `(?)`; when more than a quarter of the text is doubtful, the files and the Result page say so and advise listening again. Files of terms chosen in Preferences (one term a line) are read at every transcription, after the terms typed for the meeting.
 
 The listening balance can favour the microphone or the other participants when their original tracks are available, with a short preview before saving. Voice previews decode only a short WAV excerpt before playing it. Recording uses progressive FLAC tracks; after the joined recording is checked, those intermediate files are removed and their original tracks remain in the MKA.
 

@@ -33,7 +33,8 @@ NO_SPEECH = "no_speech"
 LOW_CONFIDENCE = "low_confidence"
 REPEATED = "repeated"
 QUIET = "quiet"
-REASONS = (NO_SPEECH, LOW_CONFIDENCE, REPEATED, QUIET)
+DENSE = "dense"
+REASONS = (NO_SPEECH, LOW_CONFIDENCE, REPEATED, QUIET, DENSE)
 
 # The thresholds of flag_doubtful (see there for the reasons)
 NO_SPEECH_ABOVE = 0.6
@@ -43,6 +44,28 @@ REPEAT_WINDOW = 60.0
 REPEAT_MIN_WORDS = 3
 QUIET_BELOW = -40.0
 QUIET_LOGPROB_BELOW = -0.2
+# Characters a second (spaces counted once) above which a line holds more
+# text than anyone says in its time: what whisper writes when it invents or
+# loops ("sì sì sì..." for a whole window). On the real meetings of 12 and
+# 13/11/2026 it catches 97 % of the line where one word came back thousands
+# of times, while good lines reach 22-24 at the 99th centile. A line is
+# judged on at least DENSE_MIN_SECONDS: whisper's times are rounded and a
+# short "Sì, va bene, grazie." squeezed into half a second is not an
+# invention (measured on the same two meetings: 16 such lines under 1 s
+# would have been marked with no floor, none with 2 s; above 25 with the
+# floor, 4 and 3 lines of 1859 and 824, 0.2-0.4 %).
+DENSE_ABOVE = 25.0
+DENSE_MIN_SECONDS = 2.0
+# The share of a transcript's text in doubtful lines above which the files
+# and the Result page warn that it is to be heard again (doubt_warning).
+# Counted on the text, not on the time: whisper stretches a faint line over
+# the silence after it (one doubtful line of 552 s in the meeting of
+# 12/11/2026), so 23 doubtful lines of 1859 were 24.8 % of the time and only
+# 2.0 % of the words. On the two real meetings the text in doubtful lines,
+# the dense ones included, is 2.0 % and 1.9 % (6.3 % in the worst ten
+# minutes); a quarter is far from both and is reached by one line of a
+# word repeated thousands of times.
+MOSTLY_DOUBTFUL_ABOVE = 0.25
 
 
 @dataclass(frozen=True)
@@ -131,10 +154,16 @@ def _words(text: str) -> tuple[str, ...]:
     return tuple(kept.split())
 
 
+def _length(text: str) -> int:
+    """The characters of a text, each run of spaces counted as one."""
+    return len(" ".join(text.split()))
+
+
 def flag_doubtful(segments: Iterable[Segment], *, no_speech_above: float = NO_SPEECH_ABOVE,
                   logprob_below: float = LOGPROB_BELOW, repeats: int = REPEATS,
                   repeat_window: float = REPEAT_WINDOW, repeat_min_words: int = REPEAT_MIN_WORDS,
-                  quiet_below: float = QUIET_BELOW, quiet_logprob_below: float = QUIET_LOGPROB_BELOW) -> list[Segment]:
+                  quiet_below: float = QUIET_BELOW, quiet_logprob_below: float = QUIET_LOGPROB_BELOW,
+                  dense_above: float = DENSE_ABOVE, dense_min_seconds: float = DENSE_MIN_SECONDS) -> list[Segment]:
     """The segments with their doubts (Segment.doubts), the words kept as
     they are: a doubtful line is shown as such, never dropped (it may be
     the one thing that was said there).
@@ -165,6 +194,9 @@ def flag_doubtful(segments: Iterable[Segment], *, no_speech_above: float = NO_SP
       lines one was QUIET in one run of two (a good line of that speaker:
       a false alarm, harmless since the line is kept). Two recordings are
       what these numbers rest on [I: to be checked on more].
+    - DENSE: more than `dense_above` characters a second (25) over the
+      line's time, or over `dense_min_seconds` (2) when it is shorter:
+      more text than was said there (see DENSE_ABOVE for the measures).
 
     A measure the engine did not give (None) counts as no doubt. Doubts
     already there are kept."""
@@ -178,6 +210,8 @@ def flag_doubtful(segments: Iterable[Segment], *, no_speech_above: float = NO_SP
         if (seg.level is not None and seg.level < quiet_below and seg.avg_logprob is not None
                 and seg.avg_logprob < quiet_logprob_below):
             found[i].add(QUIET)
+        if _length(seg.text) / max(seg.end - seg.start, dense_min_seconds, 1e-3) > dense_above:
+            found[i].add(DENSE)
     same: dict[tuple[str, ...], list[int]] = {}
     for i, seg in enumerate(segments):
         words = _words(seg.text)
@@ -200,6 +234,26 @@ def flag_doubtful(segments: Iterable[Segment], *, no_speech_above: float = NO_SP
     return [seg if set(seg.doubts) == doubts else
             replace(seg, doubts=tuple(sorted(doubts, key=lambda code: (order.get(code, len(order)), code))))
             for seg, doubts in zip(segments, found, strict=True)]
+
+
+def doubtful_share(lines: Iterable) -> float:
+    """The share of the text (characters) in lines with doubts, 0..1; 0
+    without text. Any line with `text` and `doubts` (a Segment, data's Cue)."""
+    total = doubtful = 0
+    for line in lines:
+        n = _length(line.text)
+        total += n
+        if line.doubts:
+            doubtful += n
+    return doubtful / total if total else 0.0
+
+
+def doubt_warning(lines: Iterable, above: float = MOSTLY_DOUBTFUL_ABOVE) -> float | None:
+    """The doubtful share when it is more than `above` (a quarter: see
+    MOSTLY_DOUBTFUL_ABOVE), for the warning at the top of the files and of
+    the Result page; None when there is nothing to warn of."""
+    share = doubtful_share(lines)
+    return share if share > above else None
 
 
 def shift(segments: Iterable[Segment], seconds: float) -> list[Segment]:

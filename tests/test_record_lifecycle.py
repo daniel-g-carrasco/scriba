@@ -251,6 +251,28 @@ class RecordLifecycleTest(unittest.TestCase):
         self.backend.monitor_release.set()
         self.assertTrue(_setup.spin(lambda: not ui.activities.active_count))
 
+    def test_a_recording_stopped_out_of_sight_leaves_the_meters_closed_until_the_page_is_seen(self):
+        # stopped from the tray's menu, the window in the tray or minimized
+        self.begin()
+        self.page.shown(False)
+        self.page.stop()
+        self.complete()
+        self.assertIsNone(self.page.monitor)
+        self.assertEqual(len(self.backend.monitors), 1)
+        self.page.shown(True)
+        self.assertEqual(len(self.backend.monitors), 2)
+
+    def test_a_recording_that_cannot_start_out_of_sight_leaves_the_meters_closed(self):
+        self.backend.start_release.clear()
+        self.backend.start_error = Failure("The device is unavailable.")
+        self.begin(wait=False)
+        self.page.shown(False)
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.backend.start_release.set()
+            self.complete()
+        self.assertIsNone(self.page.monitor)
+        self.assertEqual(len(self.backend.monitors), 1)
+
     def test_repeated_stop_while_finalizing_keeps_one_worker_and_the_first_success_callback(self):
         recorder = self.begin()
         self.backend.finish_release.clear()

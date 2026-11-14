@@ -170,14 +170,14 @@ def _file_icon(ico: str, size: int) -> int:
     return _icons[(ico, size)]
 
 
-def window_icons(exe: str, small: str = "", big: str = "") -> None:
+def window_icons(exe: str, ico: str = "") -> None:
     """This process's windows with the exe's icon, at the sizes Windows draws
     for each window's DPI (the title bar's small one; the big one, which
     Alt+Tab and the taskbar button draw: measured on Windows 11, a window
     with a red small icon and a blue big one has a blue taskbar button).
     GTK gives Windows a 48-pixel icon, which the title bar shrinks badly to
-    16. `small` and `big`, when given, are .ico files that take the exe's
-    place for that kind (the icon for a dark taskbar)."""
+    16. `ico`, when given, is an .ico file that takes the exe's place (a
+    run from the sources, which has no exe of its own)."""
     user32 = ctypes.windll.user32
     user32.GetDpiForWindow.argtypes = [wintypes.HWND]
     user32.GetSystemMetricsForDpi.argtypes = [ctypes.c_int, wintypes.UINT]
@@ -191,7 +191,7 @@ def window_icons(exe: str, small: str = "", big: str = "") -> None:
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
         if owner.value == pid:
             dpi = user32.GetDpiForWindow(hwnd) or 96
-            for kind, metric, ico in ((ICON_SMALL, SM_CXSMICON, small), (ICON_BIG, SM_CXICON, big)):
+            for kind, metric in ((ICON_SMALL, SM_CXSMICON), (ICON_BIG, SM_CXICON)):
                 size = user32.GetSystemMetricsForDpi(metric, dpi)
                 icon = _file_icon(ico, size) if ico else _exe_icon(exe, size) if exe else 0
                 if icon:
@@ -199,23 +199,6 @@ def window_icons(exe: str, small: str = "", big: str = "") -> None:
         return True
 
     user32.EnumWindows(visit, 0)
-
-
-PERSONALIZE = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
-
-
-def taskbar_dark() -> bool:
-    """Windows' own surfaces (taskbar, notification area, Start) are dark:
-    "Choose your Windows mode" in Settings, the value SystemUsesLightTheme
-    0 under HKCU. Read only. Before Windows 10 1903 the value did not exist
-    and the taskbar was always dark, hence dark when it is missing."""
-    import winreg
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, PERSONALIZE) as key:
-            value, _kind = winreg.QueryValueEx(key, "SystemUsesLightTheme")
-    except OSError:
-        return True
-    return value == 0
 
 
 # -- a file that runs when it is opened ---------------------------------------------

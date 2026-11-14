@@ -21,8 +21,6 @@ class Background:
         self._stopping = False
         self.hidden = False
         if WINDOWS:
-            from scriba.app import win32
-
             from .wintray import WinTray
             self.tray = WinTray(
                 APP_ID, APP_NAME, self.present, icon_theme_path=icon_theme_path,
@@ -31,10 +29,7 @@ class Background:
                 on_prepare_update=app.prepare_update_exit,
                 has_quit=lambda: app.exit_ready,
                 on_suspend=self._suspend,
-                on_availability=self._availability,
-                # the icon follows the taskbar's colour; the windows' too
-                taskbar_dark=win32.taskbar_dark,
-                on_taskbar_theme=lambda _dark: app.restyle_windows())
+                on_availability=self._availability)
         else:
             self.tray = TrayIcon(APP_ID, APP_NAME, self.present,
                                  icon_theme_path=icon_theme_path,

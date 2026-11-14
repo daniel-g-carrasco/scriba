@@ -1,14 +1,14 @@
 """The GApplication: one instance (a second launch hands its files to the
-first), the settings, the window, the notifications, the daily update
-check on Windows, and what Windows needs to look right (the system font a
+first), the settings, the window, the notifications, the update check on
+Windows, and what Windows needs to look right (the system font a
 size larger, the title bars in the content's colour, the executable's icon
 on every window)."""
 
 from __future__ import annotations
 
+import datetime
 import os
 import sys
-import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -32,7 +32,8 @@ from .preferences import PreferencesDialog, about_dialog  # noqa: E402
 from .window import MainWindow  # noqa: E402
 
 SOURCE_ICONS = PACKAGE_DIR.parent.parent / "data" / "icons"
-UPDATE_CHECK_DELAY_S = 60
+UPDATE_CHECK_DELAY_S = 60      # after the start: the user's work comes first
+UPDATE_RECHECK_DELAY_S = 5     # after the window comes back from the tray or the taskbar
 
 
 def settings_notice_text(notice: config.Notice) -> str:
@@ -159,39 +160,31 @@ def text_follows_screen(main_window: Callable[[], Gtk.Window | None],
     return stop
 
 
-def native_windows(cache: Path, taskbar_dark: Callable[[], bool] | None = None) -> Callable[[], None]:
+def native_windows(cache: Path) -> Callable[[], None]:
     """Windows: each window of the app, as it shows (the main one and every
     dialog, a window of its own with the system's title bar), gets the title
     bar the content has (dark or light, and on Windows 11 the window's own
     background and text colours: bar and content read as one surface), and
     the exe's icon at the sizes the title bar and Alt+Tab draw (a run from
-    the sources has no icon of its own: the one drawn from the SVG). On a
-    dark surface the icon is the -on-dark variant, ivory disc and dark nib,
-    which does not sink into the dark: the big icon (taskbar button, Alt+Tab)
-    as the taskbar is (taskbar_dark), the small one as the title bar is.
-    Returns the function that does it again (the taskbar changed colour)."""
+    the sources has no icon of its own: the one drawn from the SVG, kept in
+    `cache`). One icon on every surface, light or dark (Daniel, 14/11/2026).
+    Returns the function that does it again (the screen's scale changed)."""
     from scriba.app import win32
 
     from . import winquirks
     from .ui import window_colours
-    from .wintray import ON_DARK, cached_ico
+    from .wintray import cached_ico
     style = Adw.StyleManager.get_default()
     exe = os.path.normpath(sys.executable) if getattr(sys, "frozen", False) else ""
     source = str(SOURCE_ICONS) if SOURCE_ICONS.is_dir() else ""
-    taskbar_dark = taskbar_dark or win32.taskbar_dark
-
-    def icon_file(dark: bool) -> str:
-        if dark:
-            return cached_ico(APP_ID + ON_DARK, cache, source)
-        return "" if exe else cached_ico(APP_ID, cache, source)     # "": the exe's own
 
     def native(*_args):
         windows = Gtk.Window.list_toplevels()
         background, text = window_colours(windows[0]) if windows else (None, None)
         win32.title_bars(style.get_dark(), background, text)
-        small, big = icon_file(style.get_dark()), icon_file(taskbar_dark())
-        if exe or small or big:
-            win32.window_icons(exe, small, big)
+        ico = "" if exe else cached_ico(APP_ID, cache, source)     # "": the exe's own
+        if exe or ico:
+            win32.window_icons(exe, ico)
 
     def restyled(*_args):
         # the style's colours follow the scheme a moment later: now for the
@@ -242,6 +235,8 @@ class App(Adw.Application):
         self.cfg: config.Config | None = None
         self.window: MainWindow | None = None
         self.installing = False    # reserved before Popen, until Setup closes the app or launch fails
+        self._update_checks = False     # the checks made by themselves: on in do_startup (Windows)
+        self._update_timer = 0
         self._pending_check: bool | None = None
         self._pending_release = None
         self._available_release = None
@@ -293,8 +288,9 @@ class App(Adw.Application):
 
         if WINDOWS:
             self._windows_notifications()
-            # once a day, a while after start: the user's work comes first
-            GLib.timeout_add_seconds(UPDATE_CHECK_DELAY_S, self._daily_update_check)
+            # a while after start, and when the window comes back (window_came_back)
+            self._update_checks = True
+            self._schedule_update_check(UPDATE_CHECK_DELAY_S)
             from scriba.app import updates
             project = services.project()
             run_in_thread(lambda: updates.clean_downloads(project), lambda *_: None)    # the installers of earlier updates
@@ -605,12 +601,29 @@ class App(Adw.Application):
 
     # -- a newer version (Windows: on Linux the Flatpak brings it) ----------------------
 
-    def _daily_update_check(self) -> bool:
-        if self.closing or self.exit_ready:
+    def window_came_back(self) -> None:
+        """The window shown again (from the tray, or restored from the
+        taskbar): a check, if the last one is old enough."""
+        self._schedule_update_check(UPDATE_RECHECK_DELAY_S)
+
+    def _schedule_update_check(self, delay_s: int) -> None:
+        # one waiting at a time: a window shown and hidden again and again
+        # makes one check at most, and only when updates.check_due says so
+        if self._update_checks and not self._update_timer and not self.closing:
+            self._update_timer = GLib.timeout_add_seconds(delay_s, self._automatic_update_check)
+
+    def _automatic_update_check(self) -> bool:
+        """A check made by itself. It opens no dialog: a newer version is a
+        banner (and a notification with the window not in front), held back
+        while a recording, a transcription or a download is going
+        (check_updates, work_changed)."""
+        self._update_timer = 0
+        if self.closing or self.exit_ready or not self.cfg.check_updates:
             return False
-        today = time.strftime("%Y-%m-%d")
-        if self.cfg.check_updates and self.cfg.last_update_check != today:
-            self.cfg.last_update_check = today
+        from scriba.app import updates
+        now = datetime.datetime.now()
+        if updates.check_due(self.cfg.last_update_check, now):
+            self.cfg.last_update_check = updates.check_stamp(now)
             self.save_config()
             self.check_updates(manual=False)
         return False

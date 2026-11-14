@@ -141,6 +141,45 @@ class FlagDoubtfulTest(unittest.TestCase):
         self.assertEqual([s.doubts for s in sg.flag_doubtful(segs)], [(sg.QUIET,), (), (), ()])
         self.assertEqual(sg.flag_doubtful(segs, quiet_logprob_below=-0.1)[1].doubts, (sg.QUIET,))
 
+    def test_a_line_with_more_text_than_its_time_holds_is_marked(self):
+        loop = " ".join(["allora"] * 400)              # one word over and over, 2799 characters in 30 s
+        segs = [Segment(0, 30, loop),
+                Segment(30, 34, "una frase detta a velocità normale, sedici caratteri"),   # 13 a second
+                Segment(34, 34.4, "Sì, va bene, grazie."),        # rounded times: judged on 2 s, 10 a second
+                Segment(40, 41, "x" * 51)]                         # 51 characters in under 2 s: 25.5 a second
+        self.assertEqual([s.doubts for s in sg.flag_doubtful(segs)], [(sg.DENSE,), (), (), (sg.DENSE,)])
+        self.assertEqual(sg.flag_doubtful(segs, dense_min_seconds=0.1)[2].doubts, (sg.DENSE,))
+
+    def test_a_line_of_no_time_is_judged_on_the_floor(self):
+        # an engine that gives a line the same start and end: no division by zero
+        self.assertEqual(sg.flag_doubtful([Segment(5, 5, "ciao")])[0].doubts, ())
+
+
+class DoubtWarningTest(unittest.TestCase):
+    def test_the_share_is_of_the_text_not_of_the_lines_or_the_time(self):
+        lines = [Segment(0, 600, "debole", doubts=(sg.QUIET,)),     # long in time, short in text
+                 Segment(600, 610, "a" * 94)]
+        self.assertAlmostEqual(sg.doubtful_share(lines), 6 / 100)
+        self.assertIsNone(sg.doubt_warning(lines))
+
+    def test_more_than_a_quarter_of_the_text_doubtful_is_a_warning(self):
+        good = Segment(0, 10, "b" * 74)
+        self.assertIsNone(sg.doubt_warning([good, Segment(10, 20, "a" * 26)]))          # 26 %: not yet
+        self.assertIsNone(sg.doubt_warning([Segment(0, 10, "b" * 75), Segment(10, 20, "a" * 25, doubts=("x",))]))
+        self.assertAlmostEqual(sg.doubt_warning([good, Segment(10, 20, "a" * 26, doubts=("x",))]), 0.26)
+
+    def test_one_looping_line_in_a_long_meeting_is_enough(self):
+        meeting = [Segment(t, t + 5, f"la battuta numero {t} di una riunione") for t in range(0, 3600, 10)]
+        flagged = sg.flag_doubtful(meeting)
+        self.assertIsNone(sg.doubt_warning(flagged))
+        loop = sg.flag_doubtful([*meeting, Segment(3600, 3630, " ".join(["allora"] * 2000))])
+        self.assertEqual(sum(1 for s in loop if s.doubts), 1)
+        self.assertGreater(sg.doubt_warning(loop), 0.25)
+
+    def test_no_text_no_warning(self):
+        self.assertEqual(sg.doubtful_share([]), 0.0)
+        self.assertIsNone(sg.doubt_warning([Segment(0, 1, "  ", doubts=("x",))]))
+
 
 class ShiftAndMergeTest(unittest.TestCase):
     def test_a_track_is_moved_and_nothing_falls_before_zero(self):

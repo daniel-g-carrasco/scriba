@@ -1,8 +1,9 @@
 """A newer version, from the GitHub releases (Windows; on Linux the Flatpak
 brings it, from GNOME Software).
 
-The latest release from GitHub's API, standard library only, at most once a
-day at start and whenever asked. The installed build downloads the
+The latest release from GitHub's API, standard library only: by itself at
+start and when the window comes back, at most every CHECK_EVERY_HOURS
+(check_due), and whenever asked. The installed build downloads the
 release's installer, checks it against the SHA-256 GitHub publishes for it
 and against the project's own signature (minisign.py: the CI signs it with
 a key GitHub does not hold, so an installer replaced in the release with
@@ -22,6 +23,7 @@ Project the caller gives (app/services.py makes this app's).
 
 from __future__ import annotations
 
+import datetime
 import hashlib
 import json
 import os
@@ -47,6 +49,10 @@ SIGNATURE_MAX_BYTES = 4096
 RELEASE_MAX_BYTES = 2**20
 INSTALLER_MAX_BYTES = 512 * 2**20
 CHUNK = 256 * 1024
+# a check made by itself, at start or when the window comes back: at most this
+# often. Once a day missed a release published after the morning's check
+# (Daniel, 14/11/2026); GitHub allows 60 requests an hour without a token
+CHECK_EVERY_HOURS = 4
 
 
 class UpdateError(Exception):
@@ -122,6 +128,26 @@ def is_newer(candidate: str, current: str) -> bool:
     a, b = parse_version(candidate), parse_version(current)
     n = max(len(a), len(b))
     return a + (0,) * (n - len(a)) > b + (0,) * (n - len(b))
+
+
+def check_due(last: str, now: datetime.datetime, every_hours: float = CHECK_EVERY_HOURS) -> bool:
+    """Whether a check made by itself is due now. `last` is when the last
+    one was made, as the settings keep it (check_stamp); a date alone, as
+    0.1.2 and earlier wrote it, counts from that day's midnight. An empty or
+    unreadable value is due, and so is one in the future (a clock put back
+    would otherwise stop the checks until it got there again)."""
+    try:
+        then = datetime.datetime.fromisoformat(last.strip())
+    except (AttributeError, TypeError, ValueError):
+        return True
+    if then.tzinfo is not None:
+        then = then.astimezone().replace(tzinfo=None)    # the settings' times are local
+    return then > now or now - then >= datetime.timedelta(hours=every_hours)
+
+
+def check_stamp(now: datetime.datetime) -> str:
+    """The time of a check, as the settings keep it: "2026-11-14T10:23:05"."""
+    return now.replace(microsecond=0, tzinfo=None).isoformat()
 
 
 def installed_build() -> bool:

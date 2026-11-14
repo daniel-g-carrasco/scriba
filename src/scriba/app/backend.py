@@ -35,7 +35,7 @@ def request_for(cfg: Config, source: Path, out: Path | None, video: bool) -> job
     device = cfg.device or cfg.measured_device
     return jobs.Request(source=Path(source), out=out, language=cfg.speech_language or "it",
                         model=cfg.quality if cfg.quality in models.WHISPER else "turbo",
-                        terms=terms_of(cfg.terms), speakers=cfg.speakers,
+                        terms=terms_of(cfg.terms), term_files=tuple(cfg.term_file_list()), speakers=cfg.speakers,
                         speaker_count=cfg.speaker_count or None, video=video and cfg.subtitled_video,
                         cpu=device == "cpu", device="" if device == "cpu" else device,
                         my_name=" ".join(cfg.my_name.split()) or "Io")

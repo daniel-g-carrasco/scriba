@@ -51,16 +51,17 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
 from scriba import PACKAGE_DIR, WINDOWS, __version__
-from scriba.core import callmute, estimate, loudness, segments as seg, speakers, timeline, words
+from scriba.core import callmute, estimate, loudness, segments as seg, speakers, terms as term_lists, timeline, words
 from scriba.core.paragraphs import paragraphs
 from scriba.core.subtitles import subtitles as cut_subtitles
-from scriba.data import files, markdown, session as sessions, srt, txt
+from scriba.data import files, markdown, session as sessions, srt, termfiles, txt
 from scriba.data.timing import clock
 from scriba.i18n import _
 
 from . import models
 from scriba.app.engines import vad
 from scriba.app.engines.ffmpeg import Track
+from .log import complain
 from .task import Failure, check
 
 STAGES = ("decode", "speech", "transcribe", "speakers", "write", "video")
@@ -114,7 +115,10 @@ class Request:
     out: Path | None = None             # None: next to the recording (see output_folder)
     language: str = "it"                # "it", "en", ... or "auto"
     model: str = "turbo"                # a key of models.WHISPER
-    terms: tuple[str, ...] = ()         # names and acronyms whisper should write right
+    terms: tuple[str, ...] = ()         # names and acronyms whisper should write right, for this meeting
+    # files of terms kept for every transcription (data/termfiles.py), read
+    # at each run after `terms` (core/terms.py, joined)
+    term_files: tuple[str, ...] = ()
     speakers: bool = False
     speaker_count: int | None = None    # None: found by the engine
     video: bool = False                 # also a copy of the video with the subtitles inside
@@ -401,6 +405,39 @@ def _pick_device(request: Request, cancelled: threading.Event | None):
     return whisper.choose(whisper.list_devices(cancelled=cancelled), request.device)
 
 
+@dataclass(frozen=True)
+class TermsFile:
+    path: str
+    terms: tuple[str, ...] = ()
+    error: str = ""                     # why it cannot be used; "": it can
+
+
+def read_term_files(paths) -> list[TermsFile]:
+    """Each file of terms read (the disk: call it from a thread), or why it
+    cannot be, which goes to the log of errors too."""
+    out = []
+    for path in paths:
+        try:
+            out.append(TermsFile(str(path), tuple(termfiles.read(path))))
+        except termfiles.TermsFileError as e:
+            complain(f"reading the file of terms {path}", e)
+            out.append(TermsFile(str(path), error=str(e)))
+    return out
+
+
+def given_terms(request: Request) -> tuple[term_lists.Joined, list[str]]:
+    """The terms whisper gets for `request`: the meeting's, then those of
+    its files, within what whisper reads; and the sentences to show (a file
+    that cannot be read, which does not stop the work; terms left out)."""
+    read = read_term_files(request.term_files)
+    notes = [_("A file of terms was left out: {reason}").format(reason=f.error) for f in read if f.error]
+    chosen = term_lists.joined(request.terms, [f.terms for f in read if not f.error])
+    if chosen.left_out:
+        notes.append(_("Used {used} of {offered} terms: the others, from the files of terms, did not fit in what "
+                       "the engine reads before the speech.").format(used=len(chosen.terms), offered=chosen.offered))
+    return chosen, notes
+
+
 def run(request: Request, progress: Progress | None = None, cancelled: threading.Event | None = None,
         models_dir: str | os.PathLike | None = None, speeds_file: Path | None = None) -> Result:
     """The transcript of `request.source`, written where output_folder says.
@@ -419,7 +456,7 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
     if lacking:
         raise Failure(_("Models to download first: {names}.").format(names=", ".join(m.filename for m in lacking)),
                       str(models.folder() if models_dir is None else models_dir))
-    notes: list[str] = []
+    chosen, notes = given_terms(request)
     if request.home is not None and request.out is None:
         folder = home_folder(source, request.home)
         folder.mkdir(parents=True, exist_ok=True)
@@ -470,7 +507,7 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
         for n, part in enumerate(parts):
             if not part.pieces:
                 continue
-            options = whisper.Options(models.path_of(model, models_dir), request.language, tuple(request.terms),
+            options = whisper.Options(models.path_of(model, models_dir), request.language, chosen.terms,
                                       4 if device is not None else whisper.processor_threads(), device,
                                       precise=model is models.WHISPER_LARGE)
             transcript = whisper.transcribe(work / f"speech{n}.wav", options, work, _within(progress, n, len(parts)),
@@ -502,7 +539,7 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
         notes += _previous_to_revisions(folder, source)
         names = {me: " ".join(request.my_name.split()) or "Io"} if me else {}
         outputs, stem, header = _write(request, source, folder, duration, language, language_probability, used,
-                                       lines, voices, names)
+                                       lines, voices, names, chosen.terms)
         timings["write"] = progress.finish()
 
         if request.video:
@@ -715,7 +752,8 @@ def listening_copy(source: str | os.PathLike) -> Path:
 
 def _write(request: Request, source: Path, folder: Path, duration: float, language: str,
            language_probability: float | None, device: str, lines: list[seg.Segment],
-           voices: int, names: dict[str, str] | None = None) -> tuple[list[sessions.Output], str, markdown.Header]:
+           voices: int, names: dict[str, str] | None = None,
+           terms: tuple[str, ...] | None = None) -> tuple[list[sessions.Output], str, markdown.Header]:
     """The md, txt and srt under one free name (the meeting's own file
     takes it too, at the end); the outputs, the name and the header."""
     stem = files.free_stem(folder, transcript_stem(source), (".md", ".txt", ".srt", ".json"))
@@ -723,8 +761,10 @@ def _write(request: Request, source: Path, folder: Path, duration: float, langua
     header = markdown.Header(source=full_path(source), duration=duration, language=language,
                              language_probability=language_probability,
                              model=model.key.removeprefix("whisper-"), device=device,
-                             when=datetime.datetime.now(), terms=tuple(request.terms),
-                             speakers_engine="diarize" if request.speakers else "")
+                             when=datetime.datetime.now(),
+                             terms=tuple(request.terms) if terms is None else terms,
+                             speakers_engine="diarize" if request.speakers else "",
+                             doubtful_share=seg.doubt_warning(lines))
     # "Parlante 2" in an Italian file, as trascrivi.py wrote it; the
     # subtitles keep their short tags (P2)
     shown = speakers.display_names(seg.speakers_of(lines), names or {})
@@ -747,6 +787,7 @@ def _snapshot(result: Result) -> dict:
 
 def _save_session(result: Result, request: Request) -> Path:
     options = {"language": request.language, "model": request.model, "terms": list(request.terms),
+               "term_files": list(request.term_files),
                "speakers": request.speakers, "speaker_count": request.speaker_count, "video": request.video,
                "device": result.device, "normalise": request.normalise, "scriba": __version__,
                "my_name": request.my_name}
@@ -830,6 +871,8 @@ def open_session(path: str | os.PathLike) -> tuple[Result, Request]:
     except (OSError, ValueError, TypeError, KeyError, AttributeError, StopIteration) as e:
         raise Failure(_("This meeting cannot be reopened: its saved transcript or automatic subtitles are "
                         "missing or damaged."), str(e)) from e
+    # the warning as the doubts saved say (a meeting saved before 14/11/2026 has none)
+    header = replace(header, doubtful_share=seg.doubt_warning(lines))
     result = Result(list(meeting.outputs), path, lines, len(seg.speakers_of(lines)), meeting.duration,
                     options.get("device", "cpu"), dict(meeting.timings), notes, source, path.parent,
                     stem, header, me, Path(listen) if listen else None, dict(meeting.names))
@@ -871,7 +914,7 @@ def save_names(result: Result, names: dict[str, str]) -> Named:
         raise Failure(_("This transcript cannot be saved again."), "no folder or header in the result")
     folder = Path(result.folder)
     stem = f"{result.stem}_{_('names')}"
-    header = replace(result.header, named=True)
+    header = replace(result.header, named=True, doubtful_share=seg.doubt_warning(result.segments))
     shown = speakers.display_names(seg.speakers_of(result.segments), names)
     renamed = speakers.rename(result.segments, names)
     texts = (("md-named", ".md", markdown.render(header, result.segments, shown, paragraphs)),

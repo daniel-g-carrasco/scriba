@@ -48,47 +48,6 @@ class ScreenDpiTest(unittest.TestCase):
         self.assertIsInstance(win32.per_monitor_aware(), bool)
 
 
-class TaskbarThemeTest(unittest.TestCase):
-    """The taskbar's colour from the registry, with a stand-in for winreg:
-    the user's own settings are never read in a test (and never written)."""
-
-    def read(self, value=None, missing=False):
-        import winreg
-        opened = []
-
-        class Key:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_exc):
-                return False
-
-        def open_key(root, path):
-            opened.append((root, path))
-            if missing:
-                raise FileNotFoundError(path)
-            return Key()
-
-        def query(_key, name):
-            self.assertEqual(name, "SystemUsesLightTheme")
-            if value is None:
-                raise FileNotFoundError(name)
-            return value, winreg.REG_DWORD
-
-        with mock.patch.object(winreg, "OpenKey", open_key), mock.patch.object(winreg, "QueryValueEx", query):
-            dark = win32.taskbar_dark()
-        self.assertEqual(opened, [(winreg.HKEY_CURRENT_USER, win32.PERSONALIZE)])
-        return dark
-
-    def test_zero_is_a_dark_taskbar_one_a_light_one(self):
-        self.assertTrue(self.read(0))
-        self.assertFalse(self.read(1))
-
-    def test_without_the_value_the_taskbar_is_dark_as_before_windows_10_1903(self):
-        self.assertTrue(self.read(None))
-        self.assertTrue(self.read(missing=True))
-
-
 def vtable_function(obj, slot, prototype):
     vtable = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
     return prototype(vtable[slot])

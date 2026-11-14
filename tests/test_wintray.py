@@ -105,78 +105,22 @@ class AvailabilityTest(unittest.TestCase):
         self.assertEqual(changes, [True, False])
 
 
-class TaskbarThemeTest(unittest.TestCase):
-    """The icon for a dark taskbar, with the taskbar's colour from a stand-in
-    (never the registry)."""
-
-    def tray(self, dark, heard=None):
-        from unittest.mock import patch
-        tray = wintray.WinTray("io.example.test", "Test", lambda: None, taskbar_dark=lambda: dark[0],
-                               on_taskbar_theme=heard.append if heard is not None else None)
-        tray.dark = tray._read_dark()
-        tray._added = True
-        asked = []
-        patcher = patch.object(tray, "_icon", side_effect=lambda name: asked.append(name) or 7)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-        return tray, asked
-
-    def drain(self, seconds=0.3):
-        context = GLib.MainContext.default()
-        deadline = time.monotonic() + seconds
-        while time.monotonic() < deadline:
-            if not context.iteration(False):
-                time.sleep(0.01)
-
-    def test_the_variant_on_a_dark_taskbar_the_normal_icon_on_a_light_one(self):
-        dark, asked_dark = self.tray([True])
-        light, asked_light = self.tray([False])
-        for tray in (dark, light):
-            tray.icon_name = "io.example.test-recording"
-            tray._data(wintray.NIF_ICON)
-        self.assertEqual(asked_dark, ["io.example.test-recording-on-dark"])
-        self.assertEqual(asked_light, ["io.example.test-recording"])
-
-    def test_a_change_of_the_windows_mode_changes_the_icon(self):
-        import ctypes
-        from unittest.mock import patch
-        dark, heard = [False], []
-        tray, asked = self.tray(dark, heard)
-        setting = ctypes.create_unicode_buffer(wintray.COLOUR_SET)
-        dark[0] = True
-        with patch.object(wintray.shell32, "Shell_NotifyIconW", return_value=1) as shell:
-            tray._window_proc(None, wintray.WM_SETTINGCHANGE, 0, ctypes.addressof(setting))
-            self.assertEqual(heard, [])                 # from the main loop
-            self.drain()
-            self.assertEqual(heard, [True])
-            self.assertEqual(asked, ["io.example.test-on-dark"])
-            self.assertEqual(shell.call_args[0][0], wintray.NIM_MODIFY)
-            # another setting, no setting, or the same mode again: nothing
-            other = ctypes.create_unicode_buffer("Environment")
-            for lparam in (ctypes.addressof(other), 0, ctypes.addressof(setting)):
-                tray._window_proc(None, wintray.WM_SETTINGCHANGE, 0, lparam)
-            self.drain()
-            self.assertEqual(heard, [True])
-            self.assertEqual(shell.call_count, 1)
-
-    def test_without_the_variant_the_normal_icon(self):
+class StateIconTest(unittest.TestCase):
+    def test_a_state_and_an_unknown_one_both_have_an_icon(self):
         import tempfile
         from pathlib import Path
         with tempfile.TemporaryDirectory() as tmp:
             tray = wintray.WinTray("io.github.daniel_g_carrasco.scriba", "Scriba", lambda: None,
                                    icon_theme_path=str(_setup.ROOT / "data" / "icons"), cache=Path(tmp))
-            self.assertTrue(tray._icon("io.github.daniel_g_carrasco.scriba-recording-on-dark"))
-            self.assertTrue((Path(tmp) / "io.github.daniel_g_carrasco.scriba-recording-on-dark.ico").is_file())
-            # a state without its variant (from another version of the app):
-            # an icon all the same, never none
-            self.assertTrue(tray._icon("io.github.daniel_g_carrasco.scriba-nothing-on-dark"))
+            self.assertTrue(tray._icon("io.github.daniel_g_carrasco.scriba-recording"))
+            self.assertTrue((Path(tmp) / "io.github.daniel_g_carrasco.scriba-recording.ico").is_file())
+            # a state this version has no drawing for: the app's icon, never none
+            self.assertTrue(tray._icon("io.github.daniel_g_carrasco.scriba-nothing"))
             tray.stop()
 
 
 class WindowIconTest(unittest.TestCase):
-    def test_the_taskbar_button_follows_the_taskbar_the_title_bar_the_window(self):
-        # the big icon is the taskbar button's (measured: see win32.window_icons),
-        # the small one the title bar's, whose colour is the content's
+    def test_a_run_from_the_sources_gives_every_window_the_icon_drawn_from_the_svg(self):
         import tempfile
         from pathlib import Path
         from unittest.mock import patch
@@ -184,15 +128,12 @@ class WindowIconTest(unittest.TestCase):
         from scriba.gui import application
         from gi.repository import Adw
         Adw.init()
-        content_dark = Adw.StyleManager.get_default().get_dark()
         with tempfile.TemporaryDirectory() as tmp, \
                 patch.object(win32, "title_bars"), patch.object(win32, "window_icons") as icons:
-            for taskbar in (True, False):
-                application.native_windows(Path(tmp), taskbar_dark=lambda t=taskbar: t)()
-                _exe, small, big = icons.call_args[0]
-                self.assertEqual(big.endswith("scriba-on-dark.ico"), taskbar)
-                self.assertTrue(big.endswith(".ico"))   # a run from the sources: drawn from the SVG
-                self.assertEqual(small.endswith("-on-dark.ico"), content_dark)
+            application.native_windows(Path(tmp))()
+            exe, ico = icons.call_args[0]
+            self.assertEqual(exe, "")                   # not frozen: no exe of its own
+            self.assertEqual(Path(ico).name, "io.github.daniel_g_carrasco.scriba.ico")
 
 
 class FullDiscTest(unittest.TestCase):
@@ -203,7 +144,7 @@ class FullDiscTest(unittest.TestCase):
         from pathlib import Path
         from gi.repository import GdkPixbuf
         from test_icons import drawn
-        svg = _setup.ROOT / "data" / "icons" / "hicolor" / "scalable" / "apps" / "io.github.daniel_g_carrasco.scriba-recording-on-dark.svg"
+        svg = _setup.ROOT / "data" / "icons" / "hicolor" / "scalable" / "apps" / "io.github.daniel_g_carrasco.scriba-recording.svg"
         with tempfile.TemporaryDirectory() as tmp:
             ico = Path(tmp) / "icon.ico"
             wintray.ico_from_svg(str(svg), ico)

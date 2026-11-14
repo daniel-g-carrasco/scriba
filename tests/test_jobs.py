@@ -5,6 +5,8 @@ logic: times brought back, voices numbered, doubtful lines marked, one
 name for the set, nothing over a file that is there), then with the real
 engines on the test clip (marked `real`, see test_engines.py)."""
 
+import contextlib
+import io
 import json
 import os
 import tempfile
@@ -97,6 +99,33 @@ class ChainTest(unittest.TestCase):
         self.assertIn("[00:10] (?) Grazie. _(words uncertain)_", md)
         srt = Path(next(o.path for o in result.outputs if o.kind == "srt")).read_text(encoding="utf-8")
         self.assertIn("00:00:02,500 --> 00:00:04,500\nP1: Buongiorno a tutti.", srt)
+
+    def test_the_files_of_terms_follow_the_meetings_terms_and_a_missing_one_is_said_not_fatal(self):
+        engines = StandIns(self)
+        trade = self.folder / "mestiere.txt"
+        trade.write_text("# termini del mestiere\nquadro generale\n\nofficina esempio\ncavedi\n", encoding="utf-8")
+        gone = self.folder / "sparito.txt"
+        with contextlib.redirect_stderr(io.StringIO()) as log:
+            result = jobs.run(jobs.Request(self.source, self.out, terms=("Officina Esempio",),
+                                           term_files=(str(gone), str(trade))))
+        self.assertEqual(engines.calls["options"].terms, ("Officina Esempio", "quadro generale", "cavedi"))
+        self.assertEqual(result.header.terms, ("Officina Esempio", "quadro generale", "cavedi"))
+        self.assertEqual(result.notes, ["A file of terms was left out: sparito.txt is not there."])
+        self.assertIn("sparito.txt", log.getvalue())               # the log of errors hears of it too
+        meeting = json.loads(result.session.read_text(encoding="utf-8"))
+        self.assertEqual(meeting["options"]["terms"], ["Officina Esempio"])
+        self.assertEqual(meeting["options"]["term_files"], [str(gone), str(trade)])
+
+    def test_terms_that_do_not_fit_are_the_files_and_are_counted(self):
+        engines = StandIns(self)
+        many = self.folder / "tanti.txt"
+        many.write_text("\n".join(f"termine numero {n}" for n in range(100)), encoding="utf-8")
+        result = jobs.run(jobs.Request(self.source, self.out, terms=("Cantiere Esempio",), term_files=(str(many),)))
+        given = engines.calls["options"].terms
+        self.assertEqual(given[0], "Cantiere Esempio")
+        self.assertLessEqual(len(", ".join(given)), 560)
+        self.assertEqual(result.notes, [f"Used {len(given)} of 101 terms: the others, from the files of terms, did "
+                                        "not fit in what the engine reads before the speech."])
 
     def test_a_recording_with_its_tracks_has_the_microphone_as_the_user_and_the_others_told_apart(self):
         tracks = (ffmpeg.Track(0, "Microphone", "me"), ffmpeg.Track(1, "Output", "others"))

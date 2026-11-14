@@ -199,13 +199,14 @@ msgstr "Vale dal prossimo avvio"
 msgid "Updates"
 msgstr "Aggiornamenti"
 
-#: src/scriba/gui/window.py:258
-msgid "Check for updates at start-up"
-msgstr "Controlla gli aggiornamenti all'avvio"
+#: src/scriba/gui/preferences.py
+msgid "Check for updates automatically"
+msgstr "Controlla gli aggiornamenti automaticamente"
 
-#: src/scriba/gui/window.py:259
-msgid "Once a day, from the project's releases on GitHub; nothing about you or your files is sent"
-msgstr "Una volta al giorno, dalle versioni pubblicate su GitHub; non viene inviato nulla su di te o sui tuoi file"
+#: src/scriba/gui/preferences.py
+#, python-brace-format
+msgid "At start-up and when the window is opened again, at most every {hours} hours, from the project's releases on GitHub; nothing about you or your files is sent"
+msgstr "All'avvio e quando si riapre la finestra, al massimo ogni {hours} ore, dalle versioni pubblicate su GitHub; non viene inviato nulla su di te o sui tuoi file"
 
 #: src/scriba/gui/window.py:287
 msgid "Measuring the space taken by the app's files…"
@@ -298,8 +299,8 @@ msgstr "Trascrizione automatica: chi parla non è distinto; nomi, sigle e numeri
 
 #: src/scriba/data/markdown.py:105
 #, python-brace-format
-msgid "Lines marked {mark} are doubtful (the engine heard no clear speech, was unsure of the words, wrote the same words over and over, or the voice was very faint): check them against the audio."
-msgstr "Le righe segnate {mark} sono dubbie (il motore non ha sentito parlato chiaro, era incerto sulle parole, ha scritto le stesse parole più volte o la voce era molto debole): vanno ricontrollate sull'audio."
+msgid "Lines marked {mark} are doubtful (the engine heard no clear speech, was unsure of the words, wrote the same words over and over or more words than fit the time, or the voice was very faint): check them against the audio."
+msgstr "Le righe segnate {mark} sono dubbie (il motore non ha sentito parlato chiaro, era incerto sulle parole, ha scritto le stesse parole più volte o più parole di quante ne stiano nel tempo, o la voce era molto debole): vanno ricontrollate sull'audio."
 
 #: src/scriba/data/session.py:133
 #, python-brace-format
@@ -649,6 +650,20 @@ msgstr "caricamento del modello"
 msgid "voice very faint"
 msgstr "voce molto debole"
 
+#: src/scriba/data/markdown.py
+msgid "too much text for its length"
+msgstr "troppo testo per la durata"
+
+#: src/scriba/gui/result.py
+#, python-brace-format
+msgid "{percent}% of the text is doubtful: listen to the recording again before relying on it"
+msgstr "Il {percent} % del testo è dubbio: riascolta la registrazione prima di fidarti"
+
+#: src/scriba/data/markdown.py
+#, python-brace-format
+msgid "Warning: {percent}% of the text is doubtful (marked {mark}): the engine may have invented or repeated words. Listen to the recording again before relying on this transcript."
+msgstr "Attenzione: il {percent} % del testo è dubbio (segnato {mark}): il motore potrebbe aver inventato o ripetuto parole. Riascolta la registrazione prima di fidarti di questa trascrizione."
+
 #: src/scriba/__main__.py
 #, python-brace-format
 msgid "usage: {command} [RECORDING]"
@@ -996,8 +1011,12 @@ msgid "Text"
 msgstr "Testo"
 
 #: src/scriba/gui/result.py
-msgid "The rest is in the files."
-msgstr "Il resto è nei file."
+msgid "Read the Whole Transcript"
+msgstr "Leggi tutta la trascrizione"
+
+#: src/scriba/gui/transcript.py
+msgid "Full Transcript"
+msgstr "Trascrizione completa"
 
 #: src/scriba/gui/transcribe.py
 msgid "Italian"
@@ -2162,3 +2181,75 @@ msgstr "Apri il registro degli errori"
 
 msgid "No errors have been recorded."
 msgstr "Nessun errore registrato."
+
+#: src/scriba/data/termfiles.py
+#, python-brace-format
+msgid "{name} is too large for a list of terms."
+msgstr "{name} è troppo grande per un elenco di termini."
+
+#: src/scriba/data/termfiles.py
+#, python-brace-format
+msgid "{name} cannot be read: {reason}"
+msgstr "{name} non si può leggere: {reason}"
+
+#: src/scriba/data/termfiles.py
+#, python-brace-format
+msgid "{name} is not text in UTF-8: save it again as UTF-8."
+msgstr "{name} non è testo in UTF-8: salvalo di nuovo come UTF-8."
+
+#: src/scriba/app/jobs.py
+#, python-brace-format
+msgid "A file of terms was left out: {reason}"
+msgstr "Un file di termini è stato lasciato fuori: {reason}"
+
+#: src/scriba/app/jobs.py
+#, python-brace-format
+msgid "Used {used} of {offered} terms: the others, from the files of terms, did not fit in what the engine reads before the speech."
+msgstr "Usati {used} termini su {offered}: gli altri, dei file di termini, non stavano in ciò che il motore legge prima del parlato."
+
+#: src/scriba/cli.py
+msgid "a file of terms, one a line (lines starting with # left out), read after --terms; can be given more than once"
+msgstr "un file di termini, uno per riga (righe che iniziano con # escluse), letto dopo --terms; si può ripetere"
+
+#: src/scriba/gui/preferences.py
+msgid "Terms"
+msgstr "Termini"
+
+#: src/scriba/gui/preferences.py
+msgid "Add a File of Terms…"
+msgstr "Aggiungi un file di termini…"
+
+#: src/scriba/gui/preferences.py
+msgid "Add a File of Terms"
+msgstr "Aggiungi un file di termini"
+
+#: src/scriba/gui/preferences.py
+msgid "Text files"
+msgstr "File di testo"
+
+#: src/scriba/gui/preferences.py
+msgid "Remove from the List"
+msgstr "Togli dall’elenco"
+
+#: src/scriba/gui/preferences.py
+#, python-brace-format
+msgid "{n} term"
+msgid_plural "{n} terms"
+msgstr[0] "{n} termine"
+msgstr[1] "{n} termini"
+
+#: src/scriba/gui/preferences.py
+#, python-brace-format
+msgid "Only {used} of these {offered} terms fit in what the engine reads; the meeting’s own come first."
+msgstr "Solo {used} di questi {offered} termini stanno in ciò che il motore legge; quelli della riunione vengono prima."
+
+#: src/scriba/gui/preferences.py
+#, python-brace-format
+msgid "The engine reads the {n} term, after the meeting’s own."
+msgid_plural "The engine reads all {n} terms, after the meeting’s own."
+msgstr[0] "Il motore legge {n} termine, dopo quelli della riunione."
+msgstr[1] "Il motore legge tutti i {n} termini, dopo quelli della riunione."
+
+#: src/scriba/gui/preferences.py
+msgid "Read at every transcription, after the terms typed for the meeting. Plain text, one term or phrase a line; lines starting with # are left out."
+msgstr "Letti a ogni trascrizione, dopo i termini scritti per la riunione. Testo semplice, un termine o una frase per riga; le righe che iniziano con # sono escluse."

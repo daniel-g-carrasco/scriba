@@ -214,6 +214,31 @@ class WindowTest(unittest.TestCase):
         request = page.request()
         self.assertEqual((request.out, request.home), (self.tmp, None))
 
+    def test_the_files_of_terms_are_listed_with_their_terms_or_why_not_and_reach_the_work(self):
+        trade = self.tmp / "mestiere.txt"
+        trade.write_text("# del mestiere\nquadro generale\ncavedi\n", encoding="utf-8")
+        gone = self.tmp / "sparito.txt"
+        window = self.window()
+        dialog = PreferencesDialog(window, self.app)
+        self.assertEqual(dialog.term_rows, [])
+        with contextlib.redirect_stderr(io.StringIO()) as log:
+            dialog._add_terms_file(str(trade))
+            dialog._add_terms_file(str(gone))
+            dialog._add_terms_file(str(trade))                      # once only
+            self.assertEqual(self.app.cfg.term_file_list(), [jobs.full_path(trade), jobs.full_path(gone)])
+            self.assertEqual([r.get_title() for r in dialog.term_rows], ["mestiere.txt", "sparito.txt"])
+            self.assertTrue(_setup.spin(lambda: dialog.terms_count is not None))
+        self.assertIn("sparito.txt", log.getvalue())                    # in the log of errors too
+        self.assertTrue(dialog.term_rows[0].get_subtitle().startswith("2 terms · "))
+        self.assertIn("is not there", dialog.term_rows[1].get_subtitle())
+        self.assertIn("all 2 terms", dialog.terms_group.get_description())
+        window.open_path(str(self.recording))
+        self.assertTrue(_setup.spin(lambda: window.transcribe.media is not None))
+        self.assertEqual(window.transcribe.request().term_files, (jobs.full_path(trade), jobs.full_path(gone)))
+        dialog._remove_terms_file(jobs.full_path(gone))
+        self.assertEqual([r.get_title() for r in dialog.term_rows], ["mestiere.txt"])
+        self.assertEqual(self.app.cfg.term_file_list(), [jobs.full_path(trade)])
+
     # -- the test of the graphics cards ---------------------------------------------
 
     def test_with_the_models_there_the_cards_are_tested_at_once_on_the_sample(self):
@@ -448,6 +473,73 @@ class WindowTest(unittest.TestCase):
             if not name.endswith(".json"):
                 self.assertEqual((self.out / name).read_bytes(), content, name)
         self.assertTrue(_setup.spin(lambda: "md-named" in {o.kind for o in result.result.outputs}))
+
+    def test_the_whole_text_is_a_page_of_its_own_with_one_scrolling_area(self):
+        from scriba.core.paragraphs import paragraphs
+        from scriba.data import markdown
+        from scriba.gui import result as result_mod
+
+        def scrollers(widget):
+            """The scrolling areas on the page itself (a drop-down's list is in its popover)."""
+            if isinstance(widget, Gtk.Popover):
+                return 0
+            found = int(isinstance(widget, Gtk.ScrolledWindow))
+            child = widget.get_first_child()
+            while child is not None:
+                found += scrollers(child)
+                child = child.get_next_sibling()
+            return found
+
+        window = self.result_window()
+        result = window.result
+        lines = paragraphs(result.result.segments)
+        self.assertGreater(len(lines), result_mod.EXCERPT_PARAGRAPHS)
+        self.assertEqual(scrollers(result.page), 1)         # the page's own, none inside it
+        result.read_all()
+        page = result.transcript
+        self.assertIs(window.nav.get_visible_page(), page)
+        self.assertEqual(scrollers(page), 1)
+        self.assertFalse(page.text.get_editable())
+        # the keys scroll it at once (the window's focus: has_focus also wants the window active)
+        self.assertTrue(_setup.spin(page.text.is_focus, 5))
+        adjustment = page.text.get_vadjustment()
+        self.assertTrue(_setup.spin(lambda: adjustment.get_upper() > adjustment.get_page_size() > 0, 5))
+        page.text.emit("move-cursor", Gtk.MovementStep.PAGES, 1, False)     # Page Down
+        self.assertTrue(_setup.spin(lambda: adjustment.get_value() > 0, 5))
+        text = page.contents()
+        for segment in result.result.segments:              # all of it, past the first lines
+            self.assertIn(" ".join(segment.text.split()), text)
+        self.assertEqual(text.count(markdown.DOUBT_MARK), sum(1 for p in lines if any(s.doubts for s in p)))
+        # a name given on the Result page reaches the open page, and goes away again
+        result.entries["Speaker 2"].set_text("Anna Rossi")
+        self.assertIn("Anna Rossi", page.contents())
+        self.assertNotIn("Speaker 2", page.contents())
+        result.entries["Speaker 2"].set_text("")
+        self.assertNotIn("Anna Rossi", page.contents())
+        self.assertEqual(page.contents(), text)
+        window.nav.pop()                                    # back (Escape, Alt+Left: the view's own keys)
+        self.assertIs(window.nav.get_visible_page(), result)
+
+    def test_a_largely_doubtful_transcript_is_said_in_a_banner_and_the_counts_agree(self):
+        from scriba.core import segments as seg
+        from scriba.data import markdown
+        window = self.result_window()
+        self.assertFalse(window.result.banner.get_revealed())       # a few doubtful lines: no banner
+        made = fake_engines.lines(3, 30, 2)
+        loop = seg.Segment(made[-1].end + 1, made[-1].end + 31, " ".join(["allora"] * 600), "Speaker 1")
+        lines = [*made, *seg.flag_doubtful([loop])]                 # 2 doubtful lines and a loop
+        window.show_result(fake_engines.made_result(self.out, self.recording, lines), window.transcribe.request())
+        result = window.result
+        self.assertTrue(result.banner.get_revealed())
+        self.assertIn("% of the text is doubtful", result.banner.get_title())
+        self.assertIn("3 doubtful lines", result.outcome.get_label())
+        result.read_all()
+        self.assertEqual(result.transcript.contents().count(markdown.DOUBT_MARK), 3)
+        md = next(o.path for o in result.result.outputs if o.kind == "md")
+        self.assertIn("> **Warning:", Path(md).read_text(encoding="utf-8"))
+        window.nav.pop()
+        window.show_result(fake_engines.made_result(self.out, self.recording, made), window.transcribe.request())
+        self.assertFalse(window.result.banner.get_revealed())
 
     def test_listen_plays_the_voice_and_the_same_button_stops_it(self):
         import numpy as np
@@ -732,6 +824,40 @@ class WindowTest(unittest.TestCase):
             self.assertEqual(shown, ["99.0.0", "99.0.0"])   # asked for: the dialog at once
             self.assertEqual(len(notes), 1)
 
+    def test_the_window_coming_back_checks_for_updates_at_most_every_few_hours(self):
+        window = self.app.window = self.window()
+        self.app._update_checks = True              # as do_startup has it on Windows
+        checks = []
+        with mock.patch.object(app_mod, "UPDATE_RECHECK_DELAY_S", 0), \
+                mock.patch.object(type(self.app), "check_updates", lambda _app, manual: checks.append(manual)):
+            window.present()
+            self.assertTrue(_setup.spin(lambda: checks == [False], 5))      # by itself: no dialog asked
+            self.assertEqual(self.app.saved, 1)
+            self.assertIn("T", self.app.cfg.last_update_check)              # the date and the time
+            for _ in range(3):                      # to the tray and back, again and again
+                window.set_visible(False)
+                window.present()
+                _setup.spin(lambda: False, 0.2)
+            self.assertEqual(checks, [False])
+            self.app.cfg.last_update_check = "2026-11-12"                   # as 0.1.2 left it
+            self.app.cfg.check_updates = False
+            window.set_visible(False)
+            window.present()
+            _setup.spin(lambda: False, 0.3)
+            self.assertEqual(checks, [False])       # switched off in the preferences
+            self.app.cfg.check_updates = True
+            window.set_visible(False)
+            window.present()
+            self.assertTrue(_setup.spin(lambda: checks == [False, False], 5))
+
+    def test_a_test_app_never_checks_by_itself(self):
+        window = self.app.window = self.window()
+        with mock.patch.object(app_mod, "UPDATE_RECHECK_DELAY_S", 0), \
+                mock.patch.object(type(self.app), "check_updates") as check:
+            window.present()
+            _setup.spin(lambda: False, 0.3)
+        check.assert_not_called()                   # not started: no request to GitHub from the tests
+
     def test_the_update_dialog(self):
         dialog = UpdateDialog(updates.Release("99.0.0", "https://example/release", "Notes\n\n- one line", []))
         self.assertIs(dialog.get_focus(), dialog.action)
@@ -783,6 +909,42 @@ class RecordPageTest(unittest.TestCase):
         self.assertIsNone(window.record.monitor)
         window.views.set_visible_child_name("record")
         self.assertEqual(len(self.engines.monitors), 2)
+
+    def test_in_the_tray_no_device_stays_open_and_the_meters_come_back_with_the_window(self):
+        window = self.window()
+        monitors = self.engines.monitors
+        with mock.patch.object(window.result, "stop") as stop_playing:
+            window.set_visible(False)           # closed with the X into the tray (Background.hide)
+            self.assertTrue(_setup.spin(lambda: monitors[0].stopped == 1, 5))
+            stop_playing.assert_called()        # a voice being played stops too
+        self.assertIsNone(window.record.monitor)
+        window.present()
+        self.assertTrue(_setup.spin(lambda: len(monitors) == 2 and window.record.monitor is not None, 5))
+
+    @unittest.skipUnless(os.name == "nt", "minimized by Windows (a window manager elsewhere may not suspend it)")
+    def test_minimized_the_meters_stop_and_come_back_when_restored(self):
+        window = self.window()
+        monitors = self.engines.monitors
+        window.minimize()
+        self.assertTrue(_setup.spin(window.is_suspended, 5))
+        self.assertTrue(_setup.spin(lambda: monitors[0].stopped == 1, 5))
+        self.assertIsNone(window.record.monitor)
+        window.unminimize()
+        window.present()
+        self.assertTrue(_setup.spin(lambda: not window.is_suspended(), 5))
+        self.assertTrue(_setup.spin(lambda: len(monitors) == 2 and window.record.monitor is not None, 5))
+
+    def test_a_recording_goes_on_out_of_sight(self):
+        window = self.window()
+        page, recorder = self.recording(window)
+        window.set_visible(False)
+        _setup.spin(lambda: False, 0.3)
+        self.assertIs(page.recorder, recorder)
+        self.assertEqual(recorder.state, "recording")
+        self.assertEqual(len(self.engines.monitors), 1)     # no meters beside the recording
+        page.stop()
+        self.assertTrue(_setup.spin(lambda: not page.busy, 5))
+        self.assertIsNone(page.monitor)                      # nor after it, out of sight
 
     def test_the_automatic_choice_says_which_devices_and_why(self):
         page = self.window().record

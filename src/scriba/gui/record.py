@@ -337,6 +337,7 @@ class RecordPage(Adw.Bin):
         super().__init__()
         self.window, self.app, self.backend = window, window.app, window.backend
         self.monitor = None
+        self._on_screen = False         # what the window last said (shown)
         self.recorder = None
         self.folder = None
         self._tick_id = 0
@@ -448,7 +449,10 @@ class RecordPage(Adw.Bin):
 
     def shown(self, visible: bool) -> None:
         """The page came on screen (the meters start) or went off it (they
-        stop: no device stays open for nothing)."""
+        stop: no device stays open for nothing). The window says it at every
+        change; the page remembers it for the end of a recording, which may
+        come with the window in the tray or minimized."""
+        self._on_screen = visible
         if getattr(self.app, "closing", False):
             self.stop_all()
             return
@@ -641,7 +645,7 @@ class RecordPage(Adw.Bin):
             if closing:
                 self.app.block_exit(error)
             else:
-                self.shown(self.window.views.get_visible_child_name() == "record")
+                self.shown(self._on_screen)
             self.window.page_changed()
             return
         self.recorder, self.folder = recorder, folder
@@ -805,5 +809,5 @@ class RecordPage(Adw.Bin):
             then()
             return
         if not closing:
-            self.shown(self.window.views.get_visible_child_name() == "record")
+            self.shown(self._on_screen)
         self.window.page_changed()

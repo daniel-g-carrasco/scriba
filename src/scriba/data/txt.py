@@ -11,13 +11,15 @@ from pathlib import Path
 
 from . import files
 from .lines import Line
-from .markdown import Group, Header, body, facts, shown
+from .markdown import Group, Header, body, facts, shown, warning
 
 
 def render(header: Header, lines: Iterable[Line], names: Mapping[str, str] | None = None,
            group: Group | None = None) -> str:
     lines = shown(lines, names)
-    return "\n".join([*facts(header, lines), "", *body(lines, bold=False, group=group)]) + "\n"
+    title, *rest = facts(header, lines)
+    alert = warning(header)
+    return "\n".join([title, *([alert] if alert else []), *rest, "", *body(lines, bold=False, group=group)]) + "\n"
 
 
 def write(folder: str | os.PathLike, stem: str, header: Header, lines: Iterable[Line],

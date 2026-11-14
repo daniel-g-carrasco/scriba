@@ -2,7 +2,8 @@
 colleagues who want trascrivi.py's way of working.
 
     scriba transcribe <file> [--speakers [N]] [--video] [--language it|en|auto]
-                             [--model turbo|large] [--terms "..."] [--out DIR] [--cpu]
+                             [--model turbo|large] [--terms "..."] [--terms-file FILE]...
+                             [--out DIR] [--cpu]
     scriba models [--download]
     scriba benchmark [<file>] [--model turbo|large]
     scriba record <seconds> --out DIR [--no-microphone] [--no-sound]
@@ -59,6 +60,9 @@ def build_parser() -> argparse.ArgumentParser:
     transcribe.add_argument("--model", default="turbo", choices=("turbo", "large"),
                             help=_("turbo is fast, large is more precise and slower"))
     transcribe.add_argument("--terms", default="", help=_("names and acronyms to write right, separated by commas"))
+    transcribe.add_argument("--terms-file", action="append", default=[], type=Path, metavar="FILE",
+                            help=_("a file of terms, one a line (lines starting with # left out), read after "
+                                   "--terms; can be given more than once"))
     transcribe.add_argument("--out", type=Path, default=None, help=_("the folder for the files"))
     transcribe.add_argument("--cpu", action="store_true", help=_("work on the processor only"))
     transcribe.add_argument("--normalise", action="store_true",
@@ -164,7 +168,8 @@ def transcribe(args) -> int:
     from scriba.app import jobs, services
     from scriba.app.task import Cancelled, Failure
     request = jobs.Request(source=args.file, out=args.out, language=args.language, model=args.model,
-                           terms=terms_of(args.terms), speakers=args.speakers is not None,
+                           terms=terms_of(args.terms), term_files=tuple(str(f) for f in args.terms_file),
+                           speakers=args.speakers is not None,
                            speaker_count=args.speakers or None, video=args.video, cpu=args.cpu,
                            normalise=args.normalise)
     speeds = services.app_paths().state / jobs.SPEEDS_FILE

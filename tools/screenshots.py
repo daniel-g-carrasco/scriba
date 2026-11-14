@@ -13,7 +13,10 @@ cards going and a faster card left out for its wrong words (with the
 preferences that say it), the preferences,
 a page in the dark theme; Record at rest (and with the microphone's
 devices open), recording with its levels, with a warning, and the long
-case (seven devices with long names, both sides open). Each window is opened, drawn, photographed and
+case (seven devices with long names, both sides open); the whole transcript on its
+page (top, middle, dark); the preferences' files of terms (one too long to
+fit whole, one missing; light and dark); the Result of a transcript largely
+doubtful, with its banner (light and dark). Each window is opened, drawn, photographed and
 destroyed by the script, almost transparent while it is on the screen
 (the picture is GTK's own drawing of the content: Gtk.WidgetPaintable, as
 SCRIBA_SCREENSHOT does), so as not to cover what the user is doing; no
@@ -35,7 +38,8 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tests"))
 
 STATES = ("models", "models-downloading", "empty", "setup-video", "cards-testing", "cards-left-out", "working", "result", "result-long",
-          "preferences", "dark", "record", "record-going", "record-warning", "record-long", "balance")
+          "preferences", "dark", "record", "record-going", "record-warning", "record-long", "balance", "transcript",
+          "terms", "result-doubtful")
 GHOST = 0.02            # the window's opacity on the screen while it is drawn and photographed
 
 
@@ -450,6 +454,40 @@ class Shots:
         self.photograph(window, "13-bilanciamento")
         window.destroy()
 
+    def transcript(self):
+        """The whole text on its own page, from "Read the Whole Transcript":
+        the long case (8 voices with long names, doubtful lines), at the top
+        and further down, then in the dark theme; with one name changed on
+        the Result page after the page was made."""
+        import fake_engines
+        from gi.repository import Adw
+        from scriba.app import jobs
+        for dark, name in ((False, "14-trascrizione-completa"), (True, "14c-trascrizione-completa-scura")):
+            app, tmp = self.app()
+            source = self.recording(tmp, "2026-11-11 Riunione di coordinamento impianti.m4a")
+            made = fake_engines.made_result(tmp / "Registrazioni", source, fake_engines.lines(8, 130, 40),
+                                            duration=3725.0)
+            made.names = {"Speaker 1": "Ing. Maria Francesca Bianchi-Lombardi (Direzione Lavori, committente)",
+                          "Speaker 2": "Giovanni Battista De Santis"}
+            if dark:
+                Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_DARK)
+            window = self.window(app)
+            window.show_result(made, jobs.Request(source))
+            window.result.read_all()
+            self.spin(lambda w=window: w.nav.get_visible_page() is w.result.transcript)
+            window.result.entries["Speaker 3"].set_text("Arch. Eleonora Fumagalli Castiglioni")
+            self.settle(0.8)
+            self.photograph(window, name)
+            if not dark:
+                scroll = self.scroller(window.result.transcript)
+                adjustment = scroll.get_vadjustment()
+                adjustment.set_value((adjustment.get_upper() - adjustment.get_page_size()) * 0.5)
+                self.settle(0.3)
+                self.photograph(window, "14b-trascrizione-completa-meta")
+            window.destroy()
+            if dark:
+                Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_LIGHT)
+
     def preferences(self):
         from scriba.app.config import Config
         from scriba.gui.preferences import PreferencesDialog
@@ -469,6 +507,75 @@ class Shots:
 
     def dark(self):
         self._result(3, 24, 2, dark=True, name="08-risultato-scuro")
+
+    def _dark(self, dark: bool) -> None:
+        from gi.repository import Adw
+        Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_DARK if dark
+                                                        else Adw.ColorScheme.FORCE_LIGHT)
+
+    def terms(self):
+        """The group Terms of the preferences: a file of made-up terms too
+        long to be given whole (the count says how many go), and a file
+        that is no longer there (a warning)."""
+        import fake_engines
+
+        from scriba.app.config import Config
+        from scriba.gui.preferences import PreferencesDialog
+        for dark, name in ((False, "15-preferenze-termini"), (True, "15b-preferenze-termini-scure")):
+            app, tmp = self.app(None, Config(measured_device=fake_engines.CARD.name))
+            trade = tmp / "Termini" / "ambito-impianti-esempio.txt"
+            trade.parent.mkdir(parents=True, exist_ok=True)
+            lines = ["# termini inventati per la fotografia", *(f"quadro di zona numero {n}" for n in range(1, 41))]
+            trade.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            app.cfg.set_term_files([str(trade), str(tmp / "Termini" / "cliente-esempio-spostato.txt")])
+            self._dark(dark)
+            window = self.window(app)
+            dialog = PreferencesDialog(window, app)
+            dialog.present(window)
+            self.spin(lambda d=dialog: d.get_root() is not None and d.get_root().get_mapped(), 5)
+            root = dialog.get_root()
+            if root is not window:
+                self.ghost(root)
+            self.spin(lambda d=dialog: d.terms_count is not None, 5)
+            self.settle()
+            from gi.repository import Gtk
+            scroll = dialog.terms_group.get_ancestor(Gtk.ScrolledWindow)     # the page's, not the search's
+            if scroll is not None:
+                import gi
+                gi.require_version("Graphene", "1.0")
+                from gi.repository import Graphene
+                found, point = dialog.terms_group.compute_point(scroll.get_child(), Graphene.Point())
+                if found:
+                    scroll.get_vadjustment().set_value(max(0.0, point.y - 24))
+                else:
+                    print("terms: the group's place was not found", file=sys.stderr)
+            self.settle(0.4)
+            self.photograph(dialog, name)
+            dialog.close()
+            window.destroy()
+            self._dark(False)
+
+    def result_doubtful(self):
+        """A transcript where one line wrote a word over and over: more than a
+        quarter of the text is doubtful, and the Result page says so."""
+        import fake_engines
+
+        from scriba.app import jobs
+        from scriba.core import segments as seg
+        for dark, name in ((False, "16-risultato-dubbio"), (True, "16b-risultato-dubbio-scuro")):
+            app, tmp = self.app()
+            source = self.recording(tmp, "2026-11-11 Riunione di coordinamento impianti.m4a")
+            made = fake_engines.lines(3, 24, 2)
+            loop = seg.Segment(made[-1].end + 1, made[-1].end + 31, " ".join(["allora"] * 600), "Speaker 2")
+            result = fake_engines.made_result(tmp / "Registrazioni", source, [*made, *seg.flag_doubtful([loop])],
+                                              duration=3725.0)
+            self._dark(dark)
+            window = self.window(app)
+            window.show_result(result, jobs.Request(source))
+            self.settle(0.8)
+            self.photograph(window, name)
+            window.destroy()
+            self._dark(False)
 
     # -- the Record page -------------------------------------------------------------
 

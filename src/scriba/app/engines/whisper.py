@@ -56,13 +56,13 @@ from pathlib import Path
 from scriba import ENV_PREFIX
 from scriba.app.task import Failure, Progress, check, tell
 from scriba.core.segments import Segment
+from scriba.core.terms import PROMPT_MAX_CHARACTERS, SEPARATOR
 from scriba.i18n import _
 
 from . import process
 
 CLI_VARIABLE = f"{ENV_PREFIX}_WHISPER_CLI"     # another whisper-cli (whisper-bench is looked for next to it)
 DEVICES_VARIABLE = "GGML_VK_VISIBLE_DEVICES"
-PROMPT_MAX_CHARACTERS = 500     # the prompt may be 224 tokens (n_text_ctx / 2); a term is a few tokens
 # what the app cannot do without; the rest is used when the program has it
 NEEDED = ("-m", "-f", "-l", "-t", "-of", "-ojf")
 _DEVICE_LINE = re.compile(r"ggml_vulkan: (\d+) = (.+?) \(([^()]*)\) \| uma: (\d)")
@@ -191,10 +191,11 @@ def flags(cli: Path, cancelled: threading.Event | None = None) -> frozenset[str]
 def prompt(terms: Sequence[str]) -> str:
     """The terms as whisper's initial prompt, as the engine test gave them
     ("Officina Esempio, Cantiere Esempio, Gruppo Esempio, ..."): whisper writes the names as it saw them
-    there. Cut at the last whole term that fits."""
+    there. Cut at the last whole term that fits (core/terms.py, joined,
+    has already cut them where they are joined, and says so)."""
     out = ""
     for term in dict.fromkeys(t.strip() for t in terms if t.strip()):
-        candidate = f"{out}, {term}" if out else term
+        candidate = f"{out}{SEPARATOR}{term}" if out else term
         if len(candidate) > PROMPT_MAX_CHARACTERS:
             break
         out = candidate

@@ -4,6 +4,7 @@ the installer downloaded and checked against GitHub's SHA-256 and the
 project's signature, no more read than the release says."""
 
 import dataclasses
+import datetime
 import hashlib
 import json
 import os
@@ -47,6 +48,35 @@ class VersionTest(unittest.TestCase):
         self.assertFalse(updates.is_newer("0.3.9", "0.3.10"))           # not as text: 9 < 10
         self.assertTrue(updates.is_newer("1.0", "0.9.9"))
         self.assertEqual(updates.parse_version("v1.2.0-rc1"), (1, 2, 0))
+
+
+class CheckDueTest(unittest.TestCase):
+    """When a check made by itself is due: every few hours, never in a burst."""
+
+    NOW = datetime.datetime(2026, 11, 14, 15, 30)
+
+    def test_the_morning_check_of_0_1_2_does_not_hide_an_afternoon_release(self):
+        # 0.1.2 wrote the date alone: a release out after the morning's check
+        # waited until the next day; now the date is its midnight
+        self.assertTrue(updates.check_due("2026-11-14", self.NOW))
+        self.assertFalse(updates.check_due("2026-11-14", datetime.datetime(2026, 11, 14, 3, 0)))
+
+    def test_a_check_is_due_after_the_hours_and_not_before(self):
+        hours = updates.CHECK_EVERY_HOURS
+        just_before = self.NOW - datetime.timedelta(hours=hours) + datetime.timedelta(minutes=1)
+        self.assertFalse(updates.check_due(updates.check_stamp(just_before), self.NOW))
+        self.assertTrue(updates.check_due(updates.check_stamp(self.NOW - datetime.timedelta(hours=hours)), self.NOW))
+        self.assertFalse(updates.check_due(updates.check_stamp(self.NOW), self.NOW))
+
+    def test_nothing_readable_or_a_time_to_come_makes_it_due(self):
+        for last in ("", "  ", "yesterday", "2026-13-40", "2026-11-14T17:00:00"):
+            with self.subTest(last=last):
+                self.assertTrue(updates.check_due(last, self.NOW))
+
+    def test_the_stamp_reads_back_as_the_time_of_the_check(self):
+        stamp = updates.check_stamp(datetime.datetime(2026, 11, 14, 10, 23, 5, 123456))
+        self.assertEqual(stamp, "2026-11-14T10:23:05")
+        self.assertEqual(datetime.datetime.fromisoformat(stamp), datetime.datetime(2026, 11, 14, 10, 23, 5))
 
 
 class ReleaseTest(unittest.TestCase):

@@ -50,6 +50,11 @@
   </requires>
 
   <releases>
+    <release version="0.1.3" date="2026-11-14" type="stable">
+      <description>
+        <p>Files of terms read at every transcription, lines with too much text for their time marked as doubtful, a warning when much of a transcript is doubtful, the whole transcript on a page of its own, more frequent update checks, the microphone closed while the window is hidden, and one icon everywhere.</p>
+      </description>
+    </release>
     <release version="0.1.2" date="2026-11-13" type="stable">
       <description>
         <p>Echo of the loudspeakers removed from the microphone, the call's microphone and mute followed on Windows, a folder per recording with previous revisions kept, transcripts in paragraphs, subtitles of standard length, sharper text on high-resolution Windows screens, and a local error log.</p>

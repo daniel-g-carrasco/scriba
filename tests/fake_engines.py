@@ -121,7 +121,8 @@ def made_result(folder: Path, source: Path, segments, video: bool = False, notes
     voices = len(seg.speakers_of(segments))
     header = markdown.Header(source=str(source), duration=duration, language="it", model="large-v3-turbo",
                              device=device, terms=("Cantiere Esempio", "cavedi"),
-                             speakers_engine="diarize" if voices else "")
+                             speakers_engine="diarize" if voices else "",
+                             doubtful_share=seg.doubt_warning(segments))
     stem = files.free_stem(folder, f"{source.stem}_{_('transcript')}", (".md", ".txt", ".srt", ".json"))
     names = speakers.display_names(seg.speakers_of(segments), {})
     outputs = [sessions.Output("md", str(markdown.write(folder, stem, header, segments, names))),

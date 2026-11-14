@@ -4,20 +4,23 @@ legal sections)."""
 
 from __future__ import annotations
 
+import os
 import threading
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gtk  # noqa: E402
+from gi.repository import Adw, Gio, Gtk  # noqa: E402
 
 from scriba import APP_ID, APP_NAME, WEBSITE, WINDOWS, __version__  # noqa: E402
 from scriba.app import credits, diagnostics, jobs, models, recording  # noqa: E402
-from scriba.i18n import _  # noqa: E402
+from scriba.core import terms  # noqa: E402
+from scriba.i18n import _, ngettext  # noqa: E402
 
 from .style_values import SPACE_XL  # noqa: E402
-from .ui import choose_folder, escape, recordings_folder, run_in_thread, toolkit_versions  # noqa: E402
+from .ui import (choose_folder, escape, file_dialog_done, recordings_folder, report, run_in_thread,  # noqa: E402
+                 toolkit_versions)
 
 QUALITIES = ("turbo", "large")
 ELSEWHERE = ("scriba", "beside")    # app/config.py, elsewhere
@@ -152,6 +155,14 @@ class PreferencesDialog(Adw.PreferencesDialog):
         group.add(self.elsewhere_row)
         page.add(group)
 
+        self.terms_group = Adw.PreferencesGroup(title=_("Terms"))
+        self.term_rows: list[Adw.ActionRow] = []
+        self.add_terms_row = Adw.ButtonRow(title=_("Add a File of Terms…"), start_icon_name="list-add-symbolic")
+        self.add_terms_row.connect("activated", lambda *_: self._choose_terms_file())
+        self.terms_group.add(self.add_terms_row)
+        page.add(self.terms_group)
+        self._show_term_files()
+
         group = Adw.PreferencesGroup(title=_("Recording"))
         self.recordings_row = Adw.ActionRow(title=_("Folder for the Recordings"), subtitle_lines=2)
         self.recordings_reset = Gtk.Button(icon_name="edit-undo-symbolic", tooltip_text=_("Back to the Usual Folder"),
@@ -188,9 +199,11 @@ class PreferencesDialog(Adw.PreferencesDialog):
 
         if WINDOWS:
             group = Adw.PreferencesGroup(title=_("Updates"))
-            updates = Adw.SwitchRow(title=_("Check for updates at start-up"),
-                                    subtitle=_("Once a day, from the project's releases on GitHub; "
-                                               "nothing about you or your files is sent"),
+            from scriba.app.updates import CHECK_EVERY_HOURS
+            updates = Adw.SwitchRow(title=_("Check for updates automatically"),
+                                    subtitle=_("At start-up and when the window is opened again, at most every "
+                                               "{hours} hours, from the project's releases on GitHub; nothing "
+                                               "about you or your files is sent").format(hours=CHECK_EVERY_HOURS),
                                     active=cfg.check_updates)
             updates.connect("notify::active", lambda r, _p: self._set("check_updates", r.get_active()))
             group.add(updates)
@@ -303,6 +316,96 @@ class PreferencesDialog(Adw.PreferencesDialog):
     def _open_models(self):
         self.close()
         self.window.show_models()
+
+    # -- the files of terms ----------------------------------------------------------
+
+    def _choose_terms_file(self) -> None:
+        dialog = Gtk.FileDialog(title=_("Add a File of Terms"), modal=True)
+        text = Gtk.FileFilter(name=_("Text files"))
+        text.add_suffix("txt")
+        text.add_mime_type("text/plain")
+        everything = Gtk.FileFilter(name=_("All files"))
+        everything.add_pattern("*")
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(text)
+        filters.append(everything)
+        dialog.set_filters(filters)
+        dialog.set_default_filter(text)
+        chosen = self.app.cfg.term_file_list()
+        if chosen and os.path.isdir(os.path.dirname(chosen[-1])):
+            dialog.set_initial_folder(Gio.File.new_for_path(os.path.dirname(chosen[-1])))
+        dialog.open(self.get_native() or self.window, None,
+                    file_dialog_done(self.window, "open_finish", self._add_terms_file))
+
+    def _add_terms_file(self, path: str) -> None:
+        self._set_term_files([*self.app.cfg.term_file_list(), jobs.full_path(path)])
+
+    def _remove_terms_file(self, path: str) -> None:
+        self._set_term_files([p for p in self.app.cfg.term_file_list() if p != path])
+
+    def _set_term_files(self, paths) -> None:
+        self.app.cfg.set_term_files(paths)
+        self.app.save_config()
+        self.window.settings_changed()
+        self._show_term_files()
+
+    def _show_term_files(self) -> None:
+        """A row for each file, read in a thread: how many terms it has, or
+        why it cannot be used (a warning, and a line in the log of errors);
+        under them how many whisper gets of all of them."""
+        for row in self.term_rows:
+            self.terms_group.remove(row)
+        self.term_rows = []
+        self._term_icons: list[Gtk.Image] = []
+        paths = self.app.cfg.term_file_list()
+        self._terms_token = token = object()
+        for path in paths:
+            row = Adw.ActionRow(title=escape(os.path.basename(path) or path), subtitle=escape(jobs.full_path(path)),
+                                subtitle_lines=2)
+            icon = Gtk.Image(icon_name="text-x-generic-symbolic")
+            row.add_prefix(icon)
+            self._term_icons.append(icon)
+            remove = Gtk.Button(icon_name="list-remove-symbolic", tooltip_text=_("Remove from the List"),
+                                valign=Gtk.Align.CENTER, css_classes=["flat"])
+            remove.connect("clicked", lambda _b, p=path: self._remove_terms_file(p))
+            row.add_suffix(remove)
+            self.terms_group.remove(self.add_terms_row)         # the rows above the button
+            self.terms_group.add(row)
+            self.terms_group.add(self.add_terms_row)
+            self.term_rows.append(row)
+        self.terms_count = None
+        self._describe_terms()
+        if paths:
+            run_in_thread(lambda: jobs.read_term_files(paths), lambda found, error: self._term_files_read(
+                token, found, error))
+
+    def _term_files_read(self, token, found, error) -> None:
+        if token is not self._terms_token or error is not None:
+            if error is not None:
+                report("reading the files of terms", error)
+            return
+        for row, icon, read in zip(self.term_rows, self._term_icons, found, strict=True):
+            if read.error:
+                row.set_subtitle(escape(read.error))
+                icon.set_from_icon_name("dialog-warning-symbolic")
+                icon.add_css_class("warning")
+            else:
+                count = ngettext("{n} term", "{n} terms", len(read.terms)).format(n=len(read.terms))
+                row.set_subtitle(escape(f"{count} · {jobs.full_path(read.path)}"))
+        chosen = terms.joined((), [f.terms for f in found if not f.error])
+        if chosen.left_out:
+            self.terms_count = _("Only {used} of these {offered} terms fit in what the engine reads; the meeting’s "
+                                 "own come first.").format(used=len(chosen.terms), offered=chosen.offered)
+        else:
+            self.terms_count = ngettext("The engine reads the {n} term, after the meeting’s own.",
+                                        "The engine reads all {n} terms, after the meeting’s own.",
+                                        chosen.offered).format(n=chosen.offered)
+        self._describe_terms()
+
+    def _describe_terms(self) -> None:
+        text = _("Read at every transcription, after the terms typed for the meeting. Plain text, one term or "
+                 "phrase a line; lines starting with # are left out.")
+        self.terms_group.set_description(escape(f"{text} {self.terms_count}" if self.terms_count else text))
 
     # -- the folder ----------------------------------------------------------------
 

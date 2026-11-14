@@ -42,13 +42,6 @@ WNDPROC = ctypes.WINFUNCTYPE(LRESULT, wintypes.HWND, wintypes.UINT, wintypes.WPA
 
 WM_NULL, WM_DESTROY, WM_CONTEXTMENU, WM_USER = 0x0000, 0x0002, 0x007B, 0x0400
 WM_CLOSE, WM_QUERYENDSESSION, WM_ENDSESSION = 0x0010, 0x0011, 0x0016
-# broadcast to every top-level window, this hidden one too; lParam names the
-# setting, "ImmersiveColorSet" when the Windows or app mode changes
-WM_SETTINGCHANGE = 0x001A
-COLOUR_SET = "ImmersiveColorSet"
-# the variant of an icon for a dark taskbar: ivory disc, dark nib
-# (tools/make_icons.py writes them from the normal ones)
-ON_DARK = "-on-dark"
 # the computer about to sleep and awake again (sent to every top-level window)
 WM_POWERBROADCAST, PBT_APMSUSPEND, PBT_APMRESUMEAUTOMATIC = 0x0218, 0x0004, 0x0012
 # at sign-out Windows waits a few seconds, then offers to end the apps still
@@ -227,16 +220,8 @@ class WinTray:
                  on_quit: Callable[[], None] | None = None, has_quit: Callable[[], bool] | None = None,
                  on_suspend: Callable[[], None] | None = None, on_resume: Callable[[], None] | None = None,
                  on_availability: Callable[[bool], None] | None = None,
-                 on_prepare_update: Callable[[], int] | None = None,
-                 taskbar_dark: Callable[[], bool] | None = None,
-                 on_taskbar_theme: Callable[[bool], None] | None = None):
-        """taskbar_dark reads whether the taskbar is dark (win32.taskbar_dark;
-        a test gives its own); the icon then takes its -on-dark variant, and
-        on_taskbar_theme hears when that changes with the program open."""
+                 on_prepare_update: Callable[[], int] | None = None):
         self.available = False
-        self.taskbar_dark = taskbar_dark or (lambda: False)
-        self.on_taskbar_theme = on_taskbar_theme
-        self.dark = False
         self.on_availability = on_availability
         self.app_id, self.title, self.on_activate = app_id, title, on_activate
         self.on_quit, self.has_quit = on_quit, has_quit
@@ -265,7 +250,6 @@ class WinTray:
                          hInstance=instance, lpszClassName=name)
         user32.RegisterClassExW(ctypes.byref(wc))
         self._hwnd = user32.CreateWindowExW(0, name, self.title, 0, 0, 0, 0, 0, None, None, instance, None)
-        self.dark = self._read_dark()
         allow_dark_menus()
         self._add()
 
@@ -321,8 +305,7 @@ class WinTray:
         if flags & NIF_MESSAGE:
             data.uCallbackMessage = CALLBACK_MESSAGE
         if flags & NIF_ICON:
-            name = self.icon_name or self.app_id
-            data.hIcon = self._icon(name + ON_DARK if self.dark else name)
+            data.hIcon = self._icon(self.icon_name or self.app_id)
         if flags & NIF_TIP:
             data.szTip = self.tooltip[:127]
         return data
@@ -356,8 +339,6 @@ class WinTray:
         if ico:
             size = user32.GetSystemMetrics(SM_CXSMICON)
             handle = user32.LoadImageW(None, ico, IMAGE_ICON, size, size, LR_LOADFROMFILE) or 0
-        if not handle and name.endswith(ON_DARK):
-            return self._icon(name.removesuffix(ON_DARK))     # the normal one rather than none
         if not handle and name != self.app_id:
             return self._icon(self.app_id)
         self._icons[name] = handle
@@ -380,28 +361,7 @@ class WinTray:
     def _svg(self, name: str) -> str | None:
         return theme_svg(name, self.icon_theme_path)
 
-    def _read_dark(self) -> bool:
-        try:
-            return bool(self.taskbar_dark())
-        except OSError as error:
-            complain("reading the taskbar's colours", error)
-            return False
-
-    def _taskbar_theme_changed(self) -> None:
-        """Windows changed its mode: the icon for the new taskbar, and the
-        windows' own (on_taskbar_theme)."""
-        dark = self._read_dark()
-        if dark != self.dark:
-            self.dark = dark
-            self._modify(NIF_ICON)
-            if self.on_taskbar_theme:
-                self.on_taskbar_theme(dark)
-
     def _window_proc(self, hwnd, message, wparam, lparam):
-        if message == WM_SETTINGCHANGE:
-            if lparam and ctypes.wstring_at(lparam) == COLOUR_SET:
-                GLib.idle_add(lambda: self._taskbar_theme_changed() and False)
-            return user32.DefWindowProcW(hwnd, message, wparam, lparam)
         if self._prepare_update_message and message == self._prepare_update_message:
             if self.on_prepare_update is None:
                 return 0

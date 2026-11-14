@@ -85,16 +85,35 @@ class MainWindow(_WindowBase):
         action = Gio.SimpleAction.new("open", None)
         action.connect("activate", lambda *_: self.transcribe.busy or self.choose_file())
         self.add_action(action)
-        # the meters run while the Record page is on screen, and only then
+        # the meters run while the Record page is on screen, and only then: not
+        # with the window in the tray (unmapped) nor minimized (suspended: GTK
+        # keeps a minimized window mapped, and its meters kept the microphone
+        # open, measured 14/11/2026)
         self.views.connect("notify::visible-child-name", lambda *_: self._view_changed())
-        self.connect("map", lambda *_: self._view_changed())
-        self.connect("unmap", lambda *_: self.record.shown(False))
+        self.connect("map", lambda *_: self._came_back())
+        self.connect("unmap", lambda *_: self._went_away())
+        self.connect("notify::suspended", lambda *_: self._came_back() if self.on_screen() else self._went_away())
         self.page_changed()
 
+    def on_screen(self) -> bool:
+        """The window can be seen: shown (not in the tray) and not minimized."""
+        return bool(self.get_mapped()) and not self.is_suspended()
+
     def _view_changed(self) -> None:
-        on_screen = self.get_mapped() and self.nav.get_visible_page() is self.nav.find_page("main")
-        self.record.shown(bool(on_screen) and self.views.get_visible_child_name() == "record")
+        main = self.nav.get_visible_page() is self.nav.find_page("main")
+        self.record.shown(self.on_screen() and main and self.views.get_visible_child_name() == "record")
         self.page_changed()
+
+    def _went_away(self) -> None:
+        """Out of sight, outside a recording: no sound device stays open (the
+        meters, a voice being played)."""
+        self.record.shown(False)
+        self.result.stop()
+        self.page_changed()
+
+    def _came_back(self) -> None:
+        self._view_changed()
+        self.app.window_came_back()     # a check for updates, if the last one is old enough
 
     def _dropped(self, _target, file, _x, _y) -> bool:
         if file is None or not file.get_path():

@@ -36,8 +36,10 @@ class Config:
     language: str = ""                   # "" = the desktop's; "en", "it"
     keep_running: bool = True            # keep working when the window is closed, if the desktop supports it
     models_download_paused: bool = False # a deliberate pause survives the next launch
-    check_updates: bool = True           # Windows: a newer release, once a day at start
-    last_update_check: str = ""          # ISO date of the last check made on its own
+    check_updates: bool = True           # Windows: a newer release, at start and when the window comes back
+    # ISO date and time of the last check made on its own (updates.check_stamp;
+    # a date alone, as 0.1.2 wrote it, is read as its midnight)
+    last_update_check: str = ""
     last_folder: str = ""                # the folder of the last recording opened, for the next file dialog
     # the transcription's choices, remembered from one to the next
     speech_language: str = "it"          # "it", "en", "auto"
@@ -48,6 +50,7 @@ class Config:
     my_name: str = "Io"                 # the microphone's name
     speaker_names: str = ""             # previously used names, one per line
     terms: str = ""                      # names and acronyms, separated by commas
+    term_files: str = ""                 # files of terms read at every transcription, one path a line, in order
     output_folder: str = ""              # "": next to the recording
     # with no output_folder, a file outside the recordings' folder: "scriba",
     # a folder of its own there with a link to the file (jobs.home_folder);
@@ -66,6 +69,13 @@ class Config:
     extra: dict = field(default_factory=dict, compare=False, repr=False)
     # what load() had to do to read the file (Notice); never saved
     notices: list = field(default_factory=list, compare=False, repr=False)
+
+    def term_file_list(self) -> list[str]:
+        """The files of terms, in their order, each once."""
+        return list(dict.fromkeys(line.strip() for line in self.term_files.splitlines() if line.strip()))
+
+    def set_term_files(self, paths) -> None:
+        self.term_files = "\n".join(dict.fromkeys(str(p).strip() for p in paths if str(p).strip()))
 
     def to_json(self) -> dict:
         data = asdict(self)

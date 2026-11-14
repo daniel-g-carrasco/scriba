@@ -1,8 +1,10 @@
 """The Result page, pushed on top of Transcribe: the outcome in one line,
 the files made (Open, Show in Folder), the voices with a field for each
 name and a stretch to listen to, "Save with the Names" (the files with the
-names, brought up to date; never the automatic ones), and the text to read, the doubtful lines faded
-and every change of voice set off.
+names, brought up to date; never the automatic ones), and the first lines
+of the text, the doubtful ones faded and every change of voice set off,
+with "Read the Whole Transcript" under them: the text in full is a page of
+its own (gui/transcript.py), never a scrolling area inside this one.
 
 A page of an Adw.NavigationView, as GNOME's apps open a detail: its back
 button (and Escape, Alt+Left) goes back to the choices for the same
@@ -19,21 +21,23 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk  # noqa: E402
+gi.require_version("Pango", "1.0")
+from gi.repository import Adw, GLib, Gtk, Pango  # noqa: E402
 
 from scriba.app import jobs  # noqa: E402
 from scriba.app.task import Cancelled  # noqa: E402
-from scriba.core import estimate, speakers  # noqa: E402
+from scriba.core import estimate, segments, speakers  # noqa: E402
 from scriba.core.paragraphs import paragraphs  # noqa: E402
 from scriba.data import markdown  # noqa: E402
 from scriba.data.timing import clock  # noqa: E402
 from scriba.i18n import _, count, ngettext  # noqa: E402
 
 from .style_values import ICON_TILE, SPACE_L, SPACE_M, SPACE_S, SPACE_XS  # noqa: E402
+from .transcript import TranscriptPage  # noqa: E402
 from .ui import escape, header_bar, open_path, report, reveal, run_in_thread  # noqa: E402
 
-PREVIEW_HEIGHT = 360        # the text's own scrolling area, as tall as half a window
-PREVIEW_MAX_LINES = 3000    # past this the preview stops and says so: the files have it all
+EXCERPT_PARAGRAPHS = 3      # the first paragraphs on the page; the rest on a page of its own (gui/transcript.py)
+EXCERPT_LINES = 3           # a long one cut there, with an ellipsis
 BALANCE_PREVIEW = "\0balance"   # the balance's preview among what is played (never a voice's label)
 
 
@@ -81,6 +85,10 @@ class ResultPage(Adw.NavigationPage):
         header.set_title_widget(self.title)
         header.pack_end(window.menu_button())
         self.view.add_top_bar(header)
+        # a transcript largely doubtful says so above everything, as GNOME's
+        # apps tell what holds for the whole page (an Adw.Banner, no dialog)
+        self.banner = Adw.Banner()
+        self.view.add_top_bar(self.banner)
         self.set_child(self.view)
         self.connect("hidden", lambda *_: self.stop())
 
@@ -104,6 +112,11 @@ class ResultPage(Adw.NavigationPage):
         self.result, self.request = result, request
         self._saving = False
         self.title.set_subtitle(escape(Path(result.source or request.source).name))
+        share = segments.doubt_warning(result.segments)
+        if share is not None:
+            self.banner.set_title(escape(_("{percent}% of the text is doubtful: listen to the recording again before "
+                                           "relying on it").format(percent=round(share * 100))))
+        self.banner.set_revealed(share is not None)
         page = Adw.PreferencesPage()
         for group in self._outcome(result, request):
             page.add(group)
@@ -125,6 +138,7 @@ class ResultPage(Adw.NavigationPage):
         self.suggestions: dict[str, tuple] = {}
         self._known = speakers.remembered(self.window.app.cfg.speaker_names, result.names)
         self.headings: dict[str, list[Gtk.Label]] = {}
+        self.transcript = None              # the whole text's page, made when first asked
         self.listen_buttons: dict[str, Gtk.Button] = {}
         self.balance_group = self._balance(result)
         page.add(self.balance_group)
@@ -154,9 +168,10 @@ class ResultPage(Adw.NavigationPage):
         facts.append(ngettext("{n} doubtful line", "{n} doubtful lines", doubtful).format(n=count(doubtful))
                      if doubtful else _("no doubtful line"))
         line = Gtk.Box(spacing=SPACE_L)
-        icon = Gtk.Image(icon_name="dialog-warning-symbolic" if result.notes else "object-select-symbolic",
+        warned = bool(result.notes) or segments.doubt_warning(result.segments) is not None
+        icon = Gtk.Image(icon_name="dialog-warning-symbolic" if warned else "object-select-symbolic",
                          pixel_size=ICON_TILE, valign=Gtk.Align.START,
-                         css_classes=["warning" if result.notes else "success"])
+                         css_classes=["warning" if warned else "success"])
         line.append(icon)
         words = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=SPACE_XS, hexpand=True)
         self.outcome_title = Gtk.Label(label=_("Transcript Ready"), xalign=0, wrap=True, css_classes=["title-3"])
@@ -335,6 +350,8 @@ class ResultPage(Adw.NavigationPage):
         shown = " ".join(text.split()) or speakers.shown_label(label)
         for heading in self.headings.get(label, []):
             heading.set_label(shown)
+        if self.transcript is not None:
+            self.transcript.rename(label, shown)
         if hasattr(self, "save_button"):
             self.save_button.set_sensitive(not self._saving and bool(speakers.clean(self.names()) or self.result.names))
         menu, choices, popover = self.suggestions[label]
@@ -551,7 +568,7 @@ class ResultPage(Adw.NavigationPage):
         previous, first = None, True
         voiced = any(s.speaker for s in result.segments)
         lines = paragraphs(result.segments)      # as the files have them; a doubtful line on its own
-        for paragraph in lines[:PREVIEW_MAX_LINES]:
+        for paragraph in lines[:EXCERPT_PARAGRAPHS]:
             seg = paragraph[0]
             row = Gtk.Box(spacing=SPACE_M)
             if voiced and seg.speaker != previous:
@@ -569,7 +586,7 @@ class ResultPage(Adw.NavigationPage):
             row.append(Gtk.Label(label=clock(seg.start), yalign=0, valign=Gtk.Align.START,
                                  css_classes=["dim-label", "numeric", "caption"]))
             text = Gtk.Label(label=" ".join(" ".join(s.text.split()) for s in paragraph), xalign=0, wrap=True,
-                             hexpand=True)
+                             hexpand=True, lines=EXCERPT_LINES, ellipsize=Pango.EllipsizeMode.END)
             doubts = tuple(dict.fromkeys(code for s in paragraph for code in s.doubts))
             if doubts:
                 text.set_label(f"{markdown.DOUBT_MARK} {text.get_label()}")
@@ -577,11 +594,22 @@ class ResultPage(Adw.NavigationPage):
                 text.set_tooltip_text(", ".join(reasons.get(code, code) for code in doubts))
             row.append(text)
             box.append(row)
-        if len(lines) > PREVIEW_MAX_LINES:
-            box.append(Gtk.Label(label=_("The rest is in the files."), xalign=0, css_classes=["dim-label"]))
         if not lines:
             box.append(Gtk.Label(label=_("No speech was found in the recording."), css_classes=["dim-label"]))
-        scroll = Gtk.ScrolledWindow(child=box, min_content_height=PREVIEW_HEIGHT, max_content_height=PREVIEW_HEIGHT,
-                                    hscrollbar_policy=Gtk.PolicyType.NEVER, css_classes=["card"])
-        group.add(scroll)
+        # the first lines, without a scrolling area of their own (the page has
+        # one); the text in full one row below, on a page of its own
+        group.add(Adw.PreferencesRow(child=box, activatable=False))
+        if lines:
+            more = Adw.ActionRow(title=_("Read the Whole Transcript"), activatable=True)
+            more.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+            more.connect("activated", lambda *_: self.read_all())
+            group.add(more)
         return group
+
+    def read_all(self) -> None:
+        """The text in full, on a page pushed over this one (back: Escape)."""
+        if self.result is None:
+            return
+        if self.transcript is None:
+            self.transcript = TranscriptPage(self.window, self.result, self.names())
+        self.window.nav.push(self.transcript)

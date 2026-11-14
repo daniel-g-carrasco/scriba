@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
 from pathlib import Path
 
 MAX_REVISIONS = 9999        # past this a folder is not a folder of revisions any more: something is wrong
@@ -184,7 +185,24 @@ def replace(path: str | os.PathLike, text: str) -> None:
     path = Path(path)
     tmp = _temporary(path.parent, text)
     try:
-        os.replace(tmp, path)
+        _replace_patiently(tmp, path)
     except BaseException:
         _discard(tmp)
         raise
+
+
+REPLACE_WAITS = (0.05, 0.1, 0.2, 0.4)      # seconds between tries: under a second in all
+
+
+def _replace_patiently(tmp: str | os.PathLike, path: Path) -> None:
+    """os.replace, tried again for a moment when Windows refuses it: an
+    antivirus or the indexer holds a file that was just written open for
+    an instant, and the rename then fails with PermissionError although
+    nothing is wrong. Any other error, and a refusal that lasts, is raised."""
+    for wait in REPLACE_WAITS:
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            time.sleep(wait)
+    os.replace(tmp, path)

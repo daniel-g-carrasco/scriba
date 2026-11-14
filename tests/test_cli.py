@@ -34,6 +34,24 @@ class OptionsTest(unittest.TestCase):
         args = self.parse("--speakers", "--video", "--language", "auto", "--model", "large", "--cpu")
         self.assertEqual((args.video, args.language, args.model, args.cpu), (True, "auto", "large", True))
 
+    def test_the_files_of_terms_can_be_given_more_than_once_and_reach_the_request(self):
+        from unittest import mock
+
+        from scriba.app import jobs
+        from scriba.app.task import Failure
+        self.assertEqual(self.parse().terms_file, [])
+        args = self.parse("--terms", "Cantiere Esempio", "--terms-file", "a.txt", "--terms-file", "b.txt")
+        made = []
+
+        def run(request, *_args, **_kwargs):
+            made.append(request)
+            raise Failure("stop here", "test")
+        with mock.patch.object(jobs, "run", run), contextlib.redirect_stderr(io.StringIO()), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(cli.transcribe(args), cli.FAILED)
+        self.assertEqual(made[0].terms, ("Cantiere Esempio",))
+        self.assertEqual([os.path.basename(p) for p in made[0].term_files], ["a.txt", "b.txt"])
+
     def test_a_wrong_option_is_argparse_s_exit_2(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as caught:
             self.parse("--language", "fr")

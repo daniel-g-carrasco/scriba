@@ -10,7 +10,8 @@ is always there: a transcript read as if it were minutes is the plan's
 second risk. A doubtful line (core/segments.py, flag_doubtful) keeps its
 words, since dropping them could lose what was said, and is marked `(?)`
 with the reason after it in italics; the header explains the mark when the
-file has one.
+file has one. When much of the text is doubtful, a warning under the title
+says to listen to the recording again (Header.doubtful_share).
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ def reasons() -> dict[str, str]:
         "low_confidence": _("words uncertain"),
         "repeated": _("repeated many times"),
         "quiet": _("voice very faint"),
+        "dense": _("too much text for its length"),
         UNSPECIFIED: _("doubtful"),
     }
 
@@ -56,6 +58,9 @@ class Header:
     terms: Sequence[str] = field(default_factory=tuple)     # the terms given to the engine
     speakers_engine: str = ""           # "sherpa-onnx", when voices were told apart
     named: bool = False                 # the voices carry names the user gave
+    # the share of the text in doubtful lines when it is enough to warn
+    # (core/segments.py, doubt_warning: the app fills it); None: no warning
+    doubtful_share: float | None = None
 
 
 def _flat(text: str) -> str:
@@ -105,9 +110,19 @@ def facts(header: Header, lines: Sequence[Line], code: bool = False) -> list[str
                      "checked against the audio."))
     if any(line.doubts for line in lines if line.text.strip()):
         out.append(_("Lines marked {mark} are doubtful (the engine heard no clear speech, was unsure of the words, "
-                     "wrote the same words over and over, or the voice was very faint): check them against the "
-                     "audio.").format(mark=DOUBT_MARK))
+                     "wrote the same words over and over or more words than fit the time, or the voice was very "
+                     "faint): check them against the audio.").format(mark=DOUBT_MARK))
     return out
+
+
+def warning(header: Header) -> str | None:
+    """The sentence at the very top of a transcript that is largely
+    doubtful, which says to listen again; None for a transcript that is not."""
+    if header.doubtful_share is None:
+        return None
+    return _("Warning: {percent}% of the text is doubtful (marked {mark}): the engine may have invented or repeated "
+             "words. Listen to the recording again before relying on this transcript.").format(
+        percent=round(header.doubtful_share * 100), mark=DOUBT_MARK)
 
 
 def _marked(line: Line) -> str:
@@ -166,7 +181,9 @@ def render(header: Header, lines: Iterable[Line], names: Mapping[str, str] | Non
            group: Group | None = None) -> str:
     lines = shown(lines, names)
     title, *rest = facts(header, lines, code=True)
-    return "\n".join([f"# {title}", "", *("- " + s for s in rest), "", "---", "", *body(lines, group=group)]) + "\n"
+    alert = warning(header)
+    top = [f"# {title}", ""] + ([f"> **{alert}**", ""] if alert else [])
+    return "\n".join([*top, *("- " + s for s in rest), "", "---", "", *body(lines, group=group)]) + "\n"
 
 
 def write(folder: str | os.PathLike, stem: str, header: Header, lines: Iterable[Line],

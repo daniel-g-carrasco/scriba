@@ -89,6 +89,22 @@ class MarkdownTest(unittest.TestCase):
         self.assertIn("- Lines marked (?) are doubtful", text)
         self.assertNotIn("Lines marked", markdown.render(HEADER, lines[3:]))
 
+    def test_a_largely_doubtful_transcript_says_so_under_the_title_and_the_others_do_not(self):
+        lines = [Segment(0, 30, " ".join(["allora"] * 300), "Speaker 1"), Segment(31, 33, "Bene.", "Speaker 1")]
+        flagged = sg.flag_doubtful(lines)
+        header = Header(source="a.wav", duration=40, doubtful_share=sg.doubt_warning(flagged))
+        md = markdown.render(header, flagged).split("\n")
+        self.assertEqual(md[:3], ["# Transcript: a.wav", "",
+                                  "> **Warning: 100% of the text is doubtful (marked (?)): the engine may have "
+                                  "invented or repeated words. Listen to the recording again before relying on "
+                                  "this transcript.**"])
+        self.assertIn("allora _(too much text for its length)_", "\n".join(md))
+        plain = txt.render(header, flagged).split("\n")
+        self.assertEqual(plain[0], "Transcript: a.wav")
+        self.assertTrue(plain[1].startswith("Warning: 100% of the text is doubtful"))
+        self.assertNotIn("Warning:", markdown.render(HEADER, voiced_fixture()))
+        self.assertNotIn("Warning:", txt.render(HEADER, voiced_fixture()))
+
     def test_every_reason_of_the_core_has_its_words(self):
         self.assertEqual(sorted(set(sg.REASONS) - set(markdown.reasons())), [])
 
