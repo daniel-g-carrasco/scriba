@@ -16,7 +16,9 @@ devices open), recording with its levels, with a warning, and the long
 case (seven devices with long names, both sides open); the whole transcript on its
 page (top, middle, dark); the preferences' files of terms (one too long to
 fit whole, one missing; light and dark); the Result of a transcript largely
-doubtful, with its banner (light and dark). Each window is opened, drawn, photographed and
+doubtful, with its banner (light and dark); the update window with this
+version's notes, offered, downloading, failed, waiting and portable (light
+and dark). Each window is opened, drawn, photographed and
 destroyed by the script, almost transparent while it is on the screen
 (the picture is GTK's own drawing of the content: Gtk.WidgetPaintable, as
 SCRIBA_SCREENSHOT does), so as not to cover what the user is doing; no
@@ -39,7 +41,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 STATES = ("models", "models-downloading", "empty", "setup-video", "cards-testing", "cards-left-out", "working", "result", "result-long",
           "preferences", "dark", "record", "record-going", "record-warning", "record-long", "balance", "transcript",
-          "terms", "result-doubtful")
+          "terms", "result-doubtful", "update")
 GHOST = 0.02            # the window's opacity on the screen while it is drawn and photographed
 
 
@@ -661,6 +663,56 @@ class Shots:
             self.settle(0.3)
             self.photograph(window, "12b-registra-lungo-fondo")
         window.destroy()
+
+    def update(self):
+        """The update window with a made-up release whose notes are the
+        newest version's section of CHANGELOG.md (as a release has them, the
+        long case): offered with its installer, downloading, failed, waiting
+        for the work to end, and from the portable build; light and dark.
+        No network, no installer: nothing is downloaded or started."""
+        from types import SimpleNamespace
+        from unittest import mock
+
+        sys.path.insert(0, str(ROOT / "tools"))
+        import release_notes
+
+        from scriba import __version__
+        from scriba.app import updates
+        from scriba.gui.update_dialog import UpdateDialog
+        from scriba.i18n import _
+        changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        notes = release_notes.notes(__version__, changelog)
+        release = updates.Release("0.1.4", "https://example.invalid/release", notes, [])
+        installer = SimpleNamespace(name="scriba-setup-v0.1.4-windows-x64.exe", size=187_000_000)
+        scenes = (("a-offerta", True), ("b-scaricamento", True), ("c-errore", True), ("d-attesa", True),
+                  ("e-portabile", False))
+        for dark in (False, True):
+            self._dark(dark)
+            for scene, installed in scenes:
+                app, _tmp = self.app()
+                window = self.window(app)
+                with mock.patch.object(updates, "installed_build", return_value=installed), \
+                        mock.patch.object(updates, "installer_of", return_value=installer):
+                    dialog = UpdateDialog(release)
+                dialog.present(window)
+                self.spin(lambda d=dialog: d.get_root() is not None and d.get_root().get_mapped(), 5)
+                root = dialog.get_root()
+                if root is not window:
+                    self.ghost(root)
+                if scene == "b-scaricamento":
+                    dialog.action.set_sensitive(False)
+                    dialog.later.set_label(_("Cancel"))
+                    dialog.progress_group.set_visible(True)
+                    dialog._progress(73_400_000, installer.size)
+                elif scene == "c-errore":
+                    dialog._failed(_("Download failed: {error}").format(error="<urlopen error timed out>"))
+                elif scene == "d-attesa":
+                    dialog._failed(_("The update waits until the recording or transcription has finished."))
+                self.settle(1.5)        # the status page's icon is loaded in a thread of GTK's own
+                self.photograph(dialog, f"16{scene}-aggiornamento{'-scuro' if dark else ''}")
+                dialog.force_close()
+                window.destroy()
+        self._dark(False)
 
 
 if __name__ == "__main__":

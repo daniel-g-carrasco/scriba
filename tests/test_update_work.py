@@ -117,7 +117,7 @@ class UpdateWorkTest(unittest.TestCase):
         with mock.patch.object(updates, "download", side_effect=AssertionError("must reuse the held file")), \
                 mock.patch("scriba.gui.update_dialog.subprocess.Popen") as started:
             again._download()
-            self.assertTrue(_setup.spin(lambda: started.called or "failed" in again.status.get_label().lower()))
+            self.assertTrue(_setup.spin(lambda: started.called or "failed" in again.banner.get_title().lower()))
         started.assert_called_once()
 
     def installed_dialog(self):
@@ -135,7 +135,7 @@ class UpdateWorkTest(unittest.TestCase):
         with mock.patch("scriba.gui.update_dialog.subprocess.Popen") as started:
             dialog._downloaded(installer)
         started.assert_not_called()
-        self.assertIn("wait", dialog.status.get_label().lower())
+        self.assertIn("wait", dialog.banner.get_title().lower())
         self.window.record._stopping = False
         with mock.patch.object(updates, "installed_build", return_value=True):
             self.window.page_changed()
@@ -166,7 +166,7 @@ class UpdateWorkTest(unittest.TestCase):
         dialog = self.installed_dialog()
         with mock.patch("scriba.gui.update_dialog.subprocess.Popen", side_effect=OSError("not started")):
             dialog._downloaded(self.folder / "not-run.exe")
-        self.assertIn("Cannot start", dialog.status.get_label())
+        self.assertIn("Cannot start", dialog.banner.get_title())
         source = self.folder / "source.wav"
         source.write_bytes(b"made up")
         page = self.window.transcribe

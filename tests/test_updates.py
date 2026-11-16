@@ -207,5 +207,36 @@ class InstalledTest(unittest.TestCase):
         self.assertFalse(updates.installed_build())     # the tests run from the sources
 
 
+class NotesTest(unittest.TestCase):
+    """A release's notes, as the update window shows them."""
+
+    def test_the_changelog_section_as_headings_and_items(self):
+        notes = ("### Fixed\n- One thing that goes on\n  for two lines, with `code` and **bold**.\n- Another.\n\n"
+                 "### Changed\n* A star item.\n\nA paragraph of its own.\n\n"
+                 "**Full Changelog**: https://github.com/x/y/compare/v1...v2\n")
+        self.assertEqual(updates.notes_sections(notes), [
+            ("Fixed", ["One thing that goes on for two lines, with code and bold.", "Another."]),
+            ("Changed", ["A star item.", "A paragraph of its own."])])
+
+    def test_notes_without_headings_and_githubs_one_line(self):
+        self.assertEqual(updates.notes_sections("Just a line.\n\n- and an item"), [("", ["Just a line.", "and an item"])])
+        self.assertEqual(updates.notes_sections("**Full Changelog**: https://github.com/x/y/compare/v1...v2"), [])
+        self.assertEqual(updates.notes_sections(""), [])
+
+    def test_no_more_items_than_the_window_can_show(self):
+        notes = "### Fixed\n" + "\n".join(f"- item {i}" for i in range(30)) + "\n### Added\n- late"
+        self.assertEqual(updates.notes_sections(notes, limit=5), [("Fixed", [f"item {i}" for i in range(5)])])
+
+    def test_scribas_own_changelog_reads_as_rows(self):
+        # the entries of 0.1.3 as Keep a Changelog writes them: items wrapped
+        # over several lines, under Added, Changed and Fixed
+        section = _setup.ROOT.joinpath("CHANGELOG.md").read_text(encoding="utf-8").split("## [0.1.3]", 1)[1]
+        section = section.split("\n## [", 1)[0].split("\n", 1)[1]
+        found = updates.notes_sections(section, limit=99)
+        self.assertEqual([heading for heading, _items in found], ["Added", "Changed", "Fixed"])
+        self.assertTrue(found[0][1][0].startswith("Files of terms: in Preferences, under Terms,"))
+        self.assertTrue(all("\n" not in item and not item.startswith("-") for _h, items in found for item in items))
+
+
 if __name__ == "__main__":
     unittest.main()

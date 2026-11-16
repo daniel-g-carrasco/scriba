@@ -719,8 +719,7 @@ class App(Adw.Application):
         self._verified_installer = (release.version, path)
         dialog = self._update_dialog
         if dialog is not None and dialog.release.version == release.version and not dialog._cancel.is_set():
-            dialog.ready_installer = path
-            dialog.action.set_label(_("Install"))
+            dialog.ready_installer = path       # "Install Update" now starts it, nothing downloaded again
 
     def begin_update(self, release) -> bool:
         if not self.update_allowed(release):

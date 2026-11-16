@@ -111,6 +111,14 @@ def adwaita() -> Path | None:
     return None
 
 
+# icons in libadwaita's own resources, not in the theme: there wherever the
+# library is. "name": "where it is seen"; one line each, as ALLOWED
+LIBADWAITA: dict[str, str] = {
+    "adw-external-link-symbolic": "libadwaita's about dialog marks its links with it (in MSYS2's libadwaita "
+                                  "1.10, 14/11/2026); the update window's release page row",
+}
+
+
 class IconsAreTheThemes(unittest.TestCase):
     """Only icons the bundled Adwaita has: a missing one is a broken image,
     seen only on the user's computer (docs/01-filosofia.md of the template)."""
@@ -119,7 +127,7 @@ class IconsAreTheThemes(unittest.TestCase):
         theme = adwaita()
         if theme is None:
             self.skipTest("no Adwaita icon theme on this machine")
-        there = {p.stem for p in theme.rglob("*-symbolic.svg")}
+        there = {p.stem for p in theme.rglob("*-symbolic.svg")} | set(LIBADWAITA)
         own = {"io.github.daniel_g_carrasco.scriba-symbolic"}
         missing = sorted(f"{path.name}: {name}" for path in sorted(gui_dir().rglob("*.py"))
                          for name in icon_names(path.read_text(encoding="utf-8")) - own if name not in there)

@@ -64,29 +64,80 @@ msgstr "Aggiorna…"
 msgid "Update Available"
 msgstr "Aggiornamento disponibile"
 
-#: src/scriba/gui/update_dialog.py:35
-#, python-brace-format
-msgid "You are using version {version}."
-msgstr "Stai usando la versione {version}."
-
-#: src/scriba/gui/update_dialog.py:50
+#: src/scriba/gui/update_dialog.py:52
 msgid "Later"
 msgstr "Più tardi"
 
-#: src/scriba/gui/update_dialog.py:54
-msgid "Download and Install"
-msgstr "Scarica e installa"
-
 #: src/scriba/gui/update_dialog.py:56
+msgid "Install Update"
+msgstr "Installa l'aggiornamento"
+
+#: src/scriba/gui/update_dialog.py:59
+msgid "Open Release Page"
+msgstr "Apri la pagina della versione"
+
+#: src/scriba/gui/update_dialog.py:66
+#, python-brace-format
+msgid "You have version {version}."
+msgstr "Hai la versione {version}."
+
+#: src/scriba/gui/update_dialog.py:70
+#, python-brace-format
+msgid "The download is {size} MB."
+msgstr "Da scaricare: {size} MB."
+
+#: src/scriba/gui/update_dialog.py:71
 #, python-brace-format
 msgid "{app} closes while the new version is installed, and opens again."
 msgstr "{app} si chiude mentre la nuova versione viene installata, e si riapre."
 
-#: src/scriba/gui/update_dialog.py:59
-msgid "Open the Release Page"
-msgstr "Apri la pagina della versione"
+#: src/scriba/gui/update_dialog.py:73
+#, python-brace-format
+msgid "{app} {version} Is Available"
+msgstr "È disponibile {app} {version}"
 
-#: src/scriba/gui/update_dialog.py:78
+#: src/scriba/gui/update_dialog.py:85
+msgid "What Is New"
+msgstr "Novità"
+
+#: src/scriba/gui/update_dialog.py:44
+msgid "Added"
+msgstr "Novità"
+
+#: src/scriba/gui/update_dialog.py:44
+msgid "Changed"
+msgstr "Modifiche"
+
+#: src/scriba/gui/update_dialog.py:44
+msgid "Fixed"
+msgstr "Correzioni"
+
+#: src/scriba/gui/update_dialog.py:45
+msgid "Removed"
+msgstr "Rimosso"
+
+#: src/scriba/gui/update_dialog.py:45
+msgid "Security"
+msgstr "Sicurezza"
+
+#: src/scriba/gui/update_dialog.py:45
+msgid "Deprecated"
+msgstr "Deprecato"
+
+#: src/scriba/gui/update_dialog.py:92
+msgid "Release Page"
+msgstr "Pagina della versione"
+
+#: src/scriba/gui/update_dialog.py:92
+msgid "This version on GitHub, with its files"
+msgstr "Questa versione su GitHub, con i suoi file"
+
+#: src/scriba/gui/update_dialog.py:157
+#, python-brace-format
+msgid "Downloading: {done} of {total} MB"
+msgstr "Scaricamento: {done} di {total} MB"
+
+#: src/scriba/gui/update_dialog.py:124
 msgid "Downloading…"
 msgstr "Scaricamento…"
 
@@ -1837,9 +1888,6 @@ msgstr "Il file di ascolto è stato scritto, ma non è stato possibile salvarlo 
 
 msgid "balanced"
 msgstr "bilanciato"
-
-msgid "Install"
-msgstr "Installa"
 
 msgid "The update waits until the recording or transcription has finished."
 msgstr "L’aggiornamento aspetta che la registrazione o la trascrizione sia terminata."

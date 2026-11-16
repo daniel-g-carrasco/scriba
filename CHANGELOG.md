@@ -5,6 +5,22 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 are `0.x` while the app evolves. Stable Windows and Linux packages are
 available from GitHub Releases. Linux Flatpak builds and runtime checks use GNOME Platform 50. The app's metainfo carries a shorter description.
 
+## [0.1.4] - 2026-11-16
+
+### Changed
+- The update window is laid out as GNOME's own: "Later" and "Install
+  Update" at the top, the app's icon with the new version, the one in use
+  and the size of the download, what is new in rows under its headings
+  (in the app's language), the download as a progress bar and a failure
+  in a bar at the top, from where it can be tried again (Windows).
+- The notes of each release are this changelog's entry for the version,
+  so the update window shows what really changed instead of a single line
+  with a link.
+
+### Fixed
+- The app's icon is drawn again where the app shows it at a size of its
+  own, as at the top of the update window: there it came out empty.
+
 ## [0.1.3] - 2026-11-14
 
 ### Added

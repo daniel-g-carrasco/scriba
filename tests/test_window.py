@@ -7,6 +7,7 @@ banner and dialog, the font and the title bars on Windows, the style
 sheets). One test runs the real engines from the window."""
 
 import contextlib
+import gettext
 import io
 import os
 import tempfile
@@ -22,7 +23,7 @@ Gtk, Adw = _setup.gtk_or_skip()
 import fake_engines  # noqa: E402
 from test_engines import AUDIO, MODELS, real  # noqa: E402
 
-from scriba import APP_NAME  # noqa: E402
+from scriba import APP_NAME, TEXTDOMAIN, i18n  # noqa: E402
 from scriba.app import backend, jobs, models, updates  # noqa: E402
 from scriba.app.config import Config  # noqa: E402
 from scriba.app.engines import ffmpeg  # noqa: E402
@@ -859,9 +860,43 @@ class WindowTest(unittest.TestCase):
         check.assert_not_called()                   # not started: no request to GitHub from the tests
 
     def test_the_update_dialog(self):
-        dialog = UpdateDialog(updates.Release("99.0.0", "https://example/release", "Notes\n\n- one line", []))
+        notes = ("### Fixed\n- One thing that goes on\n  for two lines.\n\n### Added\n- Another.\n\n"
+                 "**Full Changelog**: https://github.com/x/y/compare/v1...v2\n")
+        dialog = UpdateDialog(updates.Release("99.0.0", "https://example/release", notes, []))
         self.assertIs(dialog.get_focus(), dialog.action)
         self.assertIs(dialog.get_default_widget(), dialog.action)
+        # no title between the buttons, where Italian's was cut; the dialog
+        # keeps it for the screen readers
+        self.assertFalse(dialog.header.get_show_title())
+        self.assertEqual(dialog.get_title(), "Update Available")
+        # what is new: a row for each item, under the changelog's headings
+        self.assertEqual([row.get_title() for row in dialog.note_rows],
+                         ["One thing that goes on for two lines.", "Another."])
+        self.assertEqual([group.get_title() for group in dialog.note_groups], ["Fixed", "Added"])
+        # the headings in the user's language, the items as the changelog has them
+        italian_catalogue = gettext.translation(TEXTDOMAIN, _setup.ROOT / "locale", languages=["it"])
+        with mock.patch.object(i18n, "_translation", italian_catalogue):
+            italian = UpdateDialog(updates.Release("99.0.0", "https://example/release", notes
+                                                   + "### Security\n- A third.\n\n### Unknown\n- A fourth.\n", []))
+        self.assertEqual([group.get_title() for group in italian.note_groups],
+                         ["Correzioni", "Novità", "Sicurezza", "Unknown"])
+        self.assertEqual([row.get_title() for row in italian.note_rows][:2],
+                         ["One thing that goes on for two lines.", "Another."])
+
+        def widgets(root):
+            child = root.get_first_child()
+            while child is not None:
+                yield child
+                yield from widgets(child)
+                child = child.get_next_sibling()
+        # a selectable label given the focus has all its text selected: there is none
+        self.assertEqual([w for w in widgets(dialog) if isinstance(w, Gtk.Label) and w.get_selectable()], [])
+        # a failed download is said in the banner, and can be tried again
+        dialog.action.set_sensitive(False)
+        dialog._failed("Download failed: no network")
+        self.assertTrue(dialog.banner.get_revealed())
+        self.assertEqual(dialog.banner.get_title(), "Download failed: no network")
+        self.assertTrue(dialog.action.get_sensitive())
         dialog._cancel.set()            # "Later" (the dialog closed) once the last chunk was in
         with mock.patch("scriba.gui.update_dialog.subprocess.Popen") as popen:
             dialog._downloaded(Path("setup.exe"))

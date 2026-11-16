@@ -71,6 +71,6 @@ class UpdateActivityTest(unittest.TestCase):
         with mock.patch.object(updates, "download_folder", return_value=self.path.parent), \
                 mock.patch.object(updates, "download", side_effect=OSError("test disk full")):
             self.dialog._download()
-            self.assertTrue(_setup.spin(lambda: "test disk full" in self.dialog.status.get_label()))
+            self.assertTrue(_setup.spin(lambda: "test disk full" in self.dialog.banner.get_title()))
         self.assertTrue(self.dialog.action.get_sensitive())
         self.assertEqual(ui.activities.active_count, self.baseline)

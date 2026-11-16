@@ -63,3 +63,18 @@ def spin(cond, timeout: float = 10.0) -> bool:
 
 
 os.environ.setdefault("LANGUAGE", "en")        # the tests read the source strings
+# the toolkit's own colours, not the user's: a desktop that themes GTK through
+# ~/.config/gtk-4.0/gtk.css (Noctalia, matugen) would make the tests on colours
+# fail on that computer alone. An empty folder, made before GTK starts. On
+# Windows XDG_CONFIG_HOME also moves the app's folders to the XDG layout
+# (app/paths.py), so state, data and cache go in the same empty folder: the
+# tests never write next to the installed Scriba's own.
+import atexit  # noqa: E402
+import shutil  # noqa: E402
+import tempfile  # noqa: E402
+
+_EMPTY_HOME = tempfile.mkdtemp(prefix="tests-config-")
+os.environ["XDG_CONFIG_HOME"] = _EMPTY_HOME
+for _name in ("XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"):
+    os.environ.setdefault(_name, os.path.join(_EMPTY_HOME, _name.split("_")[1].lower()))
+atexit.register(shutil.rmtree, _EMPTY_HOME, ignore_errors=True)

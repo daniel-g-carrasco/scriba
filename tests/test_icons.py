@@ -53,6 +53,38 @@ class OneIconTest(unittest.TestCase):
             self.assertIn("url(#sfumatura-corpo-avorio)", uses, master.name)
 
 
+class PlainSvgTest(unittest.TestCase):
+    """GTK 4.24 draws the SVG icons itself and skips an SVG element under a
+    prefix: the app's icon, written with <ns0:defs>, came out empty in the
+    update window until 16/11/2026 (librsvg, for the PNGs, drew it)."""
+
+    @staticmethod
+    def tool():
+        spec = importlib.util.spec_from_file_location("make_icons", _setup.ROOT / "tools" / "make_icons.py")
+        make_icons = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(make_icons)
+        return make_icons
+
+    def test_an_svg_element_under_a_prefix_is_found(self):
+        found = self.tool().prefixed_elements(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">'
+            '<ns0:defs xmlns:ns0="http://www.w3.org/2000/svg"><ns0:linearGradient id="g"/></ns0:defs>'
+            '<circle r="240" fill="url(#g)"/></svg>')
+        self.assertEqual(found, ["<ns0:defs", "<ns0:linearGradient"])
+
+    def test_another_namespaces_prefix_is_left_alone(self):
+        self.assertEqual(self.tool().prefixed_elements(
+            '<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape">'
+            '<inkscape:page/><defs/></svg>'), [])
+
+    def test_the_icons_gtk_loads_are_plain(self):
+        tool = self.tool()
+        icons = sorted((_setup.ROOT / "data" / "icons").rglob("*.svg"))
+        self.assertGreaterEqual(len(icons), 12)
+        for svg in icons:
+            self.assertEqual(tool.prefixed_elements(svg.read_text(encoding="utf-8")), [], svg.name)
+
+
 class MarginTest(unittest.TestCase):
     """Linux keeps the icon theme's margin, Windows draws the disc to the
     edge (the taskbar shrinks the icon: there a margin is a smaller disc)."""

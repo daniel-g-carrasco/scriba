@@ -32,6 +32,29 @@ class VersionTest(unittest.TestCase):
 
 
 class IdentityTest(unittest.TestCase):
+    def test_the_release_gets_this_versions_notes_from_the_changelog(self):
+        # tools/release_notes.py gives the release its notes (build.yml), and the
+        # update window shows them: a version without its section has none
+        import importlib.util
+
+        from scriba.app import updates
+        spec = importlib.util.spec_from_file_location("release_notes", ROOT / "tools" / "release_notes.py")
+        tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tool)
+        notes = tool.notes(scriba.__version__, (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"))
+        self.assertTrue(notes)
+        self.assertNotIn("\n## [", notes)
+        self.assertTrue(updates.notes_sections(notes), "the update window would show nothing of these notes")
+        text = "## [2.0] - today\n\n### Fixed\n- b\n\n## [1.0] - before\n\n- a\n\n[2.0]: https://x\n"
+        self.assertEqual((tool.notes("2.0", text), tool.notes("1.0", text), tool.notes("3.0", text)),
+                         ("### Fixed\n- b", "- a", ""))
+        workflow = (ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
+        self.assertIn("tools/release_notes.py", workflow)
+        self.assertNotIn("--generate-notes", workflow)
+        # the tool reads the repository: the job that runs it has it checked out
+        release_job = workflow.split("\n  release:\n", 1)[1]
+        self.assertLess(release_job.index("actions/checkout@"), release_job.index("tools/release_notes.py"))
+
     def test_the_files_are_named_after_the_app_id(self):
         for name in (f"{scriba.APP_ID}.desktop", f"{scriba.APP_ID}.metainfo.xml"):
             self.assertTrue((ROOT / "data" / name).is_file(), name)
