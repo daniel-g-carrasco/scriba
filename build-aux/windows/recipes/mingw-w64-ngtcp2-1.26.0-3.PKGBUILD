@@ -1,0 +1,99 @@
+# Maintainer: Christoph Reiter <reiter.christoph@gmail.com>
+
+_bootstrap=0
+
+_realname=ngtcp2
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=1.26.0
+pkgrel=3
+pkgdesc="An effort to implement IETF QUIC protocol (mingw-w64)"
+arch=('any')
+mingw_arch=('mingw32' 'mingw64' 'ucrt64' 'clang64' 'clangarm64')
+msys2_repository_url='https://github.com/ngtcp2/ngtcp2'
+msys2_references=(
+  "cpe: cpe:/a:tatsuhiro-t:ngtcp2"
+)
+url='https://nghttp2.org/ngtcp2/'
+depends=(
+  $([[ ${MSYSTEM} == MINGW32 ]] \
+     && echo "${MINGW_PACKAGE_PREFIX}-libgcc" \
+     || echo "${MINGW_PACKAGE_PREFIX}-gnutls")
+  "${MINGW_PACKAGE_PREFIX}-openssl"
+)
+makedepends=(
+  "${MINGW_PACKAGE_PREFIX}-cc"
+  $( ((_bootstrap)) && echo \
+    "${MINGW_PACKAGE_PREFIX}-cmake-bootstrap" || echo \
+    "${MINGW_PACKAGE_PREFIX}-cmake")
+  "${MINGW_PACKAGE_PREFIX}-ninja"
+  "${MINGW_PACKAGE_PREFIX}-openssl-3"
+)
+license=('spdx:MIT')
+source=(
+  "https://github.com/ngtcp2/ngtcp2/releases/download/v${pkgver}/ngtcp2-${pkgver}.tar.xz"{,.asc}
+  "001-fix-pc-prefix.patch"
+  "002-ngtcp2-pkgconfig-add-cflags-private.patch"
+)
+sha256sums=('7804aa0fa1c39942ba322a90805824c37231f7675b08d0c3cc4332858a7b085e'
+            'SKIP'
+            'cdbb6fad1afc1eac3f3bca72cd83e49684439c02b0b74fd8841b9d1523ab86de'
+            '11d30ddfcf358e4a10f416737776fd268395643c84a90f43f798492b42dd4680')
+validpgpkeys=(
+  'F4F3B91474D1EB29889BD0EF7E8403D5D673C366' # Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+  '516B622918D15C478AB1EA3A5339A2BE82E07DEC' # Tatsuhiro Tsujikawa <tatsuhiro.t@gmail.com>
+)
+
+prepare() {
+  cd "${_realname}-${pkgver}"
+
+  patch -Np1 -i "$srcdir/001-fix-pc-prefix.patch"
+  patch -Np1 -i "$srcdir/002-ngtcp2-pkgconfig-add-cflags-private.patch"
+}
+
+build() {
+  declare -a _cmake_opts=(
+    -Wno-author
+    -GNinja
+    -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}"
+    -DENABLE_GNUTLS=ON
+    -DENABLE_OPENSSL=ON
+    -S "${_realname}-${pkgver}"
+  )
+  if check_option "debug" "n"; then
+    _cmake_opts+=("-DCMAKE_BUILD_TYPE=Release")
+  else
+    _cmake_opts+=("-DCMAKE_BUILD_TYPE=Debug")
+  fi
+  if [[ ${MSYSTEM} != MINGW32 ]]; then
+    _cmake_opts+=("-DENABLE_GNUTLS=ON")
+  else
+    _cmake_opts+=("-DENABLE_GNUTLS=OFF")
+  fi
+
+  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" \
+    cmake\
+      "${_cmake_opts[@]}" \
+      -DENABLE_SHARED_LIB=ON \
+      -DENABLE_STATIC_LIB=OFF \
+      -DCMAKE_DLL_NAME_WITH_SOVERSION=ON \
+      -B build-shared-${MSYSTEM}
+
+  cmake --build build-shared-${MSYSTEM}
+
+  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" \
+    cmake \
+      "${_cmake_opts[@]}" \
+      -DENABLE_SHARED_LIB=OFF \
+      -DENABLE_STATIC_LIB=ON \
+      -B build-static-${MSYSTEM}
+
+  cmake --build build-static-${MSYSTEM}
+}
+
+package() {
+  DESTDIR="${pkgdir}" cmake --install build-static-${MSYSTEM}
+  DESTDIR="${pkgdir}" cmake --install build-shared-${MSYSTEM}
+
+  install -Dm644 "${_realname}-${pkgver}/COPYING" -t "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/"
+}

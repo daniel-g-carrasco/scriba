@@ -45,6 +45,38 @@ class SourceError(Exception):
     """Missing or unverifiable input: collection must not substitute another version."""
 
 
+# MSYS2 packages whose signed source archive holds a PKGBUILD other than the
+# one their binary was built from (the binary's BUILDINFO names its recipe by
+# SHA-256). Each is pinned to one exact version and to both hashes; the
+# binary's recipe is kept in build-aux/windows/recipes with the upstream
+# commit it comes from, checked against BUILDINFO and written next to the
+# signed source archive, which is still collected and verified in full.
+RECIPE_EXCEPTIONS = {
+    ("mingw-w64-ngtcp2", "1.26.0-3"): {
+        "source_recipe_sha256": "60a51a9798101918d53da520eedad57d8fb3806db8f0e4590d89459904c2cfea",
+        "binary_recipe_sha256": "e0b9dd96ad451722cab78354a35eeadcf83c7a7aaed1adb658ec89689fe0ac1d",
+        "recipe": "build-aux/windows/recipes/mingw-w64-ngtcp2-1.26.0-3.PKGBUILD",
+        "recipe_url": "https://raw.githubusercontent.com/msys2/MINGW-packages/"
+                      "f6fe8c6a81c3f6e51c900d9b0ceb4bf87f615b17/mingw-w64-ngtcp2/PKGBUILD",
+        "reason": "MSYS2 made the 1.26.0-3 source archive from MINGW-packages d31c8313 (OpenSSL 4.1.0, "
+                  "pkgrel 3) and built the binary from f6fe8c6a, which only adds openssl-3 to makedepends "
+                  "without a new pkgrel; the two recipes differ in that one line (verified 16/11/2026).",
+    },
+}
+
+
+def recipe_exception(base, version, source_hash, binary_hash, root=None):
+    """The verified exception for this exact package, or None: both hashes
+    must be the recorded ones and the kept recipe must hash as BUILDINFO."""
+    known = RECIPE_EXCEPTIONS.get((base, version))
+    if known is None or (source_hash, binary_hash) != (known["source_recipe_sha256"], known["binary_recipe_sha256"]):
+        return None
+    recipe = (root or ROOT) / known["recipe"]
+    if not recipe.is_file() or sha256(recipe) != binary_hash:
+        raise SourceError("kept binary recipe is missing or differs from BUILDINFO")
+    return {**known, "path": recipe}
+
+
 def sha256(path):
     digest = hashlib.sha256()
     with Path(path).open("rb") as stream:
@@ -281,7 +313,7 @@ def source_filename(value):
     return name, url
 
 
-def inspect_source(path, base, recipe_hash, zstd=None):
+def inspect_source(path, base, recipe_hash, zstd=None, version=None):
     safe_name(base)
     records, texts = scan_archive(path, source=True, zstd=zstd)
     recipe = texts.get(f"{base}/PKGBUILD")
@@ -289,8 +321,11 @@ def inspect_source(path, base, recipe_hash, zstd=None):
     if recipe is None or srcinfo is None:
         raise SourceError("source archive is missing PKGBUILD or SRCINFO")
     actual = hashlib.sha256(recipe).hexdigest()
+    exception = None
     if actual != recipe_hash:
-        raise SourceError("PKGBUILD checksum differs from binary BUILDINFO")
+        exception = recipe_exception(base, version, actual, recipe_hash)
+        if exception is None:
+            raise SourceError("PKGBUILD checksum differs from binary BUILDINFO")
     info = fields(srcinfo.decode("utf-8"))
     if single(info, "pkgbase") != base:
         raise SourceError("source pkgbase differs from binary")
@@ -335,8 +370,12 @@ def inspect_source(path, base, recipe_hash, zstd=None):
                              "checksums": expected, "verified_hashes": checked, "sha256": record["hashes"]["sha256"]})
     if not payloads:
         raise SourceError("SRCINFO declares no source payloads")
-    return {"base": base, "recipe_sha256": actual, "payloads": payloads,
-            "unhashed_sources": sum(payload["status"] != "verified" for payload in payloads)}
+    result = {"base": base, "recipe_sha256": actual, "payloads": payloads,
+              "unhashed_sources": sum(payload["status"] != "verified" for payload in payloads)}
+    if exception is not None:
+        result["recipe_exception"] = {"binary_recipe_sha256": recipe_hash, "recipe_url": exception["recipe_url"],
+                                      "reason": exception["reason"], "path": exception["path"]}
+    return result
 
 
 def inspect_binary(path, entry, bundle, zstd=None):
@@ -615,7 +654,12 @@ def collect(args):
             source_stem = safe_name(checked["base"] + "-" + archive_version(entry["version"]))
             archive, source_url = exact_archive(source_stem, "src", source_repo, output / "archives", args.source_cache)
             signature = verify_signature(archive, archive.with_name(archive.name + ".sig"), work, args.gpgv)
-            source = inspect_source(archive, checked["base"], checked["recipe_sha256"], args.zstd)
+            source = inspect_source(archive, checked["base"], checked["recipe_sha256"], args.zstd, entry["version"])
+            if "recipe_exception" in source:          # the binary's own recipe, beside the source archive
+                kept = source["recipe_exception"].pop("path")
+                name = safe_name(checked["base"] + "-" + archive_version(entry["version"])) + ".binary.PKGBUILD"
+                write_new(output / "archives" / name, kept.read_bytes())
+                source["recipe_exception"]["file"] = "archives/" + name
             token = evidence_token(entry["package"], entry["version"])
             for field, suffix in (("pkginfo_text", "PKGINFO"), ("buildinfo_text", "BUILDINFO")):
                 write_new(output / "metadata" / (token + "." + suffix), checked.pop(field).encode("utf-8"))
@@ -624,7 +668,8 @@ def collect(args):
                                          "source_url": source_url, "archive": "archives/" + archive.name,
                                          "source_signature": signature, "signature": "archives/" + archive.name + ".sig",
                                          "archive_bytes": archive.stat().st_size, "source": source})
-            print(f"  {archive.stat().st_size / 2**20:.1f} MiB; recipe matched; {source['unhashed_sources']} unchecked inputs", flush=True)
+            matched = "binary recipe kept beside it" if "recipe_exception" in source else "recipe matched"
+            print(f"  {archive.stat().st_size / 2**20:.1f} MiB; {matched}; {source['unhashed_sources']} unchecked inputs", flush=True)
         except (SourceError, OSError, ValueError, subprocess.SubprocessError) as error:
             detail = str(error) if isinstance(error, SourceError) else type(error).__name__
             manifest["errors"].append({"package": entry["package"], "version": entry["version"], "error": detail})

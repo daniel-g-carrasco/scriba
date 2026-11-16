@@ -6,6 +6,9 @@ bin/* text eol=lf
 # Preserve upstream notice bytes and their provenance hashes.
 LICENSES/** -text -whitespace
 
+# A kept MSYS2 recipe is checked against its binary's BUILDINFO hash.
+build-aux/windows/recipes/* -text -whitespace
+
 # The native backport receipt hashes these exact public checkout bytes.
 build-aux/gstplay/*.patch text eol=lf
 tools/build_gstplay.py text eol=lf

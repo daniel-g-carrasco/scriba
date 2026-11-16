@@ -60,6 +60,31 @@ class SourceCollectionTest(unittest.TestCase):
         with self.assertRaisesRegex(sources.SourceError, "PKGBUILD"):
             sources.inspect_source(self.source(recipe=b"different"), "mingw-w64-example", self.recipe_hash)
 
+    def test_a_recorded_recipe_exception_holds_only_for_its_exact_version_and_hashes(self):
+        built = b"pkgver=1\npkgrel=1\nmakedepends=(openssl-3)\n"
+        built_hash = hashlib.sha256(built).hexdigest()
+        kept = self.root / "kept.PKGBUILD"
+        kept.write_bytes(built)
+        known = {("mingw-w64-example", "1-1"): {"source_recipe_sha256": self.recipe_hash,
+                                                "binary_recipe_sha256": built_hash, "recipe": str(kept),
+                                                "recipe_url": "https://example.test/PKGBUILD", "reason": "test"}}
+        with mock.patch.dict(sources.RECIPE_EXCEPTIONS, known, clear=True):
+            result = sources.inspect_source(self.source(), "mingw-w64-example", built_hash, version="1-1")
+            self.assertEqual(result["recipe_exception"]["binary_recipe_sha256"], built_hash)
+            self.assertEqual(result["payloads"][0]["status"], "verified")       # the source still checked
+            for version, binary_hash in (("1-2", built_hash), ("1-1", "0" * 64), (None, built_hash)):
+                with self.subTest(version=version), self.assertRaisesRegex(sources.SourceError, "PKGBUILD"):
+                    sources.inspect_source(self.source(), "mingw-w64-example", binary_hash, version=version)
+            kept.write_bytes(b"changed")
+            with self.assertRaisesRegex(sources.SourceError, "kept binary recipe"):
+                sources.inspect_source(self.source(), "mingw-w64-example", built_hash, version="1-1")
+
+    def test_the_kept_recipes_hash_as_their_binaries_say(self):
+        for (base, version), known in sources.RECIPE_EXCEPTIONS.items():
+            with self.subTest(base=base, version=version):
+                self.assertEqual(sources.sha256(_setup.ROOT / known["recipe"]), known["binary_recipe_sha256"])
+                self.assertIn(version, known["recipe"])
+
     def test_skip_is_recorded_explicitly_rather_than_passed_off_as_verified(self):
         result = sources.inspect_source(self.source(checksum="SKIP"), "mingw-w64-example", self.recipe_hash)
         self.assertEqual(result["payloads"][0]["status"], "skipped")
