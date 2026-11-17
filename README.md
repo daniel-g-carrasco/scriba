@@ -6,13 +6,15 @@
 
 Record meetings and transcribe them on your own computer, with speakers and subtitles.
 
-**[Download Scriba 0.1.5 for Windows](https://github.com/daniel-g-carrasco/scriba/releases/download/v0.1.5/scriba-setup-v0.1.5-windows-x64.exe)**. Install it once; Scriba checks for newer stable releases and offers signed updates. Windows may show a SmartScreen warning because the installer has no Authenticode certificate.
+**[Download Scriba 0.1.5 for Windows](https://github.com/daniel-g-carrasco/scriba/releases/download/v0.1.5/scriba-setup-v0.1.5-windows-x64.exe)**. Install it once; Scriba checks for newer stable releases and offers signed updates. Windows may show a SmartScreen warning because the installer has no Authenticode certificate: choose **More info**, then **Run anyway**. Chrome may keep the download as "Unconfirmed … .crdownload" because the file is rarely downloaded: open the downloads list (`Ctrl+J`) and choose **Keep** before opening it. The installer's own signature is checked by Scriba for every update.
 
 [All downloads and corresponding sources](https://github.com/daniel-g-carrasco/scriba/releases/tag/v0.1.5) include the Windows portable ZIP and Linux Flatpak. Extract the entire portable ZIP before opening `Scriba.exe`. The Linux Flatpak uses GNOME Platform 50 with CPU and Vulkan transcription.
 
 Scriba records the microphone and computer sound on separate tracks, or opens an existing audio or video recording. It writes Markdown, plain text and subtitles, and can add subtitles to a copy of a video. Audio and text are processed locally. Network access is used to download speech models and check for updates.
 
 Device selection uses the system's call-device information and sound levels. Check the selected microphone and output and their meters before recording. On Windows, with automatic selection, Scriba switches to the microphone a call program opens after recording has started; on Windows 11 it also follows the call's mute (speech while muted is recorded but not transcribed as yours; this can be switched off in Preferences). A real call with a Bluetooth headset still needs validation; automatic selection is not a guarantee that every call setup will be captured correctly.
+
+On Windows, during a Microsoft Teams meeting, Scriba can read who is speaking from the coloured border Teams draws around the speaker's tile, also when the Teams window is behind others (not when it is minimized). Only names and times are kept, never images. After the transcription, the Result page proposes those names for the voices, with the share of speech that matched; they stay editable, and they enter the files with **Save with the Names**. The recording page says when Teams cannot be read. It can be switched off in Preferences (**Names from Teams**).
 
 When the microphone picks up the computer's loudspeakers, Scriba removes that echo from the microphone's track before transcribing and in the copy to listen to; the original recording is kept unchanged. Headphones still give the best transcript.
 
