@@ -24,7 +24,7 @@ class FlatpakPackageTest(unittest.TestCase):
     def test_pinned_engines_and_their_runtime_check_are_part_of_the_build(self):
         text = (FOLDER / "io.github.daniel_g_carrasco.scriba.yaml").read_text(encoding="utf-8")
         for setting in ("separate-locales: false", "-DGGML_VULKAN=ON", "-DGGML_NATIVE=OFF", "-DGGML_CPU=ON",
-                        "onnxruntime-linux-x64-1.29.0.tgz", "python-numerical.json",
+                        "microsoft.ml.onnxruntime.1.29.0.nupkg", "python-numerical.json",
                         "python3 tools/check_flatpak.py"):
             self.assertIn(setting, text)
         self.assertGreaterEqual(len(re.findall(r"sha256: [0-9a-f]{64}", text)), 2)

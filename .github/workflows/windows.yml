@@ -244,7 +244,7 @@ jobs:
       # Optional GPU engine uses official pinned wheels, never a pip install
       # into MSYS2. A changed loader fails closed and needs a reviewed receipt.
       - name: Prepare the verified community voice runtime
-        run: env -u MSYSTEM python tools/prepare_community_runtime.py --out build/community-runtime --loader "$(cygpath -m "$WINDIR")/System32/vulkan-1.dll"
+        run: env -u MSYSTEM python tools/prepare_community_runtime.py --out build/community-runtime
       - name: Build with PyInstaller
         run: |
           python tools/compile_po.py

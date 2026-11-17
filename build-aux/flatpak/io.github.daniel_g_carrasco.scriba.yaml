@@ -35,14 +35,23 @@ modules:
 
   - name: onnxruntime
     buildsystem: simple
+    build-options:
+      strip: false
+      no-debuginfo: true
     build-commands:
       - install -d /app/lib /app/share/licenses/onnxruntime
-      - cp -a lib/libonnxruntime.so* lib/libonnxruntime_providers_shared.so /app/lib/
+      # Microsoft's NuGet package includes the same Linux x64 C API binary.
+      - install -m755 runtimes/linux-x64/native/libonnxruntime.so /app/lib/libonnxruntime.so.1.29.0
+      - ln -s libonnxruntime.so.1.29.0 /app/lib/libonnxruntime.so.1
+      - ln -s libonnxruntime.so.1 /app/lib/libonnxruntime.so
+      - install -m755 runtimes/linux-x64/native/libonnxruntime_providers_shared.so /app/lib/
       - install -m644 LICENSE ThirdPartyNotices.txt /app/share/licenses/onnxruntime/
     sources:
       - type: archive
-        url: https://github.com/microsoft/onnxruntime/releases/download/v1.29.0/onnxruntime-linux-x64-1.29.0.tgz
-        sha256: c3fddc4f139a045b0c4902c57410f0694f1c2fdf9b6939fbe38b1aeae7cd14ba
+        archive-type: zip
+        strip-components: 0
+        url: https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.29.0/microsoft.ml.onnxruntime.1.29.0.nupkg
+        sha256: 4557021fec4da3924e2e12ff44b1cc50b176de0d2c5c7daa89ab11c208b3a454
 
   # Vulkan's compiler is in the SDK; whisper also needs these CMake headers.
   - name: spirv-headers

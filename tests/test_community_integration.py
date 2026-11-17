@@ -79,6 +79,16 @@ class VoiceSafety(unittest.TestCase):
         self.assertEqual(metadata['accelerator'],'cpu')
         self.assertIn('fallback',metadata)
 
+    def test_unavailable_vulkan_uses_the_cpu_runtime(self):
+        from scriba.app.engines import webgpu
+        metadata = {}
+        path = Path('embedding.onnx')
+        with patch.object(webgpu, 'Runtime', side_effect=webgpu.Unavailable('No Vulkan device')), \
+                patch.object(webgpu.onnx, 'Session') as cpu_session:
+            self.assertIs(webgpu.session_factory(metadata)(path, 8), cpu_session.return_value)
+        cpu_session.assert_called_once_with(path, threads=8)
+        self.assertEqual(metadata, {'accelerator': 'cpu', 'fallback': 'No Vulkan device'})
+
     def test_numeric_error_is_not_a_gpu_availability_fallback(self):
         from scriba.app.engines import webgpu
         class Inner:

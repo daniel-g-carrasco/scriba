@@ -31,6 +31,12 @@ and source provenance, upstream sources and the minimal FFmpeg build inputs.
 Its manifest identifies any inputs requiring manual review; acquisition alone
 does not replace that review.
 
+For Windows speaker diarization, the community runtime receipt records the
+official ONNX Runtime and WebGPU wheels, and the signed x64 Vulkan loader
+from LunarG's Vulkan Runtime 1.4.321.0 Components archive. The build verifies
+the download and DLL hashes. The LunarG notices and Vulkan Loader licence
+ship with the package. If Vulkan is unavailable, diarization uses the CPU.
+
 FFmpeg remains the application's separately built LGPL configuration. Speech
 models are downloaded directly from their upstream locations and are not
 included in the application packages; their own terms are shown in the app.

@@ -1,7 +1,13 @@
 {
   "runtime": "onnxruntime 1.32.0 official PyPI wheel",
   "plugin": "onnxruntime-ep-webgpu 0.6.0 official PyPI wheel",
-  "loader": "Khronos Vulkan Loader 1.4.321.0, installed official Vulkan runtime, copied unchanged",
+  "loader": {
+    "version": "1.4.321.0",
+    "url": "https://sdk.lunarg.com/sdk/download/1.4.321.0/windows/VulkanRT-X64-1.4.321.0-Components.zip",
+    "sha256": "f8ba79303face4b72a2f302f1a46e8c918995b54fbf24c0c9fc6c3d3ef525dca",
+    "member": "VulkanRT-X64-1.4.321.0-Components/x64/vulkan-1.dll",
+    "source": "https://github.com/KhronosGroup/Vulkan-Loader/tree/vulkan-sdk-1.4.321.0"
+  },
   "files": {
     "dxcompiler.dll": {
       "bytes": 17986360,
@@ -20,8 +26,8 @@
       "sha256": "6bf102c322d6bad5b1b5a04b0b0c3d43191f70f428ad1d6b4c43719674fc57d9"
     },
     "vulkan-1.dll": {
-      "bytes": 1625648,
-      "sha256": "c555774c84f9b59ee7b1da93beb0f59c34a68ac897a067f42dcc5dfe49b35f2e"
+      "bytes": 1615800,
+      "sha256": "ba51d0f9a9b70397f73ed441b928e2f27c792ba417c4efaa6fd2195673edaa0d"
     }
   },
   "licenses": [
@@ -29,7 +35,8 @@
     "onnxruntime-ThirdPartyNotices.txt",
     "webgpu-MIT.txt",
     "webgpu-ThirdPartyNotices.txt",
-    "Vulkan-Loader-LICENSE.txt"
+    "Vulkan-Loader-LICENSE.txt",
+    "VulkanRT-License.txt"
   ],
   "source_wheels": {
     "onnxruntime": {
