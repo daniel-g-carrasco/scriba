@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "scope": "Pinned source inputs for Linux x86_64: audited native dependencies, seven Python source distributions, whisper.cpp, SPIRV-Headers and the patched GStreamer Play library. The application archive and current Flatpak identity are supplied and checked separately for each build.",
+  "scope": "Pinned source inputs for Linux x86_64: audited native dependencies, seven Python source distributions, the community ONNX Runtime and WebGPU plugin, whisper.cpp, SPIRV-Headers and the patched GStreamer Play library. The application archive and current Flatpak identity are supplied and checked separately for each build.",
   "status": "source acquisition verified; unsigned recipe-derived inventory, not a vendor-signed SBOM or bit-reproducibility attestation",
   "artifacts": [
     {
@@ -413,6 +413,32 @@
       "destination": "recipes/onnxruntime-v1.29.0.tar.gz",
       "spdx_declared": "MIT",
       "license_basis": "main project licence only; archive may contain differently licensed files"
+    },
+    {
+      "id": "onnxruntime-v1.32.0.tar.gz",
+      "name": "ONNX Runtime",
+      "version": "1.32.0",
+      "type": "source_and_recipe_archive",
+      "url": "https://downloads.sourceforge.net/project/onnx-runtime.mirror/v1.32.0/ONNX%20Runtime%20v1.32.0%20source%20code.tar.gz",
+      "source_commit": "fab30a46491a40f5e4c968b80e8a59acbbb91b53",
+      "sha256": "c8752f1f7d79a624341826d0a23a9c06f3a7ee0201f1927023355264d04137e9",
+      "size": 282439612,
+      "destination": "recipes/onnxruntime-v1.32.0.tar.gz",
+      "spdx_declared": "MIT",
+      "license_basis": "main project licence; bundled notices cover third-party components"
+    },
+    {
+      "id": "onnxruntime-webgpu-v0.6.0.tar.gz",
+      "name": "ONNX Runtime WebGPU Plugin EP",
+      "version": "0.6.0",
+      "type": "source_and_recipe_archive",
+      "url": "https://downloads.sourceforge.net/project/onnx-runtime.mirror/plugin-ep-webgpu_v0.6.0/ONNX%20Runtime%20WebGPU%20Plugin%20EP%20v0.6.0%20source%20code.tar.gz",
+      "source_commit": "2b68ec0faadd6bdb0c8121f3bc16e4551e9975ff",
+      "sha256": "fea52197cc0f5823d780095f0bcc183aa3e770a0ca28a0848da7687bdf1802fc",
+      "size": 282290009,
+      "destination": "recipes/onnxruntime-webgpu-v0.6.0.tar.gz",
+      "spdx_declared": "MIT",
+      "license_basis": "main project licence; bundled notices cover third-party components"
     },
     {
       "id": "openblas-libs-v0.3.34.106.0.tar.gz",
@@ -1207,6 +1233,16 @@
       "name": "numpy",
       "version": "2.5.4",
       "source_artifact": "python-numpy-2.5.4"
+    },
+    {
+      "name": "onnxruntime",
+      "version": "1.32.0",
+      "source_artifact": "onnxruntime-v1.32.0.tar.gz"
+    },
+    {
+      "name": "onnxruntime-ep-webgpu",
+      "version": "0.6.0",
+      "source_artifact": "onnxruntime-webgpu-v0.6.0.tar.gz"
     },
     {
       "name": "scikit-learn",

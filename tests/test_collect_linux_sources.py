@@ -360,10 +360,10 @@ class ValidationTest(unittest.TestCase):
         path = _setup.ROOT / "build-aux/flatpak/sources/linux-corresponding-sources.json"
         catalog = json.loads(path.read_text(encoding="utf-8"))
         collector.validate_catalog(catalog)
-        self.assertEqual(len(catalog["artifacts"]), 50)
+        self.assertEqual(len(catalog["artifacts"]), 52)
         self.assertEqual(len(catalog["binary_mappings"]), 7)
         self.assertEqual(len(catalog["resolved_ports"]), 29)
-        self.assertEqual(len(catalog["python_sources"]), 7)
+        self.assertEqual(len(catalog["python_sources"]), 9)
         self.assertIn("not a vendor-signed SBOM", catalog["status"])
         self.assertTrue(catalog["recipe_assumptions"])
 
