@@ -48,7 +48,6 @@ class Config:
     speaker_count: int = 0               # how many voices; 0: found by the engine
     subtitled_video: bool = False        # a copy of a video with the subtitles inside
     my_name: str = "Io"                 # the microphone's name
-    speaker_names: str = ""             # previously used names, one per line
     terms: str = ""                      # names and acronyms, separated by commas
     term_files: str = ""                 # files of terms read at every transcription, one path a line, in order
     output_folder: str = ""              # "": next to the recording
@@ -65,6 +64,7 @@ class Config:
     input_device: str = ""               # "": chosen by the app (core/devices.py); else the device's id
     output_device: str = ""              # the same for the output
     follow_call_mute: bool = True        # Windows 11: the microphone's speech not transcribed while muted in the call
+    teams_names: bool = True             # Windows: propose names from observed Teams speaker borders
     # settings of a newer version this one does not know, written back as they were
     extra: dict = field(default_factory=dict, compare=False, repr=False)
     # what load() had to do to read the file (Notice); never saved

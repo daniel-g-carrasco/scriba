@@ -41,6 +41,7 @@ import datetime
 import json
 import math
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -49,9 +50,10 @@ import wave
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
+from string import Formatter
 
 from scriba import PACKAGE_DIR, WINDOWS, __version__
-from scriba.core import callmute, estimate, loudness, segments as seg, speakers, terms as term_lists, timeline, words
+from scriba.core import callmute, estimate, loudness, naming, segments as seg, speakers, terms as term_lists, timeline, words
 from scriba.core.paragraphs import paragraphs
 from scriba.core.subtitles import subtitles as cut_subtitles
 from scriba.data import files, markdown, session as sessions, srt, termfiles, txt
@@ -220,6 +222,8 @@ class Result:
     me: str = ""                        # the user's voice (the microphone's track), once numbered; "": not known
     listen: Path | None = None          # what to play to know a voice: the recording's mix, or the recording
     names: dict[str, str] = field(default_factory=dict)
+    named_spans: tuple = ()
+    proposals: dict[str, naming.Proposal] = field(default_factory=dict)
 
 
 def full_path(path: str | os.PathLike) -> str:
@@ -425,6 +429,31 @@ def read_term_files(paths) -> list[TermsFile]:
     return out
 
 
+ECHO_INFORMATION = ("The microphone heard the computer's sound (loudspeakers) in {share} of the recording "
+                    "({time}): there it was taken out of your track before transcribing, so the others' words "
+                    "come from the computer's track only.")
+MUTE_INFORMATION = ("{time} of speech on your microphone fell where you were muted in the call: it was "
+                    "not transcribed, and its sound stays in the recording.")
+
+
+def recording_information(note: str) -> bool:
+    """Only successful recording cleanup is informational; unknown notes stay visible.
+
+    Meetings save translated sentences. Match complete templates in both supported
+    languages so reopening after a language change keeps the same severity.
+    """
+    from scriba.i18n import translation_for
+
+    for language in ("en", "it"):
+        translate = translation_for(language).gettext
+        for template in (ECHO_INFORMATION, MUTE_INFORMATION):
+            pattern = "".join(re.escape(text) + (".+?" if field is not None else "")
+                              for text, field, _spec, _conversion in Formatter().parse(translate(template)))
+            if re.fullmatch(pattern, note, re.DOTALL):
+                return True
+    return False
+
+
 def given_terms(request: Request) -> tuple[term_lists.Joined, list[str]]:
     """The terms whisper gets for `request`: the meeting's, then those of
     its files, within what whisper reads; and the sentences to show (a file
@@ -557,6 +586,8 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
         timings["total"] = time.perf_counter() - began
         result = Result(outputs, folder / f"{stem}.json", lines, voices, duration, used, timings, notes,
                         source, folder, stem, header, me, listening_copy(source), names)
+        result.named_spans = tuple(dict.fromkeys(s for track in media.tracks for s in track.named_spans))
+        result.proposals = naming.propose(lines, result.named_spans, microphone=me)
         result.session = _save_session(result, request)
         measured = {}
         if any(part.pieces for part in parts) and estimate.speed(duration, timings["transcribe"]):
@@ -797,7 +828,7 @@ def _save_session(result: Result, request: Request) -> Path:
                                created=datetime.datetime.now().isoformat(timespec="seconds"), options=options,
                                outputs=list(result.outputs), names=dict(result.names),
                                timings={k: round(v, 3) for k, v in result.timings.items()},
-                               extra={"transcript": _snapshot(result)})
+                               extra={"transcript": _snapshot(result)}, named_spans=result.named_spans)
     return files.write_new(result.folder, result.stem, ".json", sessions.dumps(meeting))
 
 
@@ -876,6 +907,8 @@ def open_session(path: str | os.PathLike) -> tuple[Result, Request]:
     result = Result(list(meeting.outputs), path, lines, len(seg.speakers_of(lines)), meeting.duration,
                     options.get("device", "cpu"), dict(meeting.timings), notes, source, path.parent,
                     stem, header, me, Path(listen) if listen else None, dict(meeting.names))
+    result.named_spans = meeting.named_spans
+    result.proposals = naming.propose(lines, result.named_spans, microphone=me)
     return result, request
 
 

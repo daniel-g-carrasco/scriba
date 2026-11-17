@@ -1823,8 +1823,13 @@ msgstr "Scegli quale voce è la tua"
 msgid "Not Chosen"
 msgstr "Non scelta"
 
-msgid "Previous Names"
-msgstr "Nomi già usati"
+msgid "Recording Notes"
+msgstr "Note sulla registrazione"
+
+msgid "{n} note"
+msgid_plural "{n} notes"
+msgstr[0] "{n} nota"
+msgstr[1] "{n} note"
 
 msgid "Meeting File (reopen to change the names)"
 msgstr "File della riunione (riaprilo per correggere i nomi)"
@@ -2301,3 +2306,37 @@ msgstr[1] "Il motore legge tutti i {n} termini, dopo quelli della riunione."
 #: src/scriba/gui/preferences.py
 msgid "Read at every transcription, after the terms typed for the meeting. Plain text, one term or phrase a line; lines starting with # are left out."
 msgstr "Letti a ogni trascrizione, dopo i termini scritti per la riunione. Testo semplice, un termine o una frase per riga; le righe che iniziano con # sono escluse."
+
+#: src/scriba/gui/preferences.py src/scriba/gui/record.py
+msgid "Names from Teams"
+msgstr "Nomi da Teams"
+
+#: src/scriba/gui/preferences.py
+msgid "Propose voice names from Teams speaker borders during recording. Unavailable when Teams is minimized or its picture cannot be read."
+msgstr "Propone i nomi delle voci dal bordo di chi parla in Teams durante la registrazione. Non disponibile se Teams è ridotto a icona o la sua immagine non è leggibile."
+
+#: src/scriba/gui/record.py
+#, python-brace-format
+msgid "{n} people seen"
+msgstr "{n} persone viste"
+
+#: src/scriba/gui/record.py
+msgid "Teams minimized: names are not read"
+msgstr "Teams ridotto a icona: nomi non letti"
+
+#: src/scriba/gui/record.py
+msgid "No Teams meeting"
+msgstr "Nessuna riunione Teams"
+
+#: src/scriba/gui/record.py
+msgid "Teams picture unavailable: names are not read"
+msgstr "Immagine di Teams non disponibile: nomi non letti"
+
+#: src/scriba/gui/result.py
+#, python-brace-format
+msgid "from Teams, {share}% of speech"
+msgstr "da Teams, {share}% del parlato"
+
+#: src/scriba/gui/record.py
+msgid "microphone muted"
+msgstr "microfono in silenzio"

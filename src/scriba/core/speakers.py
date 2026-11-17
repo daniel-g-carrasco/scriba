@@ -150,14 +150,3 @@ def rename(segments: Iterable[Segment], names: Mapping[str, str]) -> list[Segmen
     return [seg if seg.speaker not in names else replace(seg, speaker=names[seg.speaker]) for seg in segments]
 
 
-def remembered(known: str, names: Mapping[str, str]) -> str:
-    """A compact history of distinct names in first-use order."""
-    values = [" ".join(n.split()) for n in (*known.splitlines(), *names.values())]
-    return "\n".join(dict.fromkeys(n for n in values if n))
-
-
-def suggestions(text: str, known: str) -> list[str]:
-    """Previous names matching the beginning typed, except a complete match."""
-    prefix = " ".join(text.split()).casefold()
-    return [n for n in remembered(known, {}).splitlines()
-            if n.casefold().startswith(prefix) and n.casefold() != prefix]

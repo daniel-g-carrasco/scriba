@@ -5,6 +5,32 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 are `0.x` while the app evolves. Stable Windows and Linux packages are
 available from GitHub Releases. Linux Flatpak builds and runtime checks use GNOME Platform 50. The app's metainfo carries a shorter description.
 
+## [0.1.5] - 2026-11-17
+
+### Added
+- On Windows, Names from Teams observes speaker borders during recording
+  and proposes editable names for the transcript's voices, with the share
+  of speech that matched. Names enter exported files with Save with the Names.
+  The recording page shows when Teams cannot be read.
+
+### Changed
+- A new icon, in the style now shared by the apps of the same family (Meridiana, Lanterna...): the gold nib with its red neck, cut on its axis
+  with the light on the left and the shadow on the right, on an ivory disc with a little thickness below it. The
+  tray's states keep their marks on the new icon; the symbolic icons stay as they were. Windows gets a drawing of
+  its own for 16-24 px, to the edge of its square.
+
+### Fixed
+- The Result heading keeps its icon aligned with the title. Successful echo
+  removal and speech excluded while muted are collected in collapsed Recording
+  Notes; warnings that need checking stay visible.
+- The listening balance moves in small, equal steps with the wheel and arrow
+  keys. Scrolling over it changes the balance only while the slider has focus.
+- Voice name fields no longer suggest previously used names. Editable proposals
+  from Teams are still shown.
+- A microphone muted in the call is clearly marked below the recording
+  timer and beside the microphone. Its meters stay at zero and dim until
+  it is unmuted; the computer sound meters continue normally.
+
 ## [0.1.4] - 2026-11-16
 
 ### Changed

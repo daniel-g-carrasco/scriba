@@ -73,6 +73,47 @@ class StandIns:
 
 
 class ChainTest(unittest.TestCase):
+    def test_teams_proposals_survive_reopening_and_only_enter_files_after_save(self):
+        named = (("Ada Example", 0.0, 20.0),)
+        tracks = (ffmpeg.Track(0, "Microphone", "me"), ffmpeg.Track(1, "Output", "others", named_spans=named))
+        StandIns(self, tracks=tracks)
+        transcript = whisper.Transcript([Segment(0, 3, "Good morning."), Segment(3.2, 5.2, "Thank you.")],
+                                        "en", None, None)
+        with mock.patch.object(whisper, "transcribe", return_value=transcript):
+            result = jobs.run(jobs.Request(self.source, self.out, speakers=True, speaker_count=1))
+        self.assertEqual(len(result.proposals), 1)
+        voice, proposal = next(iter(result.proposals.items()))
+        self.assertNotEqual(voice, result.me)
+        self.assertEqual(proposal.name, "Ada Example")
+        original = {o.path: Path(o.path).read_bytes() for o in result.outputs}
+        self.assertTrue(all(b"Ada Example" not in value for value in original.values()))
+        reopened, _request = jobs.open_session(result.session)
+        self.assertEqual(reopened.named_spans, named)
+        self.assertEqual(reopened.proposals, result.proposals)
+        jobs.save_names(result, {**result.names, voice: proposal.name})
+        self.assertTrue(all(Path(path).read_bytes() == value for path, value in original.items()))
+        self.assertTrue(any(b"Ada Example" in Path(o.path).read_bytes() for o in result.outputs if "named" in o.kind))
+
+    def test_teams_proposals_survive_reopening_and_enter_files_only_when_saved(self):
+        named = (("Ada Example", 0.0, 20.0),)
+        tracks = (ffmpeg.Track(0, "Mic", "me", named_spans=named),
+                  ffmpeg.Track(1, "Output", "others", named_spans=named))
+        StandIns(self, tracks=tracks)
+        with mock.patch.object(whisper, "transcribe", return_value=whisper.Transcript(
+                [Segment(0, 3, "Hello there."), Segment(3.2, 5.2, "Thank you.")], "en", None, None)):
+            result = jobs.run(jobs.Request(self.source, self.out, speakers=True, speaker_count=1, my_name="Me Example"))
+        self.assertEqual(result.named_spans, named)
+        self.assertNotIn(result.me, result.proposals)
+        voice, proposal = next(iter(result.proposals.items()))
+        self.assertEqual(proposal.name, "Ada Example")
+        originals = {o.path: Path(o.path).read_bytes() for o in result.outputs}
+        self.assertTrue(all(b"Ada Example" not in content for content in originals.values()))
+        reopened, _ = jobs.open_session(result.session)
+        self.assertEqual(reopened.proposals, result.proposals)
+        self.assertEqual(reopened.names, {result.me: "Me Example"})
+        jobs.save_names(result, {**result.names, voice: proposal.name})
+        self.assertEqual({p: Path(p).read_bytes() for p in originals}, originals)
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)

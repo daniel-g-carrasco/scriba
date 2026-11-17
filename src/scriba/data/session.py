@@ -53,7 +53,6 @@ class Output:
     path: str
     extra: dict = field(default_factory=dict, compare=False, repr=False)
 
-
 @dataclass
 class Session:
     source: str = ""                # the recording, as a full path
@@ -65,6 +64,7 @@ class Session:
     timings: dict[str, float] = field(default_factory=dict)  # step -> seconds of work ("transcribe": 312.5)
     # keys of a newer version this one does not know, written back as they were
     extra: dict = field(default_factory=dict, compare=False, repr=False)
+    named_spans: tuple[tuple[str, float, float], ...] = ()
 
     def to_json(self) -> dict:
         own = {
@@ -77,11 +77,12 @@ class Session:
             "outputs": [{**o.extra, "kind": o.kind, "path": o.path} for o in self.outputs],
             "names": self.names,
             "timings": self.timings,
+            "named_spans": [list(span) for span in self.named_spans],
         }
         return {**self.extra, **own}
 
 
-_OWN = ("kind", "version", "source", "duration", "created", "options", "outputs", "names", "timings")
+_OWN = ("kind", "version", "source", "duration", "created", "options", "outputs", "names", "timings", "named_spans")
 
 
 def _number(value) -> bool:
@@ -117,12 +118,17 @@ def from_json(data) -> Session:
             raise ValueError(f"outputs: {item!r}")
         outputs.append(Output(item["kind"], item["path"], {k: v for k, v in item.items() if k not in ("kind", "path")}))
     names = _text_map(data.get("names", {}), "names")
+    named = data.get("named_spans", [])
+    if not isinstance(named, list) or any(
+            not isinstance(s, list) or len(s) != 3 or not isinstance(s[0], str) or not s[0].strip()
+            or not _number(s[1]) or not _number(s[2]) or not 0 <= s[1] < s[2] for s in named):
+        raise ValueError("named_spans: not named time intervals")
     timings = data.get("timings", {})
     if not isinstance(timings, dict) or not all(isinstance(k, str) and _number(v) for k, v in timings.items()):
         raise ValueError("timings: not a map of seconds")
     return Session(source, float(duration), created, options, outputs, dict(names),
                    {k: float(v) for k, v in timings.items()},
-                   {k: v for k, v in data.items() if k not in _OWN})
+                   {k: v for k, v in data.items() if k not in _OWN}, tuple(tuple(s) for s in named))
 
 
 def migrate(data: dict) -> dict:

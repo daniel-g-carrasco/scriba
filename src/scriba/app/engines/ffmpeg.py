@@ -28,7 +28,7 @@ from pathlib import Path
 
 from scriba import ENV_PREFIX
 from scriba.app.task import Failure, Progress, tell
-from scriba.core import callmute, loudness
+from scriba.core import callmute, loudness, spans
 from scriba.data import files
 from scriba.i18n import _
 
@@ -47,6 +47,7 @@ ROLES = ("me", "others")
 # the stretches the user was muted in the call, on the microphone's track
 # (core/callmute.py, write_spans): its speech there is not transcribed
 MUTED_TAG = "SCRIBA_CALL_MUTED"
+NAMED_TAG = "SCRIBA_NAMED_SPANS"
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,7 @@ class Track:
     title: str = ""
     role: str = ""          # one of ROLES, or "" when the file does not say
     muted: tuple = ()       # (from, to) seconds muted in the call (MUTED_TAG); to None: to the end
+    named_spans: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -133,7 +135,8 @@ def parse_probe(text: str) -> Media:
         tags = {str(k).upper(): str(v) for k, v in (stream.get("tags") or {}).items()}
         role = tags.get(ROLE_TAG, "").lower()
         tracks.append(Track(len(tracks), tags.get("TITLE", ""), role if role in ROLES else "",
-                            callmute.read_spans(tags.get(MUTED_TAG))))
+                            callmute.read_spans(tags.get(MUTED_TAG)),
+                            spans.read_spans(tags.get(NAMED_TAG))))
     return Media(duration=duration, sound_tracks=len(tracks),
                  video=any(k == "video" and not p for k, p in kinds),
                  subtitle_tracks=sum(1 for k, _p in kinds if k == "subtitle"), tracks=tuple(tracks))

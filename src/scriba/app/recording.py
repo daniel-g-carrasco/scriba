@@ -48,7 +48,7 @@ from pathlib import Path
 
 from scriba.app.engines import ffmpeg, process
 from scriba.app.task import Failure, check
-from scriba.core import callmute, devices, levels, loudness
+from scriba.core import callmute, devices, levels, loudness, spans
 from scriba.data import files
 from scriba.data.timing import clock
 from scriba.i18n import _
@@ -86,6 +86,7 @@ class Take:
     # (from, to) while the user was muted in the call (Windows' indicator):
     # the sound is kept, the transcript leaves the microphone's speech out
     muted: tuple[tuple[float, float | None], ...] = ()
+    named_spans: tuple[spans.Span, ...] = ()
 
 
 @dataclass
@@ -139,6 +140,8 @@ class Status:
     error: str = ""
     off: frozenset = frozenset()    # the roles switched off in Scriba now ("me", "others")
     call_muted: bool = False        # the user is muted in the call now (Windows' indicator, when followed)
+    teams_state: str = ""
+    teams_people: int = 0
 
 
 def file_words() -> dict[str, str]:
@@ -161,6 +164,8 @@ def join_arguments(ffmpeg_path: str, takes: list[Take], dest: str) -> list[str]:
         argv += [f"-metadata:s:a:{n}", f"title={title(take)}", f"-metadata:s:a:{n}", f"{ffmpeg.ROLE_TAG}={take.role}"]
         if take.muted:
             argv += [f"-metadata:s:a:{n}", f"{ffmpeg.MUTED_TAG}={callmute.write_spans(take.muted)}"]
+        if take.named_spans:
+            argv += [f"-metadata:s:a:{n}", f"{ffmpeg.NAMED_TAG}={spans.write_spans(take.named_spans)}"]
     return argv + ["-f", "matroska", "-y", dest]
 
 

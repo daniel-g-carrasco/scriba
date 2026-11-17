@@ -16,6 +16,11 @@ from scriba.app.config import Config, backup_file, load, save
 
 
 class ConfigTest(unittest.TestCase):
+    def test_retired_name_history_is_kept_as_an_unknown_setting_without_being_used(self):
+        cfg = Config.from_json({"version": config.CONFIG_VERSION, "speaker_names": "Ada Example"})
+        self.assertFalse(hasattr(cfg, "speaker_names"))
+        self.assertEqual(cfg.to_json()["speaker_names"], "Ada Example")
+
     def test_roundtrip_and_unknown_keys(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "c" / "config.json"

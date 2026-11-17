@@ -1,32 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><defs id="defs1">
-    <linearGradient id="sfumatura-cerchio-scuro" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" style="stop-color:#333333;stop-opacity:1" />
-      <stop offset="1" style="stop-color:#1a1a1a;stop-opacity:1" />
-    </linearGradient>
-    <linearGradient id="sfumatura-cerchio-avorio" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" style="stop-color:#f3f1ea;stop-opacity:1" />
-      <stop offset="1" style="stop-color:#e0ddd4;stop-opacity:1" />
-    </linearGradient>
-    <linearGradient id="sfumatura-corpo-avorio" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" style="stop-color:#f3f1ea;stop-opacity:1" />
-      <stop offset="1" style="stop-color:#d4d0c2;stop-opacity:1" />
-    </linearGradient>
-    <linearGradient id="sfumatura-corpo-scuro" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" style="stop-color:#333333;stop-opacity:1" />
-      <stop offset="1" style="stop-color:#1a1a1a;stop-opacity:1" />
-    </linearGradient>
-    <linearGradient id="sfumatura-ombra-avorio" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" style="stop-color:#d9d3bd;stop-opacity:1" />
-      <stop offset="1" style="stop-color:#ccc6b2;stop-opacity:1" />
-    </linearGradient>
-    <linearGradient id="sfumatura-ombra-scura" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" style="stop-color:#555555;stop-opacity:1" />
-      <stop offset="1" style="stop-color:#3d3d3d;stop-opacity:1" />
-    </linearGradient>
-    <mask id="nib-holes" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
-      <rect width="512" height="512" fill="white"/>
-      <circle cx="256" cy="236" r="24" fill="black"/>
-      <rect x="248" y="236" width="16" height="212" fill="black"/>
-    </mask>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Scriba's icon in the state «error» (the mark at the corner): the gold nib with its red neck, light on the left and shadow on the right, on the family's ivory disc with its thickness. The Inkscape master is scriba-icona.svg; the PNG sizes and the .ico are made from this file. -->
+  <defs>
+    <linearGradient id="sfumatura-cerchio" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f3f1ea"/><stop offset="1" stop-color="#e0ddd4"/></linearGradient><linearGradient id="sfumatura-fianco" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#d5d1c6"/><stop offset="0.0625" stop-color="#d4cfc4"/><stop offset="0.125" stop-color="#d1cdc1"/><stop offset="0.1875" stop-color="#cec9bd"/><stop offset="0.25" stop-color="#cac5b8"/><stop offset="0.3125" stop-color="#c6c1b3"/><stop offset="0.375" stop-color="#c3bdaf"/><stop offset="0.4375" stop-color="#c0baab"/><stop offset="0.5" stop-color="#bfb9aa"/><stop offset="0.5625" stop-color="#c0baab"/><stop offset="0.625" stop-color="#c3bdaf"/><stop offset="0.6875" stop-color="#c6c1b3"/><stop offset="0.75" stop-color="#cac5b8"/><stop offset="0.8125" stop-color="#cec9bd"/><stop offset="0.875" stop-color="#d1cdc1"/><stop offset="0.9375" stop-color="#d4cfc4"/><stop offset="1" stop-color="#d5d1c6"/></linearGradient>
   </defs>
-  <circle cx="256" cy="256" r="240" fill="url(#sfumatura-cerchio-scuro)"/><g transform="translate(256 256) scale(1.24) translate(-256 -256) translate(0 24)"><g mask="url(#nib-holes)"><path fill="url(#sfumatura-corpo-avorio)" d="M184 140H328L344 278 256 416 168 278Z"/><path d="M196 96H316Q328 96 328 108V140H184V108Q184 96 196 96Z" fill="url(#sfumatura-ombra-avorio)"/></g></g><g transform="translate(368 368) scale(40)"><circle r="3.2" fill="#ffffff"/><circle r="2.7" fill="#c01c28"/><g fill="#ffffff"><path d="M-.6-2.1H.6v2.6H-.6z"/><circle cy="1.6" r=".65"/></g></g></svg>
+  <circle cx="256" cy="264" r="232" fill="url(#sfumatura-fianco)"/>
+  <circle cx="256" cy="248" r="232" fill="url(#sfumatura-cerchio)"/>
+  <path fill="#F2C14E" d="M 181.06 151.8 L 256 151.8 L 256 226.73 L 253.09 226.9 L 250.22 227.41 L 247.43 228.25 L 244.75 229.41 L 242.23 230.87 L 239.9 232.61 L 237.78 234.62 L 235.92 236.86 L 234.32 239.3 L 233.03 241.91 L 232.04 244.65 L 231.38 247.49 L 231.06 250.38 L 231.07 253.3 L 231.43 256.19 L 232.11 259.02 L 233.13 261.76 L 234.45 264.35 L 236.07 266.78 L 237.96 268.99 L 240.1 270.98 L 242.45 272.7 L 244.99 274.13 L 247.67 275.26 L 247.67 426 L 164.41 295.43 Z"/>
+  <path fill="#D29A33" d="M 330.94 151.8 L 256 151.8 L 256 226.73 L 258.91 226.9 L 261.78 227.41 L 264.57 228.25 L 267.25 229.41 L 269.77 230.87 L 272.1 232.61 L 274.22 234.62 L 276.08 236.86 L 277.68 239.3 L 278.97 241.91 L 279.96 244.65 L 280.62 247.49 L 280.94 250.38 L 280.93 253.3 L 280.57 256.19 L 279.89 259.02 L 278.87 261.76 L 277.55 264.35 L 275.93 266.78 L 274.04 268.99 L 271.9 270.98 L 269.55 272.7 L 267.01 274.13 L 264.33 275.26 L 264.33 426 L 347.59 295.43 Z"/>
+  <path fill="#D2603F" d="M 181.06 151.8 L 181.06 106 L 256 106 L 256 151.8 Z"/>
+  <path fill="#9E412C" d="M 330.94 151.8 L 330.94 106 L 256 106 L 256 151.8 Z"/>
+<g transform="translate(368 368) scale(40)"><circle r="3.2" fill="#ffffff"/><circle r="2.7" fill="#c01c28"/><g fill="#ffffff"><path d="M-.6-2.1H.6v2.6H-.6z"/><circle cy="1.6" r=".65"/></g></g>
+</svg>

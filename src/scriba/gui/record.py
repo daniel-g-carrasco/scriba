@@ -152,7 +152,8 @@ class Side:
         self.row = Adw.ExpanderRow(title=_("Microphone") if is_input else _("Computer Sound"),
                                    subtitle=_("Looking for the devices…"), show_enable_switch=False,
                                    subtitle_lines=1, title_lines=1)
-        self.row.add_prefix(Gtk.Image(icon_name=ICONS[kind]))
+        self.icon = Gtk.Image(icon_name=ICONS[kind])
+        self.row.add_prefix(self.icon)
         self.meter = meter()
         self.row.add_suffix(self.meter)
         self.switch_button = Gtk.Switch(active=True, valign=Gtk.Align.CENTER)
@@ -299,6 +300,10 @@ class Side:
         starts. The switch works on once a track of this side is recorded
         (show_recording); at the end it says the settings again."""
         self._recording = active
+        if not active:
+            self.icon.set_from_icon_name(ICONS[self.kind])
+            self.icon.remove_css_class("warning")
+            self.meter.set_sensitive(True)
         self.switch_button.set_sensitive(not active)
         if not active:
             self.load()
@@ -312,6 +317,10 @@ class Side:
         role = self.role
         takes = [take for take in status.tracks if take.role == role and take.ended is None]
         off = role in status.off
+        muted = role == "me" and status.call_muted
+        self.icon.set_from_icon_name("microphone-disabled-symbolic" if muted else ICONS[self.kind])
+        (self.icon.add_css_class if muted else self.icon.remove_css_class)("warning")
+        self.meter.set_sensitive(not muted)
         # a side not recorded from the start has no track to switch
         self.switch_button.set_sensitive(self._recording and any(t.role == role for t in status.tracks))
         if not getattr(self.page.cfg, self.switch):
@@ -329,7 +338,7 @@ class Side:
         self.row.set_subtitle(escape(text))
         self.row.set_tooltip_text(text)
         peaks = [levels.fraction(status.levels[take.key][1]) for take in takes if take.key in status.levels]
-        self.meter.set_value(max(peaks, default=0.0) if status.state == "recording" and not off else 0.0)
+        self.meter.set_value(max(peaks, default=0.0) if status.state == "recording" and not off and not muted else 0.0)
 
 
 class RecordPage(Adw.Bin):
@@ -349,6 +358,7 @@ class RecordPage(Adw.Bin):
         self._events = 0
         self._then = None               # what to do once the recording is finished (the window's close)
         self._track_rows: dict[str, tuple[Adw.ActionRow, Gtk.LevelBar]] = {}
+        self._track_icons: dict[str, Gtk.Image] = {}
         self._track_sides: dict[str, Side] = {}
         self.missing = self.backend.recorder_missing()
 
@@ -388,7 +398,11 @@ class RecordPage(Adw.Bin):
         hero.append(self.time_label)
         self.state_label = Gtk.Label(wrap=True, justify=Gtk.Justification.CENTER, css_classes=["dim-label"])
         states = Gtk.Stack(vhomogeneous=True, hhomogeneous=True)
-        states.add_named(self.state_label, "state")
+        state_line = Gtk.Box(spacing=SPACE_XS, halign=Gtk.Align.CENTER)
+        self.mute_icon = Gtk.Image(icon_name="microphone-disabled-symbolic", css_classes=["warning"], visible=False)
+        state_line.append(self.mute_icon)
+        state_line.append(self.state_label)
+        states.add_named(state_line, "state")
         states.add_named(Gtk.Label(label=_("Press the button to record: nothing starts by itself."),
                                    wrap=True, justify=Gtk.Justification.CENTER,
                                    css_classes=["dim-label"]), "measure")
@@ -416,6 +430,8 @@ class RecordPage(Adw.Bin):
         self.input_side, self.output_side = Side(self, dev.INPUT), Side(self, dev.OUTPUT)
         self.sources.add(self.input_side.row)
         self.sources.add(self.output_side.row)
+        self.teams_row = Adw.ActionRow(title=_("Names from Teams"), visible=False)
+        self.sources.add(self.teams_row)
         page.add(self.sources)
 
         group = Adw.PreferencesGroup()
@@ -509,6 +525,9 @@ class RecordPage(Adw.Bin):
                         cfg.output_device, meters.peaks, meters.voices)
 
     def _show_idle(self) -> None:
+        self.mute_icon.set_visible(False)
+        self.state_label.remove_css_class("warning")
+        self.state_label.add_css_class("dim-label")
         self.time_label.set_label(clock(0))
         self.state_label.set_label(_("Press the button to record: nothing starts by itself."))
         self.controls.set_visible_child_name("idle")
@@ -521,6 +540,7 @@ class RecordPage(Adw.Bin):
             row.set_visible(False)
         self.choose_button.set_sensitive(True)
         self.banner.set_revealed(False)
+        self.teams_row.set_visible(False)
         self._show_folder()
 
     def _show_meters(self, meters: recording.Meters) -> None:
@@ -625,6 +645,7 @@ class RecordPage(Adw.Bin):
             meeting.append(recording.meeting_folder(folder, now))
             recorder = self.backend.recorder(plan, meeting[0], stem)
             recorder.follow_call = WINDOWS and self.cfg.follow_call_mute
+            recorder.teams_names = WINDOWS and self.cfg.teams_names
             recorder.start()
             return recorder
 
@@ -667,13 +688,16 @@ class RecordPage(Adw.Bin):
         for key, (row, _bar) in self._track_rows.items():
             self._track_sides[key].row.remove(row)
         self._track_rows = {}
+        self._track_icons = {}
         self._track_sides = {}
         for take in status.tracks:
             self._add_track(take)
 
     def _add_track(self, take: recording.Take) -> None:
         row = Adw.ActionRow(title=escape(take.device), title_lines=0, subtitle_lines=0)
-        row.add_prefix(Gtk.Image(icon_name=ICONS[dev.INPUT if take.role == "me" else dev.OUTPUT]))
+        icon = Gtk.Image(icon_name=ICONS[dev.INPUT if take.role == "me" else dev.OUTPUT])
+        row.add_prefix(icon)
+        self._track_icons[take.key] = icon
         bar = meter()
         row.add_suffix(bar)
         side = self.input_side if take.role == "me" else self.output_side
@@ -682,10 +706,23 @@ class RecordPage(Adw.Bin):
         self._track_sides[take.key] = side
 
     def _show_status(self, status: recording.Status) -> None:
+        self.teams_row.set_visible(bool(status.teams_state))
+        self.teams_row.set_subtitle(escape({
+            "ready": _("{n} people seen").format(n=status.teams_people),
+            "minimized": _("Teams minimized: names are not read"),
+            "no-meeting": _("No Teams meeting"),
+            "unavailable": _("Teams picture unavailable: names are not read"),
+        }.get(status.teams_state, "")))
         self.time_label.set_label(clock(status.elapsed))
         words = {"recording": _("Recording in progress"), "paused": _("Paused"), "stopping": _("Closing the files…"),
                  "stopped": _("Stopped"), "failed": _("Stopped")}
         state = words.get(status.state, status.state)
+        muted = status.call_muted and status.state in ("recording", "paused") and not self._stopping
+        self.mute_icon.set_visible(muted)
+        (self.state_label.add_css_class if muted else self.state_label.remove_css_class)("warning")
+        (self.state_label.remove_css_class if muted else self.state_label.add_css_class)("dim-label")
+        if muted:
+            state += " · " + _("microphone muted")
         if self._stopping:
             state = finishing_words(self._finishing)
         elif status.seconds_left < rec.WARN_MINUTES * 60:
@@ -711,8 +748,15 @@ class RecordPage(Adw.Bin):
                 row.add_css_class("dim-label")
             row.set_subtitle(escape(what))
             level = status.levels.get(take.key)
+            track_muted = take.role == "me" and status.call_muted
+            icon = self._track_icons[take.key]
+            icon.set_from_icon_name("microphone-disabled-symbolic" if track_muted else
+                                    ICONS[dev.INPUT if take.role == "me" else dev.OUTPUT])
+            (icon.add_css_class if track_muted else icon.remove_css_class)("warning")
+            bar.set_sensitive(not track_muted)
             # paused, nothing comes in: the meters say so
-            bar.set_value(levels.fraction(level[1]) if level and take.ended is None and not paused else 0.0)
+            bar.set_value(levels.fraction(level[1]) if level and take.ended is None and not paused
+                          and not track_muted and take.role not in status.off else 0.0)
         self.input_side.show_recording(status)
         self.output_side.show_recording(status)
         for event in status.events[self._events:]:

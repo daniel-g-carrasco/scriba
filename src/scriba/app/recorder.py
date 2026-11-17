@@ -89,7 +89,7 @@ from gi.repository import Gst  # noqa: E402
 
 from scriba import WINDOWS  # noqa: E402
 from scriba.app.engines import echo as canceller  # noqa: E402
-from scriba.core import callmute, devices as dev, echo, levels, recording as rec  # noqa: E402
+from scriba.core import callmute, devices as dev, echo, levels, recording as rec, spans  # noqa: E402
 from scriba.data import files  # noqa: E402
 from scriba.i18n import _  # noqa: E402
 
@@ -406,6 +406,10 @@ class Recorder:
         self.follow_call = False                # Windows: follow the call's mute (set before start)
         self.call_indicator = None              # the indicator's opener for app/callmute.follow (tests)
         self._call_muted = False                # the user is muted in the call now
+        self.teams_names = False                # enabled by the Windows preference before start
+        self.teams_reader = None                # replaceable opener, as for the call indicator
+        self._named = spans.Builder()
+        self._teams_state, self._teams_people = "", 0
 
     # -- the tracks ----------------------------------------------------------------
 
@@ -486,6 +490,8 @@ class Recorder:
         watches = [(self._read_bus, "scriba-recorder-bus"), (self._watch_devices, "scriba-recorder-watch")]
         if self.follow_call and (WINDOWS or self.call_indicator is not None):
             watches.append((self._watch_call, "scriba-recorder-call"))
+        if self.teams_names and (WINDOWS or self.teams_reader is not None):
+            watches.append((self._watch_teams, "scriba-recorder-teams"))
         for target, name in watches:
             thread = threading.Thread(target=target, name=name, daemon=True)
             thread.start()
@@ -520,6 +526,8 @@ class Recorder:
             self._pipeline.set_state(Gst.State.PAUSED)
             self._paused_at = time.monotonic()
             self._state = "paused"
+            with self._lock:
+                self._named.unavailable(self.elapsed())
 
     def resume(self) -> None:
         if self._state == "paused":
@@ -540,6 +548,8 @@ class Recorder:
             if (role not in self._off) == on:
                 return
             (self._off.discard if on else self._off.add)(role)
+            if role == "others" and not on:
+                self._named.unavailable(at)
             for key, take in self._takes.items():
                 if take.role != role or take.ended is not None:
                     continue
@@ -597,6 +607,25 @@ class Recorder:
             self._finish()
         return self.takes()
 
+    def teams_reading(self, reading) -> None:
+        with self._lock:
+            if self._state not in ("recording", "paused"):
+                return
+            self._teams_state, self._teams_people = reading.state, reading.people
+            at = self.elapsed()
+            if reading.state == "ready" and self._state == "recording" and "others" not in self._off:
+                self._named.read(at, reading.active)
+            else:
+                self._named.unavailable(at)
+
+    def _watch_teams(self) -> None:
+        from scriba.app import teams
+        try:
+            teams.follow(self.teams_reading, self._quit, opener=self.teams_reader or teams.Reader)
+        except Exception as error:  # worker boundary: recording continues, failure is visible
+            complain("following Teams names", error)
+            self.teams_reading(teams.Reading("unavailable"))
+
     def _finish(self) -> None:
         self._quit.set()
         if self._pipeline is not None:
@@ -605,6 +634,10 @@ class Recorder:
         for thread in self._threads:
             if thread is not current:
                 thread.join(5)
+        with self._lock:
+            named = self._named.finish(self.elapsed())
+            for take in self._takes.values():
+                take.named_spans = named
         self._state = "failed" if self._error and self._state == "failed" else "stopped"
 
     def takes(self) -> list[Take]:
@@ -629,7 +662,7 @@ class Recorder:
                 alerts += (levels.Alert(echo.ECHO, "", 0.0),)
             return Status(self._state, self.elapsed(), tuple(replace(t) for t in self._takes.values()),
                           dict(self._now), alerts, tuple(self._events), self._left, self._error,
-                          frozenset(self._off), self._call_muted)
+                          frozenset(self._off), self._call_muted, self._teams_state, self._teams_people)
 
     # -- the threads -------------------------------------------------------------------
 

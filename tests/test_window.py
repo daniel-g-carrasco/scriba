@@ -475,6 +475,19 @@ class WindowTest(unittest.TestCase):
                 self.assertEqual((self.out / name).read_bytes(), content, name)
         self.assertTrue(_setup.spin(lambda: "md-named" in {o.kind for o in result.result.outputs}))
 
+    def test_teams_names_prefill_editable_fields_without_changing_saved_names(self):
+        from scriba.core.naming import Proposal
+        window = self.result_window()
+        result = window.result.result
+        result.proposals = {"Speaker 2": Proposal("Ada Example", 8.2, 0.82)}
+        before = dict(result.names)
+        window.show_result(result, window.result.request)
+        entry = window.result.entries["Speaker 2"]
+        self.assertEqual(entry.get_text(), "Ada Example")
+        self.assertEqual(result.names, before)
+        entry.set_text("Bob Example")
+        self.assertEqual(window.result.names()["Speaker 2"], "Bob Example")
+
     def test_the_whole_text_is_a_page_of_its_own_with_one_scrolling_area(self):
         from scriba.core.paragraphs import paragraphs
         from scriba.data import markdown
@@ -542,6 +555,50 @@ class WindowTest(unittest.TestCase):
         window.show_result(fake_engines.made_result(self.out, self.recording, made), window.transcribe.request())
         self.assertFalse(window.result.banner.get_revealed())
 
+    def test_recording_notes_are_collapsed_and_do_not_warn_but_failures_do(self):
+        page = self.result_window().result
+        note = jobs.MUTE_INFORMATION.format(time="05:05")
+        page.result.notes = [note, jobs.ECHO_INFORMATION.format(share="9 %", time="05:05")]
+        groups = page._outcome(page.result, page.request)
+        self.assertEqual(page.outcome_icon.get_icon_name(), "object-select-symbolic")
+        def descendants(widget):
+            child = widget.get_first_child()
+            while child:
+                yield child
+                yield from descendants(child)
+                child = child.get_next_sibling()
+        details = next(w for w in descendants(groups[1]) if isinstance(w, Adw.ExpanderRow))
+        self.assertFalse(details.get_expanded())
+        self.assertEqual(details.get_subtitle(), "2 notes")
+        page.result.notes.append("A file of terms was left out: missing.txt is not there.")
+        page._outcome(page.result, page.request)
+        self.assertEqual(page.outcome_icon.get_icon_name(), "dialog-warning-symbolic")
+
+    def test_balance_uses_small_steps_and_leaves_wheel_scrolling_to_the_page(self):
+        page = self.result_window().result
+        scale = page.balance_scale
+        adjustment = scale.get_adjustment()
+        controllers = scale.observe_controllers()
+        wheels = [controllers.get_item(n) for n in range(controllers.get_n_items())
+                  if isinstance(controllers.get_item(n), Gtk.EventControllerScroll)]
+        self.assertEqual(sum(c.get_propagation_phase() == Gtk.PropagationPhase.NONE for c in wheels), 1)
+        self.assertEqual(sum(c.get_propagation_phase() != Gtk.PropagationPhase.NONE for c in wheels), 1)
+        self.assertEqual(adjustment.get_step_increment(), 0.05)
+        self.assertEqual(adjustment.get_page_increment(), 0.05)
+        scale.set_value(0)
+        scale.emit("move-slider", Gtk.ScrollType.STEP_FORWARD)
+        self.assertAlmostEqual(scale.get_value(), 0.05)
+        self.assertFalse(page._balance_scroll(None, 0, 1))
+        self.assertAlmostEqual(scale.get_value(), 0.05)
+        scale.grab_focus()
+        self.assertTrue(page._balance_scroll(None, 0, 1))
+        self.assertAlmostEqual(scale.get_value(), 0)
+        page._balance_scroll(None, 0, -1)
+        self.assertAlmostEqual(scale.get_value(), 0.05)
+        scale.set_value(1)
+        page._balance_scroll(None, 0, -1)
+        self.assertEqual(scale.get_value(), 1)
+
     def test_listen_plays_the_voice_and_the_same_button_stops_it(self):
         import numpy as np
         from scriba.app.engines import audio
@@ -577,13 +634,13 @@ class WindowTest(unittest.TestCase):
         window.result.my_voice.set_selected(1)
         self.assertEqual(window.result.entries["Speaker 1"].get_text(), "Daniel")
         window.result.entries["Speaker 2"].set_text("An")
-        self.assertEqual(window.result.suggestion_names("Speaker 2"), ["Anna"])
-        window.result._use_suggestion("Speaker 2", "Anna")
+        self.assertFalse(hasattr(window.result, "suggestions"))
+        window.result.entries["Speaker 2"].set_text("Anna")
         previous = window.result.result.session
         window.result.save_names()
-        self.assertTrue(_setup.spin(lambda: "Anna" in self.app.cfg.speaker_names))
+        self.assertTrue(_setup.spin(lambda: not window.result.busy))
         self.assertEqual(window.result.result.session, previous)        # names: no new meeting file
-        self.assertIn("Anna", self.app.cfg.speaker_names)
+        self.assertEqual(window.result.result.names["Speaker 2"], "Anna")
         # the files with the names, saved twice, are listed once
         named = [o.path for o in window.result.result.outputs if o.kind == "md-named"]
         self.assertEqual(len(named), 1)
@@ -1014,13 +1071,36 @@ class RecordPageTest(unittest.TestCase):
         self.assertEqual(recorder.follow_call, WINDOWS)
         recorder.call_muted = True
         self.assertTrue(_setup.spin(lambda: page.input_side.row.get_subtitle() == "Muted in the call", 5))
+        self.assertIn("microphone muted", page.state_label.get_label())
+        self.assertTrue(page.mute_icon.get_visible())
+        self.assertEqual(page.input_side.icon.get_icon_name(), "microphone-disabled-symbolic")
+        self.assertEqual(page.input_side.meter.get_value(), 0)
+        self.assertFalse(page.input_side.meter.get_sensitive())
+        self.assertEqual(page._track_rows["me-1"][1].get_value(), 0)
+        self.assertFalse(page._track_rows["me-1"][1].get_sensitive())
+        self.assertGreater(page.output_side.meter.get_value(), 0)
         recorder.call_muted = False
         self.assertTrue(_setup.spin(lambda: "Recording · " in (page.input_side.row.get_subtitle() or ""), 5))
+        self.assertFalse(page.mute_icon.get_visible())
+        self.assertTrue(page.input_side.meter.get_sensitive())
+        self.assertGreater(page.input_side.meter.get_value(), 0)
 
     def test_the_call_s_mute_is_followed_by_default(self):
         from scriba import WINDOWS
         _page, recorder = self.recording(self.window())
         self.assertEqual(recorder.follow_call, WINDOWS)
+
+    def test_teams_preference_reaches_recorder_and_status_is_visible(self):
+        from scriba import WINDOWS
+        page, recorder = self.recording(self.window())
+        self.assertEqual(recorder.teams_names, WINDOWS)
+        recorder.teams_state, recorder.teams_people = "ready", 4
+        page._show_status(recorder.snapshot())
+        self.assertTrue(page.teams_row.get_visible())
+        self.assertEqual(page.teams_row.get_subtitle(), "4 people seen")
+        recorder.teams_state = "minimized"
+        page._show_status(recorder.snapshot())
+        self.assertIn("minimized", page.teams_row.get_subtitle())
 
     def test_the_call_s_mute_is_not_followed_when_switched_off(self):
         self.app.cfg.follow_call_mute = False

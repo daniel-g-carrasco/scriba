@@ -186,6 +186,12 @@ class PreferencesDialog(Adw.PreferencesDialog):
                 active=cfg.follow_call_mute)
             self.call_mute_row.connect("notify::active", lambda r, _p: self._set("follow_call_mute", r.get_active()))
             group.add(self.call_mute_row)
+            self.teams_names_row = Adw.SwitchRow(
+                title=_("Names from Teams"), active=cfg.teams_names,
+                subtitle=_("Propose voice names from Teams speaker borders during recording. "
+                           "Unavailable when Teams is minimized or its picture cannot be read."), subtitle_lines=3)
+            self.teams_names_row.connect("notify::active", lambda r, _p: self._set("teams_names", r.get_active()))
+            group.add(self.teams_names_row)
         page.add(group)
 
         group = Adw.PreferencesGroup(title=_("Background"))

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="512" height="512" viewBox="0 0 512 512" version="1.1" id="svg1"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg" xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview id="namedview1" pagecolor="#ffffff" bordercolor="#000000" borderopacity="0.25" inkscape:showpageshadow="2" inkscape:pageopacity="0.0" inkscape:pagecheckerboard="0" inkscape:deskcolor="#d1d1d1" inkscape:document-units="px" showguides="true" inkscape:zoom="1" inkscape:cx="256" inkscape:cy="256" inkscape:current-layer="soggetto">
+    <sodipodi:guide position="256,256" orientation="1,0" inkscape:label="centro" />
+    <sodipodi:guide position="256,264" orientation="0,1" inkscape:label="centro della faccia" />
+    <sodipodi:guide position="256,246" orientation="0,1" inkscape:label="centro del pennino" />
+  </sodipodi:namedview>
+  <defs id="defs1">
+    <linearGradient id="sfumatura-cerchio" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f3f1ea"/><stop offset="1" stop-color="#e0ddd4"/></linearGradient><linearGradient id="sfumatura-fianco" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#d5d1c6"/><stop offset="0.0625" stop-color="#d4cfc4"/><stop offset="0.125" stop-color="#d1cdc1"/><stop offset="0.1875" stop-color="#cec9bd"/><stop offset="0.25" stop-color="#cac5b8"/><stop offset="0.3125" stop-color="#c6c1b3"/><stop offset="0.375" stop-color="#c3bdaf"/><stop offset="0.4375" stop-color="#c0baab"/><stop offset="0.5" stop-color="#bfb9aa"/><stop offset="0.5625" stop-color="#c0baab"/><stop offset="0.625" stop-color="#c3bdaf"/><stop offset="0.6875" stop-color="#c6c1b3"/><stop offset="0.75" stop-color="#cac5b8"/><stop offset="0.8125" stop-color="#cec9bd"/><stop offset="0.875" stop-color="#d1cdc1"/><stop offset="0.9375" stop-color="#d4cfc4"/><stop offset="1" stop-color="#d5d1c6"/></linearGradient>
+  </defs>
+  <g inkscape:groupmode="layer" id="sfondo" inkscape:label="Disco (bloccato)" sodipodi:insensitive="true">
+    <circle id="spessore" inkscape:label="spessore" cx="256" cy="264" r="232" style="fill:url(#sfumatura-fianco)" />
+    <circle id="faccia" inkscape:label="faccia" cx="256" cy="248" r="232" style="fill:url(#sfumatura-cerchio)" />
+  </g>
+  <g inkscape:groupmode="layer" id="soggetto" inkscape:label="Soggetto">
+    <g id="pennino" inkscape:label="pennino">
+      <path id="corpo-luce" inkscape:label="corpo-luce" style="fill:#F2C14E" d="M 181.06 151.8 L 256 151.8 L 256 226.73 L 253.09 226.9 L 250.22 227.41 L 247.43 228.25 L 244.75 229.41 L 242.23 230.87 L 239.9 232.61 L 237.78 234.62 L 235.92 236.86 L 234.32 239.3 L 233.03 241.91 L 232.04 244.65 L 231.38 247.49 L 231.06 250.38 L 231.07 253.3 L 231.43 256.19 L 232.11 259.02 L 233.13 261.76 L 234.45 264.35 L 236.07 266.78 L 237.96 268.99 L 240.1 270.98 L 242.45 272.7 L 244.99 274.13 L 247.67 275.26 L 247.67 426 L 164.41 295.43 Z" />
+      <path id="corpo-ombra" inkscape:label="corpo-ombra" style="fill:#D29A33" d="M 330.94 151.8 L 256 151.8 L 256 226.73 L 258.91 226.9 L 261.78 227.41 L 264.57 228.25 L 267.25 229.41 L 269.77 230.87 L 272.1 232.61 L 274.22 234.62 L 276.08 236.86 L 277.68 239.3 L 278.97 241.91 L 279.96 244.65 L 280.62 247.49 L 280.94 250.38 L 280.93 253.3 L 280.57 256.19 L 279.89 259.02 L 278.87 261.76 L 277.55 264.35 L 275.93 266.78 L 274.04 268.99 L 271.9 270.98 L 269.55 272.7 L 267.01 274.13 L 264.33 275.26 L 264.33 426 L 347.59 295.43 Z" />
+      <path id="collo-luce" inkscape:label="collo-luce" style="fill:#D2603F" d="M 181.06 151.8 L 181.06 106 L 256 106 L 256 151.8 Z" />
+      <path id="collo-ombra" inkscape:label="collo-ombra" style="fill:#9E412C" d="M 330.94 151.8 L 330.94 106 L 256 106 L 256 151.8 Z" />
+    </g>
+  </g>
+</svg>

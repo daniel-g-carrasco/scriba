@@ -114,14 +114,5 @@ class DisplayNamesTest(unittest.TestCase):
         self.assertEqual(speakers.shown_label(segments.SPEAKER_LABEL.format(number=12)), "Speaker 12")
 
 
-class SuggestionsTest(unittest.TestCase):
-    def test_previous_names_are_trimmed_deduplicated_and_filtered_while_typing(self):
-        known = "Anna Rossi\nBob\nAnna Rossi\n  Anna   Maria  "
-        self.assertEqual(speakers.suggestions("aN", known), ["Anna Rossi", "Anna Maria"])
-        self.assertEqual(speakers.suggestions("Anna Rossi", known), [])
-        self.assertEqual(speakers.remembered(known, {"Speaker 1": " Carla  ", "Speaker 2": "Bob"}),
-                         "Anna Rossi\nBob\nAnna Maria\nCarla")
-
-
 if __name__ == "__main__":
     unittest.main()

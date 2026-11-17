@@ -32,7 +32,7 @@ from scriba.data import markdown  # noqa: E402
 from scriba.data.timing import clock  # noqa: E402
 from scriba.i18n import _, count, ngettext  # noqa: E402
 
-from .style_values import ICON_TILE, SPACE_L, SPACE_M, SPACE_S, SPACE_XS  # noqa: E402
+from .style_values import SPACE_L, SPACE_M, SPACE_S, SPACE_XS  # noqa: E402
 from .transcript import TranscriptPage  # noqa: E402
 from .ui import escape, header_bar, open_path, report, reveal, run_in_thread  # noqa: E402
 
@@ -135,8 +135,6 @@ class ResultPage(Adw.NavigationPage):
         self.files.add(self.session_row)
         page.add(self.files)
         self.entries: dict[str, Adw.EntryRow] = {}
-        self.suggestions: dict[str, tuple] = {}
-        self._known = speakers.remembered(self.window.app.cfg.speaker_names, result.names)
         self.headings: dict[str, list[Gtk.Label]] = {}
         self.transcript = None              # the whole text's page, made when first asked
         self.listen_buttons: dict[str, Gtk.Button] = {}
@@ -167,26 +165,38 @@ class ResultPage(Adw.NavigationPage):
             facts.append(ngettext("{n} voice", "{n} voices", result.speakers).format(n=count(result.speakers)))
         facts.append(ngettext("{n} doubtful line", "{n} doubtful lines", doubtful).format(n=count(doubtful))
                      if doubtful else _("no doubtful line"))
-        line = Gtk.Box(spacing=SPACE_L)
-        warned = bool(result.notes) or segments.doubt_warning(result.segments) is not None
+        line = Gtk.Grid(column_spacing=SPACE_M, row_spacing=SPACE_XS)
+        information = [note for note in result.notes if jobs.recording_information(note)]
+        warnings = [note for note in result.notes if note not in information]
+        warned = bool(warnings) or segments.doubt_warning(result.segments) is not None
         icon = Gtk.Image(icon_name="dialog-warning-symbolic" if warned else "object-select-symbolic",
-                         pixel_size=ICON_TILE, valign=Gtk.Align.START,
+                         valign=Gtk.Align.CENTER,
                          css_classes=["warning" if warned else "success"])
-        line.append(icon)
-        words = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=SPACE_XS, hexpand=True)
+        self.outcome_icon = icon
+        line.attach(icon, 0, 0, 1, 1)
         self.outcome_title = Gtk.Label(label=_("Transcript Ready"), xalign=0, wrap=True, css_classes=["title-3"])
-        words.append(self.outcome_title)
-        self.outcome = Gtk.Label(label=" · ".join(facts), xalign=0, wrap=True, css_classes=["dim-label"])
-        words.append(self.outcome)
-        line.append(words)
+        line.attach(self.outcome_title, 1, 0, 1, 1)
+        self.outcome = Gtk.Label(label=" · ".join(facts), xalign=0, wrap=True, hexpand=True,
+                                 css_classes=["dim-label"])
+        line.attach(self.outcome, 1, 1, 1, 1)
         group.add(line)
         groups = [group]
         if result.notes:
             notes = Adw.PreferencesGroup()
-            for note in result.notes:
+            for note in warnings:
                 row = Adw.ActionRow(title=escape(note), title_lines=3)
                 row.add_prefix(Gtk.Image(icon_name="dialog-warning-symbolic", css_classes=["warning"]))
                 notes.add(row)
+            if information:
+                details = Adw.ExpanderRow(title=_("Recording Notes"),
+                                          subtitle=ngettext("{n} note", "{n} notes", len(information)).format(
+                                              n=count(len(information))), expanded=False)
+                details.add_prefix(Gtk.Image(icon_name="dialog-information-symbolic"))
+                for note in information:
+                    row = Adw.ActionRow(title=escape(note))
+                    row.add_prefix(Gtk.Image(icon_name="dialog-information-symbolic"))
+                    details.add_row(row)
+                notes.add(details)
             groups.append(notes)
         return groups
 
@@ -230,6 +240,18 @@ class ResultPage(Adw.NavigationPage):
         ends.append(Gtk.Label(label=_("More Me"), xalign=1))
         box.append(ends)
         self.balance_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, -1, 1, 0.05)
+        self.balance_scale.set_increments(0.05, 0.05)
+        # Replace Range's wheel controller: otherwise returning False from ours
+        # still changes the balance before the parent can scroll the page.
+        controllers = self.balance_scale.observe_controllers()
+        for index in range(controllers.get_n_items()):
+            controller = controllers.get_item(index)
+            if isinstance(controller, Gtk.EventControllerScroll):
+                controller.set_propagation_phase(Gtk.PropagationPhase.NONE)
+        wheel = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL |
+                                              Gtk.EventControllerScrollFlags.DISCRETE)
+        wheel.connect("scroll", self._balance_scroll)
+        self.balance_scale.add_controller(wheel)
         self.balance_scale.set_draw_value(False)
         self.balance_scale.add_mark(0, Gtk.PositionType.BOTTOM, _("Automatic"))
         self.balance_scale.set_value(jobs.listening_balance(result))
@@ -262,6 +284,16 @@ class ResultPage(Adw.NavigationPage):
 
         run_in_thread(lambda: self.window.backend.can_balance(result), checked)
         return group
+
+    def _balance_scroll(self, _controller, _dx: float, dy: float) -> bool:
+        # Clicking the slider (or selecting it with Tab) opts into wheel edits.
+        # Hover alone leaves the event for the PreferencesPage's scroller.
+        if not self.balance_scale.is_focus():
+            return False
+        adjustment = self.balance_scale.get_adjustment()
+        value = self.balance_scale.get_value() - dy * adjustment.get_step_increment()
+        self.balance_scale.set_value(max(adjustment.get_lower(), min(adjustment.get_upper(), value)))
+        return True
 
     def _saving_changed(self, active: bool, listening: bool = False) -> None:
         self._saving = active
@@ -319,19 +351,18 @@ class ResultPage(Adw.NavigationPage):
             title = _("{voice}: {n} lines, the first at {time}") if voice.lines != 1 else _("{voice}: 1 line, at {time}")
             entry = Adw.EntryRow(title=escape(title.format(voice=speakers.shown_label(voice.label), n=voice.lines,
                                                            time=clock(voice.first))))
-            menu = Gtk.MenuButton(icon_name="pan-down-symbolic", tooltip_text=_("Previous Names"),
-                                  valign=Gtk.Align.CENTER, visible=False)
-            choices = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=SPACE_XS)
-            popover = Gtk.Popover(child=choices, autohide=False)
-            menu.set_popover(popover)
-            entry.add_suffix(menu)
-            self.suggestions[voice.label] = (menu, choices, popover)
             entry.connect("changed", lambda e, label=voice.label: self._renamed(label, e.get_text()))
             listen = Gtk.Button(icon_name="media-playback-start-symbolic", valign=Gtk.Align.CENTER,
                                 css_classes=["flat"],
                                 tooltip_text=_("Listen from {time}").format(time=clock(voice.listen[0])))
             listen.connect("clicked", lambda *_, v=voice: self.listen(v))
             entry.add_suffix(listen)
+            proposal = self.result.proposals.get(voice.label)
+            if proposal and voice.label not in self.result.names:
+                reason = _("from Teams, {share}% of speech").format(share=round(proposal.share * 100))
+                badge = Gtk.Label(label=reason, css_classes=["dim-label"], tooltip_text=reason)
+                entry.add_suffix(badge)
+                entry.connect("changed", lambda e, b=badge, name=proposal.name: b.set_visible(e.get_text() == name))
             group.add(entry)
             self.entries[voice.label] = entry
             self.listen_buttons[voice.label] = listen
@@ -340,7 +371,8 @@ class ResultPage(Adw.NavigationPage):
         self.save_button.connect("clicked", lambda *_: self.save_names())
         group.add(self.save_button)
         for label, entry in self.entries.items():
-            entry.set_text(self.result.names.get(label, ""))
+            proposal = self.result.proposals.get(label)
+            entry.set_text(self.result.names.get(label, proposal.name if proposal else ""))
         return group
 
     def names(self) -> dict[str, str]:
@@ -354,28 +386,6 @@ class ResultPage(Adw.NavigationPage):
             self.transcript.rename(label, shown)
         if hasattr(self, "save_button"):
             self.save_button.set_sensitive(not self._saving and bool(speakers.clean(self.names()) or self.result.names))
-        menu, choices, popover = self.suggestions[label]
-        child = choices.get_first_child()
-        while child is not None:
-            choices.remove(child)
-            child = choices.get_first_child()
-        found = self.suggestion_names(label)
-        for name in found:
-            button = Gtk.Button(label=name, css_classes=["flat"])
-            button.connect("clicked", lambda *_, value=name: self._use_suggestion(label, value))
-            choices.append(button)
-        menu.set_visible(bool(found))
-        if found and text and self.entries[label].get_state_flags() & Gtk.StateFlags.FOCUS_WITHIN:
-            popover.popup()
-        else:
-            popover.popdown()
-
-    def suggestion_names(self, label: str) -> list[str]:
-        return speakers.suggestions(self.entries[label].get_text(), self._known)
-
-    def _use_suggestion(self, label: str, name: str) -> None:
-        self.entries[label].set_text(name)
-        self.suggestions[label][2].popdown()
 
     def _chose_my_voice(self) -> None:
         selected = self.my_voice.get_selected()
@@ -401,10 +411,6 @@ class ResultPage(Adw.NavigationPage):
                 return
             if error is not None:
                 return
-            cfg = self.window.app.cfg
-            cfg.speaker_names = speakers.remembered(cfg.speaker_names, speakers.clean(names))
-            self._known = speakers.remembered(cfg.speaker_names, result.names)
-            self.window.app.save_config()
             self.session_row.set_subtitle(escape(Path(result.session).name))
             for output in named.outputs:
                 self._add_output(output)

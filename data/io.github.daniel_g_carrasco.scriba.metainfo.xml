@@ -50,6 +50,11 @@
   </requires>
 
   <releases>
+    <release version="0.1.5" date="2026-11-17" type="stable">
+      <description>
+        <p>Editable voice names observed from Teams during recording, a clearly visible microphone mute, refinements to the Result page and listening balance, and a new gold nib icon on an ivory disc.</p>
+      </description>
+    </release>
     <release version="0.1.4" date="2026-11-16" type="stable">
       <description>
         <p>The update window laid out as GNOME's own, with the app's icon and what is new from the changelog under headings in the app's language, and the app's icon drawn again wherever the app shows it at a size of its own.</p>

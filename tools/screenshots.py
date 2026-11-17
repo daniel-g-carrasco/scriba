@@ -41,7 +41,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 STATES = ("models", "models-downloading", "empty", "setup-video", "cards-testing", "cards-left-out", "working", "result", "result-long",
           "preferences", "dark", "record", "record-going", "record-warning", "record-long", "balance", "transcript",
-          "terms", "result-doubtful", "update")
+          "terms", "result-doubtful", "update", "teams-result", "record-muted", "result-notes", "result-notes-open")
 GHOST = 0.02            # the window's opacity on the screen while it is drawn and photographed
 
 
@@ -383,7 +383,8 @@ class Shots:
         self.spin(lambda: window.transcribe.job is None)
         window.destroy()
 
-    def _result(self, voices, count, doubtful, names=None, notes=(), named=False, dark=False, name="05-risultato"):
+    def _result(self, voices, count, doubtful, names=None, notes=(), named=False, dark=False, name="05-risultato",
+                proposals=None):
         import fake_engines
 
         from scriba.app import jobs
@@ -396,6 +397,7 @@ class Shots:
                                         device="cpu" if notes else fake_engines.CARD.label)
         if named:
             jobs.save_names(made, names)
+        made.proposals = proposals or {}
         app.backend.runner = fake_engines.runner(lambda r: made)
         if dark:
             from gi.repository import Adw
@@ -423,6 +425,61 @@ class Shots:
 
     def result(self):
         self._result(3, 24, 2)
+
+    def result_notes_open(self):
+        self.result_notes(opened_only=True)
+
+    def result_notes(self, opened_only=False):
+        """Information, an actionable warning and balance, in both themes."""
+        import fake_engines
+        from scriba.app import jobs
+        from scriba.i18n import _
+        for dark in (False, True):
+            self._dark(dark)
+            for scene in (("information-open",) if opened_only else ("information", "warning", "balance")):
+                app, tmp = self.app()
+                app.backend.balanceable = scene == "balance"
+                source = self.recording(tmp, "Riunione di esempio.mka")
+                notes = [_(jobs.ECHO_INFORMATION).format(share="9 %", time="05:05"),
+                         _(jobs.MUTE_INFORMATION).format(time="05:05")]
+                if scene == "warning":
+                    notes.append(_("A file of terms was left out: {reason}").format(reason="terms.txt"))
+                made = fake_engines.made_result(tmp / "Registrazioni", source, fake_engines.lines(3, 24, 0),
+                                                notes=notes, duration=4500.0)
+                window = self.window(app)
+                window.show_result(made, jobs.Request(source))
+                self.settle(0.8)
+                if scene == "information-open":
+                    from gi.repository import Adw
+                    pending = [window.result.page]
+                    while pending:
+                        widget = pending.pop()
+                        if isinstance(widget, Adw.ExpanderRow):
+                            widget.set_expanded(True)
+                            break
+                        child = widget.get_first_child()
+                        while child is not None:
+                            pending.append(child)
+                            child = child.get_next_sibling()
+                if scene == "balance":
+                    self.spin(lambda w=window: w.result.balance_group.get_visible())
+                    window.result.balance_scale.set_value(0.05)
+                    scroll = self.scroller(window.result.page)
+                    scroll.get_vadjustment().set_value(250)
+                self.settle()
+                self.photograph(window, f"18-{scene}-{'dark' if dark else 'light'}")
+                window.destroy()
+        self._dark(False)
+
+    def teams_result(self):
+        from scriba.core.naming import Proposal
+        for long in (False, True):
+            for dark in (False, True):
+                self._result(8 if long else 3, 24, 2, dark=dark,
+                             proposals={"Speaker 2": Proposal(
+                                 "Ada Example with an unusually long participant display name" if long else "Ada Example",
+                                 8.2, 0.82)},
+                             name=f"17-nomi-teams-{'lungo' if long else 'normale'}-{'scuro' if dark else 'chiaro'}")
 
     def result_long(self):
         long_names = ("Ing. Maria Francesca Bianchi-Lombardi (Direzione Lavori, committente)",
@@ -618,6 +675,23 @@ class Shots:
         self.photograph(window, "10b-registra-in-pausa")
         recorder.state = "stopped"
         window.destroy()
+
+    def record_muted(self):
+        for dark in (False, True):
+            self._dark(dark)
+            window = self._record()
+            recorder = self._going(window, 754.0)
+            recorder.teams_state, recorder.teams_people = "ready", 4
+            recorder.call_muted = True
+            window.record.input_side.row.set_expanded(True)
+            self.settle(0.5)
+            self.photograph(window, f"18-microfono-silenzio-{'scuro' if dark else 'chiaro'}")
+            recorder.call_muted = False
+            self.settle(0.5)
+            self.photograph(window, f"18-microfono-riacceso-{'scuro' if dark else 'chiaro'}")
+            recorder.state = "stopped"
+            window.destroy()
+        self._dark(False)
 
     def record_warning(self):
         from scriba.app import recording as recordings

@@ -206,6 +206,7 @@ class FakeRecorder:
         self.takes = []
         self.fail = None                    # a Failure start() raises
         self.follow_call, self.call_muted = False, False     # the call's mute, as the page asks and the test sets
+        self.teams_names, self.teams_state, self.teams_people = False, "", 0
 
     def start(self):
         if self.fail is not None:
@@ -231,7 +232,8 @@ class FakeRecorder:
 
     def snapshot(self):
         return recordings.Status(self.state, self.elapsed, tuple(self.takes), dict(self.levels), tuple(self.alerts),
-                                 tuple(self.events), self.seconds_left, self.error, call_muted=self.call_muted)
+                                 tuple(self.events), self.seconds_left, self.error, call_muted=self.call_muted,
+                                 teams_state=self.teams_state, teams_people=self.teams_people)
 
 
 def install_recorder(backend, devices=DEVICES, levels=None, closed=(), failed=None):
