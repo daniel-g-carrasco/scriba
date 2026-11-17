@@ -1,0 +1,35 @@
+{
+  "name": "community-runtime",
+  "buildsystem": "simple",
+  "build-options": {
+    "strip": false,
+    "no-debuginfo": true
+  },
+  "build-commands": [
+    "install -d /app/lib/scriba-community /app/share/licenses/community-runtime",
+    "cp runtime/onnxruntime/capi/libonnxruntime.so.1.32.0 runtime/onnxruntime/capi/libonnxruntime_providers_shared.so /app/lib/scriba-community/",
+    "cp plugin/onnxruntime_ep_webgpu/libonnxruntime_providers_webgpu.so /app/lib/scriba-community/",
+    "cp runtime/onnxruntime/LICENSE /app/share/licenses/community-runtime/onnxruntime-MIT.txt",
+    "cp runtime/onnxruntime/ThirdPartyNotices.txt /app/share/licenses/community-runtime/onnxruntime-ThirdPartyNotices.txt",
+    "cp plugin/onnxruntime_ep_webgpu-0.6.0.dist-info/licenses/LICENSE /app/share/licenses/community-runtime/webgpu-MIT.txt",
+    "cp plugin/onnxruntime_ep_webgpu-0.6.0.dist-info/licenses/ThirdPartyNotices.txt /app/share/licenses/community-runtime/webgpu-ThirdPartyNotices.txt"
+  ],
+  "sources": [
+    {
+      "type": "archive",
+      "archive-type": "zip",
+      "url": "https://files.pythonhosted.org/packages/92/74/1f7c51522822e93aa91f633ebcd75688e2deebeca5901b2e6da8a8c5ad7c/onnxruntime-1.32.0-cp313-cp313-manylinux_2_28_x86_64.whl",
+      "sha256": "02ea12a28c069ea8510093d95a7f6ff8126bfd9fc5c0d3381c03b80fb2b424ba",
+      "strip-components": 0,
+      "dest": "runtime"
+    },
+    {
+      "type": "archive",
+      "archive-type": "zip",
+      "url": "https://files.pythonhosted.org/packages/98/57/656e7b4071d754674fc9f749bcd9dc0229efc685b084ca71932a34d7cad4/onnxruntime_ep_webgpu-0.6.0-py3-none-manylinux_2_28_x86_64.whl",
+      "sha256": "791d991f2779ae23cdd273d4689413e798080cfa4b736012ec53da8cd14a7c79",
+      "strip-components": 0,
+      "dest": "plugin"
+    }
+  ]
+}

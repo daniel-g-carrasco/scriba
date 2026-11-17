@@ -14,6 +14,8 @@
 # scikit-learn, and GStreamer with the plugins the recorder and GTK's
 # player need, and those only. The speech models are not in it: they are
 # downloaded at the first start (app/models.py).
+import json
+import hashlib
 import os
 import shutil
 import sys
@@ -101,6 +103,17 @@ engine(GSTPLAY)
 # ctypes: the analysis cannot see it
 engine(BIN / 'onnxruntime.dll')
 
+# Official plugin binaries stay in a private folder, byte-identical, without
+# importing the incompatible CPython extension or altering Silero's ORT.
+community_runtime = ROOT / 'build' / 'community-runtime'
+receipt = json.loads((ROOT / 'build-aux' / 'community-runtime-windows.json').read_text())
+for name, record in receipt['files'].items():
+    path = community_runtime / name
+    if not path.is_file() or path.stat().st_size != record['bytes'] or hashlib.sha256(path.read_bytes()).hexdigest() != record['sha256']:
+        raise SystemExit('ERROR: prepare the verified community runtime: ' + name)
+    datas.append((str(path), 'community-runtime'))
+datas.append((str(ROOT / 'build-aux' / 'community-runtime-windows.json'), 'community-runtime'))
+
 # the licences of the Python distributions given away with the build
 for dist in ('numpy', 'scipy', 'scikit-learn', 'joblib', 'threadpoolctl', 'PyGObject', 'pycairo'):
     try:
@@ -146,8 +159,15 @@ a = Analysis(
     },
     # not numpy.f2py: scipy's array API layer copies every name of numpy,
     # f2py's too, and without it the voices fail at their first import
-    excludes=['tkinter', 'pytest', 'IPython', 'matplotlib', 'pandas', 'PIL', 'sympy'],
+    excludes=['tkinter', 'pytest', 'IPython', 'matplotlib', 'pandas', 'PIL', 'sympy', 'torch', 'torchaudio', 'torchcodec', 'pyannote', 'huggingface_hub',
+              'scipy._lib.array_api_compat.torch', 'sklearn.externals.array_api_compat.torch'],
 )
+
+# Microsoft C++ system redistributables are prerequisites of the optional
+# official GPU runtime. Do not redistribute proprietary system DLLs as if
+# they were open MSYS2 inputs. On systems without them, community uses CPU.
+a.binaries = [(name, source, kind) for name, source, kind in a.binaries
+              if not name.upper().startswith(('MSVCP140', 'VCRUNTIME140', 'API-MS-WIN-', 'UCRTBASE.DLL'))]
 
 pyz = PYZ(a.pure)
 

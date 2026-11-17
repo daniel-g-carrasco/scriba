@@ -41,7 +41,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 STATES = ("models", "models-downloading", "empty", "setup-video", "cards-testing", "cards-left-out", "working", "result", "result-long",
           "preferences", "dark", "record", "record-going", "record-warning", "record-long", "balance", "transcript",
-          "terms", "result-doubtful", "update", "teams-result", "record-muted", "result-notes", "result-notes-open")
+          "terms", "result-doubtful", "update", "teams-result", "record-muted", "result-notes", "result-notes-open", "community")
 GHOST = 0.02            # the window's opacity on the screen while it is drawn and photographed
 
 
@@ -356,7 +356,7 @@ class Shots:
         self.photograph(window, "03d-trascrivi-scheda-scartata")
         dialog = PreferencesDialog(window, app)
         dialog.present(window)
-        self.spin(lambda: dialog.get_root() is not None and dialog.get_root().get_mapped(), 5)
+        self.spin(lambda d=dialog: d.get_root() is not None and d.get_root().get_mapped(), 5)
         root = dialog.get_root()
         if root is not window:
             self.ghost(root)
@@ -547,6 +547,60 @@ class Shots:
             if dark:
                 Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_LIGHT)
 
+    def community(self):
+        """Community preferences and shared Teams tile, in both themes."""
+        import fake_engines
+        from scriba.app import jobs
+        from scriba.app.config import Config
+        from scriba.gui.preferences import PreferencesDialog
+        from scriba.i18n import _
+        for dark in (False, True):
+            self._dark(dark)
+            theme = "dark" if dark else "light"
+            app, tmp = self.app(None, Config(diarization_backend="auto"))
+            window = self.window(app)
+            dialog = PreferencesDialog(window, app)
+            dialog.present(window)
+            self.spin(lambda d=dialog: d.get_root() is not None and d.get_root().get_mapped(), 5)
+            self.ghost(dialog.get_root())
+            self.settle()
+            self.photograph(dialog, "community-preferences-" + theme)
+            dialog.close()
+            window.destroy()
+            for long_case in (False, True):
+                app, tmp = self.app()
+                source = self.recording(tmp, "Example.mka")
+                made = fake_engines.made_result(tmp / "Result", source, fake_engines.lines(3,24,0))
+                tile = "Ada Example" if not long_case else "Maria Francesca Bianchi Lombardi, international coordination group"
+                made.proposals = {
+                    "Speaker 2": jobs.naming.Proposal(_("{name}, voice {number}").format(name=tile,number=1),18,.9),
+                    "Speaker 3": jobs.naming.Proposal(_("{name}, voice {number}").format(name=tile,number=2),18,.9)}
+                made.notes = [_("Several different voices are heard from the same Teams participant."),
+                              _("Voice acceleration is unavailable; the processor was used.")]
+                window = self.window(app)
+                window.show_result(made, jobs.Request(source))
+                from gi.repository import Adw
+                pending = [window.result.page]
+                while pending:
+                    widget = pending.pop()
+                    if isinstance(widget, Adw.ExpanderRow):
+                        widget.set_expanded(True)
+                    child = widget.get_first_child()
+                    while child is not None:
+                        pending.append(child)
+                        child = child.get_next_sibling()
+                self.settle()
+                suffix = "-long" if long_case else ""
+                self.photograph(window, "community-result-" + theme + suffix)
+                scroll = self.scroller(window.result.page)
+                if scroll:
+                    adjustment=scroll.get_vadjustment()
+                    adjustment.set_value(adjustment.get_upper()-adjustment.get_page_size())
+                    self.settle()
+                    self.photograph(window,"community-result-notes-" + theme + suffix)
+                window.destroy()
+            self._dark(False)
+
     def preferences(self):
         from scriba.app.config import Config
         from scriba.gui.preferences import PreferencesDialog
@@ -555,7 +609,7 @@ class Shots:
         window = self.window(app)
         dialog = PreferencesDialog(window, app)
         dialog.present(window)
-        self.spin(lambda: dialog.get_root() is not None and dialog.get_root().get_mapped(), 5)
+        self.spin(lambda d=dialog: d.get_root() is not None and d.get_root().get_mapped(), 5)
         root = dialog.get_root()
         if root is not window:
             self.ghost(root)

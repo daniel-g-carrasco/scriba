@@ -61,6 +61,10 @@ jobs:
         run: |
           flatpak-builder --disable-rofiles-fuse --force-clean --ccache --rebuild-on-sdk-change --arch=x86_64 --repo=repo \
             build-dir build-aux/flatpak/io.github.daniel_g_carrasco.scriba.yaml
+      - name: Audit the runtime payload
+        run: python3 tools/pyannote_benchmark.py audit-bundle --bundle build-dir/files --out runtime-bundle-audit.json
+      - name: Export the checked bundle
+        run: |
           flatpak build-bundle repo scriba.flatpak io.github.daniel_g_carrasco.scriba stable \
             --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
       - name: Check the package with Platform, without the SDK

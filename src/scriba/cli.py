@@ -55,6 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     transcribe.add_argument("file", type=Path, help=_("the recording (audio or video)"))
     transcribe.add_argument("--speakers", nargs="?", const=0, default=None, type=_speaker_count, metavar="N",
                             help=_("tell the voices apart; N fixes how many there are"))
+    transcribe.add_argument("--diarization-backend", choices=("auto", "community", "legacy"), default="auto")
     transcribe.add_argument("--video", action="store_true", help=_("also a copy of the video with the subtitles inside"))
     transcribe.add_argument("--language", default="it", choices=("it", "en", "auto"), help=_("the language spoken"))
     transcribe.add_argument("--model", default="turbo", choices=("turbo", "large"),
@@ -167,7 +168,7 @@ def _say_failure(error) -> int:
 def transcribe(args) -> int:
     from scriba.app import jobs, services
     from scriba.app.task import Cancelled, Failure
-    request = jobs.Request(source=args.file, out=args.out, language=args.language, model=args.model,
+    request = jobs.Request(source=args.file, out=args.out, diarization_backend=args.diarization_backend, language=args.language, model=args.model,
                            terms=terms_of(args.terms), term_files=tuple(str(f) for f in args.terms_file),
                            speakers=args.speakers is not None,
                            speaker_count=args.speakers or None, video=args.video, cpu=args.cpu,

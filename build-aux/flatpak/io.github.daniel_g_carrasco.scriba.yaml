@@ -31,6 +31,7 @@ finish-args:
 
 modules:
   - python-numerical.json
+  - community-runtime.json
 
   - name: onnxruntime
     buildsystem: simple

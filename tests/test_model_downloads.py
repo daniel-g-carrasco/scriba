@@ -79,7 +79,15 @@ class DownloadTest(unittest.TestCase):
         self.backend.available.add(models.SILERO_VAD.key)
         self.downloads.start_required()
         self.assertTrue(self.downloads.wait(3))
-        self.assertEqual(self.backend.calls, [models.WHISPER_TURBO.key, models.WESPEAKER.key])
+        self.assertEqual(self.backend.calls, [models.WHISPER_TURBO.key, models.WESPEAKER.key,
+                                              *(m.key for m in models.community_set({}).models)])
+        self.assertEqual(self.downloads.state.phase, "ready")
+
+    def test_upgrade_from_015_downloads_only_the_new_community_set(self):
+        self.backend.available.update((models.WHISPER_TURBO.key, models.SILERO_VAD.key, models.WESPEAKER.key))
+        self.downloads.start_required()
+        self.assertTrue(self.downloads.wait(3))
+        self.assertEqual(self.backend.calls, [m.key for m in models.community_set({}).models])
         self.assertEqual(self.downloads.state.phase, "ready")
 
     def test_optional_model_is_never_started_without_an_explicit_request(self):
@@ -126,7 +134,7 @@ class DownloadTest(unittest.TestCase):
         self.downloads.resume()
         self.assertTrue(self.downloads.wait(3))
         self.assertFalse(self.cfg.models_download_paused)
-        self.assertEqual(len(self.backend.calls), 3)
+        self.assertEqual(len(self.backend.calls), len(self.downloads.required))
 
     def test_immediate_resume_waits_for_the_old_writer_to_finish(self):
         self.backend.hold = self.backend.hold_cancel = True

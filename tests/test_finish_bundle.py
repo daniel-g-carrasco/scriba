@@ -84,6 +84,17 @@ class InventoryTest(unittest.TestCase):
         self.assertNotIn(str(self.root), json.dumps(data))
         self.assertNotIn("scriba.private", json.dumps(data))
 
+    def test_windows_toc_separators_preserve_generated_loader_inputs(self):
+        self.package("gdk-pixbuf", ["lib/gdk-pixbuf/loaders/png.dll"])
+        source = self.prefix / "lib/gdk-pixbuf/loaders/png.dll"
+        self.write(self.internal / "lib/gdk-pixbuf/loaders/png.dll")
+        cache = self.write(self.tocs / "loaders.cache", "generated")
+        self.write(self.internal / "lib/gdk-pixbuf/loaders.cache", "generated")
+        self.collect += [("lib/gdk-pixbuf/loaders/png.dll".replace("/", chr(92)), str(source), "BINARY"),
+                         ("lib/gdk-pixbuf/loaders.cache".replace("/", chr(92)), str(cache), "DATA")]
+        data = self.build_inventory()
+        self.assertEqual(data["generated_files"][0]["inputs"][0]["package"], "mingw-w64-ucrt-x86_64-gdk-pixbuf")
+
     def test_removed_loader_and_own_ffmpeg_do_not_claim_a_pacman_package(self):
         self.package("ffmpeg", ["bin/ffmpeg.exe"])
         self.package("libheif", ["lib/gdk-pixbuf/loaders/libpixbufloader-heif.dll"])

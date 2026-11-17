@@ -43,7 +43,7 @@ class EstimateTest(unittest.TestCase):
             speeds = Path(tmp) / "speeds.json"
             jobs.remember_speeds(speeds, {"turbo|Vulkan: RTX": 20.0, "turbo|cpu": 1.0, "speakers|cpu": 30.0})
             engines = backend.Backend(tmp, speeds)
-            request = jobs.Request(Path("call.wav"), speakers=True, device="RTX")
+            request = jobs.Request(Path("call.wav"), speakers=True, device="RTX", diarization_backend="legacy")
             self.assertAlmostEqual(engines.estimate(600, request), 30 + 20)     # before the cards are listed
             cards = [whisper.Device(0, "Iris", "Intel", True), whisper.Device(1, "RTX", "NVIDIA", False)]
             with mock.patch.object(whisper, "list_devices", lambda cancelled=None: cards):
@@ -52,7 +52,7 @@ class EstimateTest(unittest.TestCase):
             self.assertAlmostEqual(engines.estimate(600, jobs.Request(Path("a"), cpu=True)), 600)
 
     def test_the_first_start_downloads_the_fast_model_the_filter_and_the_voices(self):
-        self.assertEqual(backend.needed_models(), [models.WHISPER_TURBO, models.SILERO_VAD, models.WESPEAKER])
+        self.assertEqual(backend.needed_models(), [models.WHISPER_TURBO, models.SILERO_VAD, models.WESPEAKER, *models.community_set({}).models])
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(backend.Backend(tmp, None).missing(), backend.needed_models())
 

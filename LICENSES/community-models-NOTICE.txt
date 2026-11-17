@@ -1,0 +1,16 @@
+Community-1 models: CC BY 4.0
+Source: pyannote/speaker-diarization-community-1
+Revision: 3533c8cf8e369892e6b79ff1bf80f7b0286a54ee
+https://creativecommons.org/licenses/by/4.0/legalcode.en
+Attribution: pyannote / CNRS (segmentation), WeSpeaker (VoxCeleb embedding),
+BUT Speech@FIT (PLDA, xvector transform).
+PLDA specific license: BUT-FIT/diarizen-wavlm-large-s80-md,
+6285693ddd5b38e8229acb93f864f3d04a82bee1/plda/LICENSE (CC BY 4.0).
+Changes: FP32 ONNX opset 17 export, frozen learned Sinc filters, dynamic batch,
+shared embedding backbone with three weighted pooling masks. PLDA NPZ unchanged.
+The source and converted SHA-256 and exact byte sizes are in community_recipe.py.
+Code: pyannote-MIT.txt, VBx-Apache-2.0.txt. Application: GPL-3.0-or-later.
+The four converted files are published anonymously at the fixed revision below.
+
+Published conversion: Daniel Grasso, https://huggingface.co/daniel-g-c/scriba-models
+Immutable conversion revision: defe86adf9df365e3ebd70943e5608147d40fe8b

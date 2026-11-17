@@ -306,7 +306,9 @@ def inventory(internal: Path, *, prefix: Path = PREFIX, root: Path = ROOT, toc_d
         accounted.add(path)
 
     entries = {name: list(toc_entries(value)) for name, value in tocs.items()}
-    collected = [entry for name, values in entries.items() if name.startswith("COLLECT-") for entry in values]
+    collected = [(dest.replace(chr(92), "/"), source, kind)
+                 for name, values in entries.items() if name.startswith("COLLECT-")
+                 for dest, source, kind in values]
     exe_outputs = {local_path(value[0]).resolve() for name, value in tocs.items()
                    if name.startswith("EXE-") and isinstance(value, (list, tuple)) and
                    value and isinstance(value[0], str)}
@@ -435,6 +437,17 @@ def inventory(internal: Path, *, prefix: Path = PREFIX, root: Path = ROOT, toc_d
                 raise ValueError("GstPlay output hash mismatch")
             custom_components.append({"component": "gstplay", "receipt": receipt,
                                       "files": [path.relative_to(internal.parent).as_posix()]})
+            accounted.add(path)
+        elif relative.parts[0] == "community-runtime":
+            receipt = json.loads((root / "build-aux" / "community-runtime-windows.json").read_text())
+            if path.name == "community-runtime-windows.json":
+                expected = root / "build-aux" / path.name
+                valid = sha256(path) == sha256(expected)
+            else:
+                record = receipt["files"].get(path.name, {})
+                valid = path.stat().st_size == record.get("bytes") and sha256(path) == record.get("sha256")
+            if not valid or sha256(path) != sha256(source):
+                raise ValueError("Official community runtime hash mismatch: " + path.name)
             accounted.add(path)
         elif source.is_relative_to(msys):
             copied(path, source)
@@ -641,12 +654,17 @@ def weight(bundle: Path) -> None:
 
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    bundle = Path(argv[0]) if argv else ROOT / "dist" / "Scriba"
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("bundle", nargs="?", type=Path, default=ROOT / "dist" / "Scriba")
+    parser.add_argument("--toc-dir", type=Path)
+    args = parser.parse_args(argv)
+    bundle = args.bundle
     internal = bundle / "_internal"
     themes(internal)
     languages(internal)
     print("taken out:", ", ".join(loaders(internal)))
-    licences(internal)
+    licences(internal, toc_dir=args.toc_dir)
     missing = check(bundle) + unresolved(internal)
     weight(bundle)
     for name in missing:

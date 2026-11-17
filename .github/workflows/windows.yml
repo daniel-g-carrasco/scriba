@@ -241,6 +241,10 @@ jobs:
             build/ffmpeg-lgpl
             build/ffmpeg-src/ffmpeg-9.0.2.tar.xz
           key: ${{ steps.ffmpeg-cache.outputs.cache-primary-key }}
+      # Optional GPU engine uses official pinned wheels, never a pip install
+      # into MSYS2. A changed loader fails closed and needs a reviewed receipt.
+      - name: Prepare the verified community voice runtime
+        run: env -u MSYSTEM python tools/prepare_community_runtime.py --out build/community-runtime --loader "$(cygpath -m "$WINDIR")/System32/vulkan-1.dll"
       - name: Build with PyInstaller
         run: |
           python tools/compile_po.py
@@ -251,6 +255,8 @@ jobs:
         # it fails on any file missing (the app, the engines, GStreamer's
         # plugins, the sample, the licences) and says the weight
         run: python tools/finish_bundle.py dist/Scriba
+      - name: Audit the runtime payload
+        run: python tools/pyannote_benchmark.py audit-bundle --bundle dist/Scriba --out runtime-bundle-audit.json
       - name: The command line of the build (engines found in the build, not in MSYS2)
         run: |
           # the build alone: a PATH with Windows only, as on a user's computer

@@ -36,7 +36,7 @@ class ConfigTest(unittest.TestCase):
             # what a newer version wrote survives a round trip through this one
             save(again, path)
             data = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual((data["future_key"], data["version"]), (1, 1))
+            self.assertEqual((data["future_key"], data["version"]), (1, config.CONFIG_VERSION))
             self.assertNotIn("extra", data)
             self.assertNotIn("notices", data)
 
@@ -98,7 +98,7 @@ class ConfigTest(unittest.TestCase):
             self.assertEqual([n.kind for n in cfg.notices], ["newer"])
             save(cfg, path)
             data = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual((data["brand_new"], data["version"]), (True, 1))
+            self.assertEqual((data["brand_new"], data["version"]), (True, config.CONFIG_VERSION))
             # an older format goes through the migration steps, one by one
             path.write_text(json.dumps({"version": 0, "old_theme": "dark"}), encoding="utf-8")
             with mock.patch.dict(config.MIGRATIONS, {0: lambda d: {**d, "theme": d.pop("old_theme")}}):

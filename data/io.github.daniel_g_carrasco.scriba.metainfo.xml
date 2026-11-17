@@ -50,6 +50,11 @@
   </requires>
 
   <releases>
+    <release version="0.1.6" date="2026-11-17" type="stable">
+      <description>
+        <p>More accurate voice recognition with community-1, automatic voice model downloads, graphics card acceleration through Vulkan with processor fallback, and editable proposals for several voices behind one Teams tile.</p>
+      </description>
+    </release>
     <release version="0.1.5" date="2026-11-17" type="stable">
       <description>
         <p>Editable voice names observed from Teams during recording, a clearly visible microphone mute, refinements to the Result page and listening balance, and a new gold nib icon on an ivory disc.</p>

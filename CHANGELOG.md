@@ -5,6 +5,16 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 are `0.x` while the app evolves. Stable Windows and Linux packages are
 available from GitHub Releases. Linux Flatpak builds and runtime checks use GNOME Platform 50. The app's metainfo carries a shorter description.
 
+## [0.1.6] - 2026-11-17
+
+### Added
+- More accurate voice recognition with community-1. The four voice models download
+  automatically on first start and when upgrading, about 33 MB in total.
+- Voice processing uses the graphics card through Vulkan when available, with
+  automatic processor fallback. The previous voice method remains available.
+- Editable proposals distinguish several voices behind the same Teams participant
+  tile and suggest a shared name for very similar voices. Older meetings reopen offline.
+
 ## [0.1.5] - 2026-11-17
 
 ### Added

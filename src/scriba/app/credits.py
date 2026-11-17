@@ -31,6 +31,15 @@ class Credit:
 
 
 THIRD_PARTY = (
+    Credit("pyannote community-1", "voice segmentation, embeddings and exclusive diarization; ONNX conversion",
+           "CC-BY-4.0", "pyannote / CNRS, WeSpeaker, BUT Speech@FIT; conversion by Daniel Grasso",
+           "https://huggingface.co/daniel-g-c/scriba-models"),
+    Credit("pyannote.audio", "numerical diarization port", "MIT", "CNRS / Herve Bredin",
+           "https://github.com/pyannote/pyannote-audio/tree/4.0.0"),
+    Credit("VBx", "variational voice clustering, adapted without HMM", "Apache-2.0", "BUT Speech@FIT",
+           "https://github.com/BUTSpeechFIT/VBx"),
+    Credit("Dawn WebGPU", "Vulkan voice acceleration when available", "BSD-3-Clause", "The Dawn Authors",
+           "https://dawn.googlesource.com/dawn"),
     Credit("whisper.cpp and ggml", "speech to text (whisper-cli, run as a program)", "MIT",
            "The ggml authors", "https://github.com/ggml-org/whisper.cpp"),
     Credit("Whisper large-v3 and large-v3-turbo", "the speech model's weights, in ggml", "MIT",

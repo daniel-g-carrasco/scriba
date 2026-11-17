@@ -25,9 +25,9 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
-CONFIG_VERSION = 1
+CONFIG_VERSION = 2
 # from one format version to the next, in order: {from_version: step}
-MIGRATIONS: dict[int, Callable[[dict], dict]] = {}
+MIGRATIONS: dict[int, Callable[[dict], dict]] = {1: lambda data: {"diarization_backend": "auto", **data}}
 
 
 @dataclass
@@ -45,6 +45,7 @@ class Config:
     speech_language: str = "it"          # "it", "en", "auto"
     quality: str = "turbo"               # a key of models.WHISPER: "turbo" (fast), "large" (precise)
     speakers: bool = True                # tell the voices apart
+    diarization_backend: str = "auto"     # auto, community, legacy
     speaker_count: int = 0               # how many voices; 0: found by the engine
     subtitled_video: bool = False        # a copy of a video with the subtitles inside
     my_name: str = "Io"                 # the microphone's name
@@ -93,6 +94,8 @@ class Config:
         own = {"extra", "notices", "version"}
         known = {f.name for f in fields(cls)} - own
         cfg = cls(**_typed(cls, {k: v for k, v in data.items() if k in known}))
+        if cfg.diarization_backend not in ("auto", "community", "legacy"):
+            raise ValueError("unknown diarization backend")
         cfg.extra = {k: v for k, v in data.items() if k not in known and k not in own}
         return cfg
 

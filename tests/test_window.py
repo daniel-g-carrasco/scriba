@@ -348,7 +348,7 @@ class WindowTest(unittest.TestCase):
         page.quality_row.set_selected(0)
         request = page.request()
         jobs.remember_speeds(self.engines.speeds_file, {
-            jobs.speed_key("turbo", self.engines.device_label(request)): 8.0, jobs.speed_key("speakers", "cpu"): 30.0})
+            jobs.speed_key("turbo", self.engines.device_label(request)): 8.0, jobs.voice_speed_key(request): 30.0})
         page.refresh_estimate()
         self.assertNotIn("first estimate", page.estimate_row.get_subtitle())
         page.quality_row.set_selected(1)                        # Precise, never run on this card

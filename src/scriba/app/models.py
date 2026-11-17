@@ -23,6 +23,8 @@ answers with the whole file.
 
 from __future__ import annotations
 
+import contextlib
+import json
 import hashlib
 import os
 import shutil
@@ -102,6 +104,10 @@ def purpose(model: Model) -> str:
         WHISPER_LARGE.key: _("Speech to text, precise and slower (whisper large-v3)"),
         SILERO_VAD.key: _("Identifies speech segments in the recording (Silero)"),
         WESPEAKER.key: _("Tells the voices apart (WeSpeaker)"),
+        "community-1-segmentation.onnx": _("Finds speech and overlapping voices (community-1)"),
+        "community-1-embedding.onnx": _("Tells the voices apart (community-1)"),
+        "community-1-plda.npz": _("Groups the voices (community-1)"),
+        "community-1-xvec_transform.npz": _("Prepares voice comparisons (community-1)"),
     }.get(model.key, model.key)
 
 
@@ -313,3 +319,134 @@ def download(model: Model, where: str | os.PathLike | None = None, progress: Pro
 def _too_big(model: Model, detail: str) -> ModelError:
     return ModelError(_("The server sends more than {name} weighs ({size}): refused.").format(
         name=model.filename, size=megabytes(model.size)), detail)
+
+
+@dataclass(frozen=True)
+class ModelSet:
+    key: str
+    models: tuple[Model, ...]
+    recipe: dict
+
+    @property
+    def marker(self):
+        return f"{self.key}.active.json"
+
+
+def community_set(environ=None) -> ModelSet | None:
+    """The published conversion, fixed to the verified Hugging Face commit."""
+    revision = "defe86adf9df365e3ebd70943e5608147d40fe8b"
+    from .community_recipe import RECIPE
+    items = tuple(Model(
+        "community-1-" + name, "community-1-r01-" + name,
+        (f"https://huggingface.co/daniel-g-c/scriba-models/resolve/{revision}/" + name) if revision else "",
+        record["sha256"], record["bytes"], "CC-BY-4.0", "Daniel Grasso (conversion); pyannote, WeSpeaker, BUT Speech@FIT",
+        "https://huggingface.co/daniel-g-c/scriba-models", _HUGGING_FACE)
+        for name, record in RECIPE["files"].items())
+    return ModelSet("community-1-r01", items, RECIPE)
+
+
+@contextlib.contextmanager
+def _set_lock(where, cancelled=None):
+    """OS advisory lock, released on process death, shared by CLI and GUI."""
+    import time
+    where = Path(where)
+    where.mkdir(parents=True, exist_ok=True)
+    with (where / ".community-download.lock").open("a+b") as lock:
+        lock.seek(0, 2)
+        if not lock.tell():
+            lock.write(b"0")
+            lock.flush()
+        while True:
+            check(cancelled)
+            try:
+                lock.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                time.sleep(0.05)
+        try:
+            yield
+        finally:
+            lock.seek(0)
+            if os.name == "nt":
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def _verify_set(spec, where, cancelled=None):
+    from scriba.app.engines.community import validate_recipe
+    try:
+        validate_recipe(spec.recipe)
+    except ValueError as e:
+        raise ModelError(_("The voice model set is incompatible or incomplete."), str(e)) from e
+    if len(spec.models) != 4:
+        raise ModelError(_("The voice model set is incompatible or incomplete."), spec.key)
+    for model in spec.models:
+        check(cancelled)
+        if not verify(model, where, cancelled=cancelled):
+            raise ModelError(_("The voice model set is incompatible or incomplete."), model.filename)
+
+
+def activate_set(spec, where, cancelled=None):
+    """Commit a set only after checking every file under the process lock."""
+    from scriba.data.files import replace
+    with _set_lock(where, cancelled):
+        _verify_set(spec, where, cancelled)
+        check(cancelled)
+        replace(Path(where) / spec.marker, json.dumps({"recipe_id": spec.recipe["recipe_id"]}))
+
+
+def set_ready(spec, where, cancelled=None):
+    if spec is None:
+        return False
+    try:
+        with _set_lock(where, cancelled):
+            marker = json.loads((Path(where) / spec.marker).read_text(encoding="utf-8"))
+            if marker.get("recipe_id") != spec.recipe["recipe_id"]:
+                return False
+            _verify_set(spec, where, cancelled)
+            return True
+    except (OSError, ValueError, ModelError):
+        return False
+
+
+def download_set(spec, where, progress=None, cancelled=None):
+    from scriba.data.files import replace
+    with _set_lock(where, cancelled):
+        for model in spec.models:
+            download(model, where, progress, cancelled)
+        _verify_set(spec, where, cancelled)
+        check(cancelled)
+        replace(Path(where) / spec.marker, json.dumps({"recipe_id": spec.recipe["recipe_id"]}))
+
+
+def community_files(where=None, cancelled=None):
+    """Hash the complete set at engine opening, in its worker process."""
+    spec = community_set()
+    if spec is None:
+        raise ModelError(_("Community voice models are not available yet."), "unpublished catalogue")
+    local = os.environ.get("SCRIBA_DEV_COMMUNITY_DIR")
+    if local:
+        from scriba.app.engines.community import validated_files
+        result = {"recipe": spec.recipe, **{n: Path(local) / n for n in spec.recipe["files"]}}
+        check(cancelled)
+        try:
+            validated_files(result)
+        except (OSError, ValueError) as e:
+            raise ModelError(_("The voice model set is incompatible or incomplete."), str(e)) from e
+        check(cancelled)
+        return result
+    where = folder() if where is None else Path(where)
+    if not set_ready(spec, where, cancelled):
+        raise ModelError(_("The voice model set is incompatible or incomplete."), spec.key)
+    return {"recipe": spec.recipe, **{name: where / model.filename
+            for name, model in zip(spec.recipe["files"], spec.models, strict=True)}}
+
+
+CATALOGUE += community_set().models

@@ -27,7 +27,7 @@ def needed_models() -> list[models.Model]:
     """What the first start downloads: the fast transcription model, the
     speech filter, the voices. The precise model is offered apart (the
     preferences): it weighs twice the rest."""
-    return [models.WHISPER_TURBO, models.SILERO_VAD, models.WESPEAKER]
+    return [models.WHISPER_TURBO, models.SILERO_VAD, models.WESPEAKER, *models.community_set().models]
 
 
 def request_for(cfg: Config, source: Path, out: Path | None, video: bool) -> jobs.Request:
@@ -36,7 +36,7 @@ def request_for(cfg: Config, source: Path, out: Path | None, video: bool) -> job
     return jobs.Request(source=Path(source), out=out, language=cfg.speech_language or "it",
                         model=cfg.quality if cfg.quality in models.WHISPER else "turbo",
                         terms=terms_of(cfg.terms), term_files=tuple(cfg.term_file_list()), speakers=cfg.speakers,
-                        speaker_count=cfg.speaker_count or None, video=video and cfg.subtitled_video,
+                        speaker_count=cfg.speaker_count or None, diarization_backend=cfg.diarization_backend, video=video and cfg.subtitled_video,
                         cpu=device == "cpu", device="" if device == "cpu" else device,
                         my_name=" ".join(cfg.my_name.split()) or "Io")
 
@@ -51,13 +51,22 @@ class Backend:
     # -- the models ----------------------------------------------------------------
 
     def missing(self) -> list[models.Model]:
-        return models.missing(needed_models(), self.models_dir)
+        return [model for model in needed_models() if not self.has(model)]
 
     def has(self, model: models.Model) -> bool:
+        spec = models.community_set()
+        if model in spec.models:
+            # Status queries also run while displaying the models page.
+            # Hashing belongs to download/activation and engine opening.
+            return models.present(model, self.models_dir) and (self.models_dir / spec.marker).is_file()
         return models.present(model, self.models_dir)
 
     def download(self, model: models.Model, progress=None, cancelled: threading.Event | None = None) -> Path:
-        return models.download(model, self.models_dir, progress, cancelled)
+        result = models.download(model, self.models_dir, progress, cancelled)
+        spec = models.community_set()
+        if model in spec.models and all(models.verify(item, self.models_dir, cancelled=cancelled) for item in spec.models):
+            models.activate_set(spec, self.models_dir, cancelled)
+        return result
 
     def request(self, cfg: Config, source: Path, out: Path | None, video: bool) -> jobs.Request:
         """The work as the settings describe it, with the fast model when the

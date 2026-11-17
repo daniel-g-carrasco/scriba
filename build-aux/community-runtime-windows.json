@@ -1,0 +1,46 @@
+{
+  "runtime": "onnxruntime 1.32.0 official PyPI wheel",
+  "plugin": "onnxruntime-ep-webgpu 0.6.0 official PyPI wheel",
+  "loader": "Khronos Vulkan Loader 1.4.321.0, installed official Vulkan runtime, copied unchanged",
+  "files": {
+    "dxcompiler.dll": {
+      "bytes": 17986360,
+      "sha256": "d833eb71611ae86bcfe73092f8daf5d89c1c084f3b31719b53f9884da64842ba"
+    },
+    "onnxruntime.dll": {
+      "bytes": 22668640,
+      "sha256": "443c0065fcdba17618ddef05050308f4b471893c5c7da0337d6957c9073ad8a7"
+    },
+    "onnxruntime_providers_shared.dll": {
+      "bytes": 21816,
+      "sha256": "b7ce00a1246473401b9b7fed2816852c1f9ecd70f2e68a136761c40d6523b712"
+    },
+    "onnxruntime_providers_webgpu.dll": {
+      "bytes": 14026040,
+      "sha256": "6bf102c322d6bad5b1b5a04b0b0c3d43191f70f428ad1d6b4c43719674fc57d9"
+    },
+    "vulkan-1.dll": {
+      "bytes": 1625648,
+      "sha256": "c555774c84f9b59ee7b1da93beb0f59c34a68ac897a067f42dcc5dfe49b35f2e"
+    }
+  },
+  "licenses": [
+    "onnxruntime-MIT.txt",
+    "onnxruntime-ThirdPartyNotices.txt",
+    "webgpu-MIT.txt",
+    "webgpu-ThirdPartyNotices.txt",
+    "Vulkan-Loader-LICENSE.txt"
+  ],
+  "source_wheels": {
+    "onnxruntime": {
+      "url": "https://files.pythonhosted.org/packages/a9/3e/27039badc39a1b01628b6b40b1ff1bf4a886e6dfb2f311c483606b7c86f7/onnxruntime-1.32.0-cp312-cp312-win_amd64.whl",
+      "sha256": "efe7456952c243a05a53d5b8732953625144642c2f3989094277f6217f0c0c40",
+      "filename": "onnxruntime-1.32.0-cp312-cp312-win_amd64.whl"
+    },
+    "onnxruntime-ep-webgpu": {
+      "url": "https://files.pythonhosted.org/packages/0e/12/25312b2220bdf969a6cdc937e0faad9d6456cadbd602e88bced36f1011af/onnxruntime_ep_webgpu-0.6.0-py3-none-win_amd64.whl",
+      "sha256": "00853e242f74f4b9072e1620bce9222547c2f988265eb674b5749680c8d62fb9",
+      "filename": "onnxruntime_ep_webgpu-0.6.0-py3-none-win_amd64.whl"
+    }
+  }
+}

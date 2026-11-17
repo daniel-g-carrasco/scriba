@@ -124,6 +124,14 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self.quality_row.set_selected(QUALITIES.index(cfg.quality) if cfg.quality in QUALITIES else 0)
         self.quality_row.connect("notify::selected", lambda r, _p: self._set("quality", QUALITIES[r.get_selected()]))
         group.add(self.quality_row)
+        backends = ("auto", "community", "legacy")
+        self.voice_backend_row = Adw.ComboRow(title=_("Voice Method"), subtitle_lines=2,
+            subtitle=_("Automatic uses verified community models when available. The previous method remains available."),
+            model=Gtk.StringList.new([_("Automatic"), _("Community"), _("Previous method")]))
+        self.voice_backend_row.set_selected(backends.index(cfg.diarization_backend))
+        self.voice_backend_row.connect("notify::selected",lambda row,_param:
+            self._set("diarization_backend", backends[row.get_selected()]))
+        group.add(self.voice_backend_row)
         self.models_row = Adw.ActionRow(title=_("Speech Models"),
                                         subtitle=_("Downloads, progress and the optional Precise model"))
         manage = Gtk.Button(label=_("Manage Models"), valign=Gtk.Align.CENTER)

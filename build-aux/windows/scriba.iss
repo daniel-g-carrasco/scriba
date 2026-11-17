@@ -10,6 +10,10 @@
   #define AppVersion "dev"
 #endif
 
+#ifndef BundleDir
+  #define BundleDir "..\..\dist\Scriba"
+#endif
+
 [Setup]
 AppId={{5432B023-8199-4141-B7D5-F463478371B7}
 AppName=Scriba
@@ -66,7 +70,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; Flags: unchecked
 Type: filesandordirs; Name: "{app}\_internal"
 
 [Files]
-Source: "..\..\dist\Scriba\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "{#BundleDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
 ; the AppUserModelID the app sets for itself: its toasts, its taskbar button

@@ -122,6 +122,7 @@ class Request:
     # at each run after `terms` (core/terms.py, joined)
     term_files: tuple[str, ...] = ()
     speakers: bool = False
+    diarization_backend: str = "auto"
     speaker_count: int | None = None    # None: found by the engine
     video: bool = False                 # also a copy of the video with the subtitles inside
     cpu: bool = False                   # never the graphics card
@@ -224,6 +225,8 @@ class Result:
     names: dict[str, str] = field(default_factory=dict)
     named_spans: tuple = ()
     proposals: dict[str, naming.Proposal] = field(default_factory=dict)
+    diarization: dict = field(default_factory=dict)
+    voice_centroids: dict = field(default_factory=dict)
 
 
 def full_path(path: str | os.PathLike) -> str:
@@ -340,8 +343,23 @@ def _previous_to_revisions(folder: Path, source: Path) -> list[str]:
 def needed_models(request: Request) -> list[models.Model]:
     out = [models.WHISPER[request.model], models.SILERO_VAD]
     if request.speakers:
-        out.append(models.WESPEAKER)
+        from . import voices
+        backend, _note = voices.select(request.diarization_backend)
+        spec = models.community_set()
+        if backend == "community":
+            if not os.environ.get("SCRIBA_DEV_COMMUNITY_DIR"):
+                out.extend(spec.models)
+        else:
+            out.append(models.WESPEAKER)
     return out
+
+
+def voice_speed_key(request):
+    spec = models.community_set()
+    if request.diarization_backend == "legacy" or (request.diarization_backend == "auto" and spec is None):
+        return speed_key("speakers", "cpu")
+    recipe = spec.recipe["recipe_id"] if spec else "unavailable"
+    return speed_key("speakers-community-" + recipe, "webgpu-vulkan")
 
 
 def speed_key(model: str, device: str) -> str:
@@ -391,7 +409,7 @@ def estimated_seconds(duration: float, request: Request, device: str, speeds: di
     the speeds measured last time on this computer (core/estimate.py)."""
     total = estimate.work_time(duration, model_speed(request.model, device, speeds)[0])
     if request.speakers:
-        total += estimate.work_time(duration, speeds.get(speed_key("speakers", "cpu")), default=20.0)
+        total += estimate.work_time(duration, speeds.get(voice_speed_key(request)), default=20.0)
     return total
 
 
@@ -399,7 +417,7 @@ def first_estimate(request: Request, device: str, speeds: dict[str, float]) -> b
     """The estimate rests on no measure of this very work on this computer:
     the model never ran on the device, or the voices were never told apart."""
     return not model_speed(request.model, device, speeds)[1] or (
-        request.speakers and not speeds.get(speed_key("speakers", "cpu")))
+        request.speakers and not speeds.get(voice_speed_key(request)))
 
 
 def _pick_device(request: Request, cancelled: threading.Event | None):
@@ -446,7 +464,10 @@ def recording_information(note: str) -> bool:
 
     for language in ("en", "it"):
         translate = translation_for(language).gettext
-        for template in (ECHO_INFORMATION, MUTE_INFORMATION):
+        for template in (ECHO_INFORMATION, MUTE_INFORMATION,
+                         "Several different voices are heard from the same Teams participant.",
+                         "Very similar voices share a Teams participant; you can give them the same name.",
+                         "One voice appears under several Teams participants; no name was proposed."):
             pattern = "".join(re.escape(text) + (".+?" if field is not None else "")
                               for text, field, _spec, _conversion in Formatter().parse(translate(template)))
             if re.fullmatch(pattern, note, re.DOTALL):
@@ -557,7 +578,9 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
 
         if request.speakers:
             progress.begin("speakers")
-        lines, me = _voices(parts, request, models_dir, progress, cancelled)
+        voice_details = {}
+        lines, me = _voices(parts, request, models_dir, progress, cancelled, voice_details)
+        notes.extend(voice_details.get("notes", []))
         voices = len(seg.speakers_of(lines)) if request.speakers or len(parts) > 1 else 0
         if request.speakers:
             timings["speakers"] = progress.finish()
@@ -587,13 +610,20 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
         result = Result(outputs, folder / f"{stem}.json", lines, voices, duration, used, timings, notes,
                         source, folder, stem, header, me, listening_copy(source), names)
         result.named_spans = tuple(dict.fromkeys(s for track in media.tracks for s in track.named_spans))
-        result.proposals = naming.propose(lines, result.named_spans, microphone=me)
+        from . import voices as voice_service
+        result.diarization = voice_details.get("provenance", {"requested":request.diarization_backend,"used":"legacy"})
+        result.diarization["normal_turns"] = voice_details.get("normal_turns", [])
+        result.voice_centroids = voice_details.get("centroids", {})
+        result.proposals, proposal_notes = voice_service.proposals(lines,result.named_spans,result.voice_centroids,me)
+        result.notes.extend(proposal_notes)
         result.session = _save_session(result, request)
         measured = {}
         if any(part.pieces for part in parts) and estimate.speed(duration, timings["transcribe"]):
             measured[speed_key(request.model, used)] = estimate.speed(duration, timings["transcribe"])
         if request.speakers and estimate.speed(duration, timings["speakers"]):
-            measured[speed_key("speakers", "cpu")] = estimate.speed(duration, timings["speakers"])
+            measured[(speed_key("speakers-community-" + result.diarization.get("recipe", "unknown"),
+                                result.diarization.get("accelerator", "cpu"))
+                      if result.diarization.get("used") == "community" else speed_key("speakers", "cpu"))] = estimate.speed(duration, timings["speakers"])
         remember_speeds(speeds_file, measured)
         return result
     finally:
@@ -725,7 +755,7 @@ def _brought_back(part: _Part, segments) -> list[seg.Segment]:
 
 
 def _voices(parts: list[_Part], request: Request, models_dir, progress: Progress,
-            cancelled: threading.Event | None) -> tuple[list[seg.Segment], str]:
+            cancelled: threading.Event | None, details=None) -> tuple[list[seg.Segment], str]:
     """All the lines, in the order of time, with their voices numbered, and
     the label the user's voice got ("" when no track is the user's).
 
@@ -735,16 +765,46 @@ def _voices(parts: list[_Part], request: Request, models_dir, progress: Progress
     the room heard by the microphone is the one case this gets wrong);
     each output track has its voices told apart when asked (the people in
     the call, as many as asked less the user), or is one voice when not."""
+    from . import voices as voice_service
+    details = {} if details is None else details
+    details.setdefault("notes", [])
+    details.setdefault("normal_turns", [])
+    raw_centroids = {}
+    def assign(part, count, prefix="", callback=None):
+        backend, note = voice_service.select(request.diarization_backend,models_dir,cancelled)
+        if note and note not in details["notes"]:
+            details["notes"].append(note)
+        if backend == "community":
+            data = voice_service.run(part.samples,models_dir,count,request.diarization_backend,
+                                     callback or progress.advance,cancelled,force_cpu=request.cpu)
+            details["provenance"] = data["provenance"]
+            details["normal_turns"].extend({**asdict(t),"track":part.track.index} for t in data["turns"])
+            raw_centroids.update((prefix+k,v) for k,v in data["centroids"].items())
+            if data["provenance"].get("fallback"):
+                note = _("Voice acceleration is unavailable; the processor was used.")
+                if note not in details["notes"]:
+                    details["notes"].append(note)
+            turns = data["exclusive"]
+        else:
+            from scriba.app.engines import diarize
+            details["provenance"] = {"requested":request.diarization_backend,"used":"legacy","fallback":note}
+            result = diarize.diarize(part.samples,models.path_of(models.SILERO_VAD,models_dir),
+                models.path_of(models.WESPEAKER,models_dir),count,progress=callback or progress.advance,cancelled=cancelled)
+            turns = result.turns
+        return seg.prefix_speakers(seg.assign_speakers(part.lines,turns),prefix) if prefix else seg.assign_speakers(part.lines,turns)
+
+    def numbered_with_centroids(lines):
+        numbered = seg.number_speakers(lines)
+        labels = {a.speaker:b.speaker for a,b in zip(lines,numbered,strict=True)}
+        details["centroids"] = {labels[k]:v for k,v in raw_centroids.items() if k in labels}
+        return numbered
+
     if len(parts) == 1:
         if parts[0].track.role == "me":
             return [replace(s, speaker="Speaker 1") for s in parts[0].lines], "Speaker 1"
         lines = parts[0].lines
         if request.speakers:
-            from scriba.app.engines import diarize
-            result = diarize.diarize(parts[0].samples, models.path_of(models.SILERO_VAD, models_dir),
-                                     models.path_of(models.WESPEAKER, models_dir), request.speaker_count,
-                                     progress=progress.advance, cancelled=cancelled)
-            lines = seg.number_speakers(seg.assign_speakers(lines, result.turns))
+            lines = numbered_with_centroids(assign(parts[0], request.speaker_count))
         return lines, ""
     mine = any(part.track.role == "me" for part in parts)
     others = [part for part in parts if part.track.role != "me"]
@@ -757,17 +817,12 @@ def _voices(parts: list[_Part], request: Request, models_dir, progress: Progress
         if part.track.role == "me":
             lines = [replace(s, speaker=ME) for s in part.lines]
         elif request.speakers and part.lines and count != 1:
-            from scriba.app.engines import diarize
             k = others.index(part)
-            result = diarize.diarize(part.samples, models.path_of(models.SILERO_VAD, models_dir),
-                                     models.path_of(models.WESPEAKER, models_dir),
-                                     count if len(others) == 1 else None,
-                                     progress=_within(progress, k, len(others)), cancelled=cancelled)
-            lines = seg.prefix_speakers(seg.assign_speakers(part.lines, result.turns), f"{n}:")
+            lines = assign(part, count if len(others) == 1 else None, f"{n}:", _within(progress,k,len(others)))
         else:
             lines = [replace(s, speaker=f"{n}:") for s in part.lines]
         merged = seg.merge(merged, lines)
-    numbered = seg.number_speakers(merged)
+    numbered = numbered_with_centroids(merged)
     me = next((after.speaker for before, after in zip(merged, numbered, strict=True) if before.speaker == ME), "")
     return numbered, me
 
@@ -821,7 +876,8 @@ def _save_session(result: Result, request: Request) -> Path:
                "term_files": list(request.term_files),
                "speakers": request.speakers, "speaker_count": request.speaker_count, "video": request.video,
                "device": result.device, "normalise": request.normalise, "scriba": __version__,
-               "my_name": request.my_name}
+               "my_name": request.my_name, "diarization_backend": request.diarization_backend,
+               "diarization": result.diarization, "voice_centroids": result.voice_centroids}
     if request.tracks:
         options["tracks"] = [{"index": t.index, "role": t.role, "title": t.title} for t in request.tracks]
     meeting = sessions.Session(source=full_path(result.source), duration=result.duration,
@@ -858,7 +914,8 @@ def open_session(path: str | os.PathLike) -> tuple[Result, Request]:
     options = meeting.options
     source = Path(meeting.source)
     request = Request(source, language=options.get("language", "it"), model=options.get("model", "turbo"),
-                      speakers=options.get("speakers", True), my_name=options.get("my_name", "Io"))
+                      speakers=options.get("speakers", True), my_name=options.get("my_name", "Io"),
+                      diarization_backend=options.get("diarization_backend", "auto"))
     try:
         snapshot = meeting.extra.get("transcript")
         if snapshot is not None:
@@ -908,7 +965,10 @@ def open_session(path: str | os.PathLike) -> tuple[Result, Request]:
                     options.get("device", "cpu"), dict(meeting.timings), notes, source, path.parent,
                     stem, header, me, Path(listen) if listen else None, dict(meeting.names))
     result.named_spans = meeting.named_spans
-    result.proposals = naming.propose(lines, result.named_spans, microphone=me)
+    from . import voices as voice_service
+    result.diarization = options.get("diarization", {"used":"legacy"})
+    result.voice_centroids = options.get("voice_centroids", {})
+    result.proposals, _proposal_notes = voice_service.proposals(lines,result.named_spans,result.voice_centroids,me)
     return result, request
 
 

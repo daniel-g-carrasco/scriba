@@ -10,6 +10,9 @@ from . import PACKAGE_DIR, SLUG, TEXTDOMAIN, __version__, i18n
 
 
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "--community-worker":
+        from scriba.app.engines.community_worker import main as worker_main
+        return worker_main(sys.argv[2:])
     for stream in (sys.stdout, sys.stderr):
         # a file name the console's code page cannot show must not crash a print
         if stream is not None and hasattr(stream, "reconfigure"):

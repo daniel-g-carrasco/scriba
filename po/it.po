@@ -2340,3 +2340,54 @@ msgstr "da Teams, {share}% del parlato"
 #: src/scriba/gui/record.py
 msgid "microphone muted"
 msgstr "microfono in silenzio"
+
+msgid "The voice model set is incompatible or incomplete."
+msgstr "Il set dei modelli delle voci è incompatibile o incompleto."
+
+msgid "Community voice models are not available yet."
+msgstr "I modelli delle voci Community non sono ancora disponibili."
+
+msgid "Community voice models are unavailable; using the previous voice method."
+msgstr "I modelli delle voci Community non sono disponibili: uso il metodo precedente."
+
+msgid "The community voice engine failed; the previous method was not substituted."
+msgstr "Il motore delle voci Community ha restituito un errore: il metodo precedente non è stato sostituito."
+
+msgid "Voice acceleration is unavailable; the processor was used."
+msgstr "L'accelerazione delle voci non è disponibile: è stato usato il processore."
+
+msgid "Several different voices are heard from the same Teams participant."
+msgstr "Dallo stesso partecipante di Teams si sentono più voci diverse."
+
+msgid "Very similar voices share a Teams participant; you can give them the same name."
+msgstr "Voci molto simili appartengono allo stesso partecipante di Teams: puoi dare loro lo stesso nome."
+
+msgid "One voice appears under several Teams participants; no name was proposed."
+msgstr "Una voce compare sotto più partecipanti di Teams: nessun nome è stato proposto."
+
+msgid "{name}, voice {number}"
+msgstr "{name}, voce {number}"
+
+msgid "Voice Method"
+msgstr "Metodo delle voci"
+
+msgid "Automatic uses verified community models when available. The previous method remains available."
+msgstr "Automatico usa i modelli Community verificati quando disponibili. Il metodo precedente resta disponibile."
+
+msgid "Community"
+msgstr "Community"
+
+msgid "Previous method"
+msgstr "Metodo precedente"
+
+msgid "Finds speech and overlapping voices (community-1)"
+msgstr "Trova il parlato e le voci sovrapposte (community-1)"
+
+msgid "Tells the voices apart (community-1)"
+msgstr "Distingue le voci (community-1)"
+
+msgid "Groups the voices (community-1)"
+msgstr "Raggruppa le voci (community-1)"
+
+msgid "Prepares voice comparisons (community-1)"
+msgstr "Prepara il confronto delle voci (community-1)"
