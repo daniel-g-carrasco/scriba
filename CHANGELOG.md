@@ -5,6 +5,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 are `0.x` while the app evolves. Stable Windows and Linux packages are
 available from GitHub Releases. Linux Flatpak builds and runtime checks use GNOME Platform 50. The app's metainfo carries a shorter description.
 
+## [Unreleased]
+
+### Changed
+- A new icon, in the style now shared by the apps of the same family (Meridiana, Lanterna...): the gold nib with its red neck, cut on its axis
+  with the light on the left and the shadow on the right, on an ivory disc with a little thickness below it. The
+  tray's states keep their marks on the new icon; the symbolic icons stay as they were. Windows gets a drawing of
+  its own for 16-24 px, to the edge of its square.
+
 ## [0.1.4] - 2026-11-16
 
 ### Changed

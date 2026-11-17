@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""The app's icons: one drawing for every surface (dark disc, ivory nib), with
-the icon theme's margin in the SVGs and the disc to the edge on Windows."""
+"""The app's icons: one drawing for every surface (since 17/11/2026 the gold
+nib on the family's ivory disc with its thickness), with the icon theme's
+margin in the SVGs and the disc to the edge on Windows."""
 
 import importlib.util
 import re
@@ -43,14 +44,16 @@ def pixbufs():
 class OneIconTest(unittest.TestCase):
     def test_there_is_one_drawing_for_every_surface(self):
         # the app's icon and five states, each once: no variant for a dark
-        # taskbar since 14/11/2026, the dark disc and ivory nib everywhere
+        # taskbar since 14/11/2026; since 17/11/2026 the ivory disc with its
+        # thickness and the gold nib everywhere, the states only add their mark
         self.assertEqual([m.name.removeprefix(APP_ID) for m in masters()],
                          ["-downloading.svg", "-error.svg", "-paused.svg", "-recording.svg",
                           "-transcribing.svg", ".svg"])
         for master in masters():
             uses = re.findall(r"url\(#[^)]*\)", master.read_text(encoding="utf-8"))
-            self.assertIn("url(#sfumatura-cerchio-scuro)", uses, master.name)
-            self.assertIn("url(#sfumatura-corpo-avorio)", uses, master.name)
+            self.assertIn("url(#sfumatura-cerchio)", uses, master.name)
+            self.assertIn("url(#sfumatura-fianco)", uses, master.name)
+            self.assertIn('fill="#F2C14E"', master.read_text(encoding="utf-8"), master.name)   # the nib's lit half
 
 
 class PlainSvgTest(unittest.TestCase):
@@ -95,13 +98,15 @@ class MarginTest(unittest.TestCase):
         make_ico = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(make_ico)
         for svg in masters():
-            self.assertIn('<circle cx="256" cy="256" r="240"', svg.read_text(encoding="utf-8"), svg.name)
+            # the face (radius 232, centred at 248) and its thickness below it: 464 wide, 480 tall in all
+            self.assertIn('<circle cx="256" cy="248" r="232"', svg.read_text(encoding="utf-8"), svg.name)
+            self.assertIn('<circle cx="256" cy="264" r="232"', svg.read_text(encoding="utf-8"), svg.name)
             self.assertEqual(drawn(make_ico.windows_pixbuf(svg, 32)), (32, 32), svg.name)
         linux = GdkPixbuf.Pixbuf.new_from_file_at_size(str(SVG), 32, 32)
-        self.assertEqual(drawn(linux), (30, 30))                # 240 of 256: a pixel of margin a side
+        self.assertEqual(drawn(linux), (30, 30))                # 480 of 512: a pixel of margin a side
         png = GdkPixbuf.Pixbuf.new_from_file(str(_setup.ROOT / "data" / "icons" / "hicolor" / "256x256" / "apps"
                                                  / f"{APP_ID}.png"))
-        self.assertEqual(drawn(png), (240, 240))                # the PNGs drawn from it, with the margin
+        self.assertEqual(drawn(png), (232, 240))                # the PNGs drawn from it, with the margin
 
     def test_the_states_mark_stays_inside_windows_view(self):
         # Windows shows 16 16 480 480 of the 512 (the disc to the edge): the
