@@ -54,12 +54,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from scriba import ENV_PREFIX
+from scriba.app import process
 from scriba.app.task import Failure, Progress, check, tell
 from scriba.core.segments import Segment
 from scriba.core.terms import PROMPT_MAX_CHARACTERS, SEPARATOR
 from scriba.i18n import _
-
-from . import process
 
 CLI_VARIABLE = f"{ENV_PREFIX}_WHISPER_CLI"     # another whisper-cli (whisper-bench is looked for next to it)
 DEVICES_VARIABLE = "GGML_VK_VISIBLE_DEVICES"

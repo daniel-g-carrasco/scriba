@@ -27,12 +27,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from scriba import ENV_PREFIX
+from scriba.app import process
 from scriba.app.task import Failure, Progress, tell
 from scriba.core import callmute, loudness, spans
 from scriba.data import files
 from scriba.i18n import _
 
-from . import audio, process
+from . import audio
 
 FFMPEG_VARIABLE = f"{ENV_PREFIX}_FFMPEG"        # another ffmpeg (ffprobe is looked for next to it)
 # ISO 639-2, as Matroska wants a track's language

@@ -26,6 +26,7 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 CONFIG_VERSION = 2
+UPDATE_CHECK_INTERVAL_MINUTES = 30
 # from one format version to the next, in order: {from_version: step}
 MIGRATIONS: dict[int, Callable[[dict], dict]] = {1: lambda data: {"diarization_backend": "auto", **data}}
 
@@ -37,9 +38,10 @@ class Config:
     keep_running: bool = True            # keep working when the window is closed, if the desktop supports it
     models_download_paused: bool = False # a deliberate pause survives the next launch
     check_updates: bool = True           # Windows: a newer release, at start and when the window comes back
-    # ISO date and time of the last check made on its own (updates.check_stamp;
+    # ISO date and time of the last successful check (updates.check_stamp;
     # a date alone, as 0.1.2 wrote it, is read as its midnight)
     last_update_check: str = ""
+    last_update_offered: str = ""        # version last shown in the update dialog
     last_folder: str = ""                # the folder of the last recording opened, for the next file dialog
     # the transcription's choices, remembered from one to the next
     speech_language: str = "it"          # "it", "en", "auto"

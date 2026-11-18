@@ -5,6 +5,22 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 are `0.x` while the app evolves. Stable Windows and Linux packages are
 available from GitHub Releases. Linux Flatpak builds and runtime checks use GNOME Platform 50. The app's metainfo carries a shorter description.
 
+## [0.1.7] - 2026-11-18
+
+### Changed
+- Scriba opens the update dialog once per new version, after any active work ends.
+  Choose Later to keep the update available in the banner.
+
+### Fixed
+- If GitHub limits update requests, Scriba checks the release page and still
+  verifies the installer's checksum and signature before running it.
+- On Windows, opening or restoring the window checks for updates after 30 minutes.
+  A busy Scriba runs the check when work ends and records the time only on success.
+- Manual update checks work during graphics card testing and preview playback.
+  When a check has to wait, Scriba explains why and shows the result once it runs.
+- Meetings reopen when a transcript line has reversed times. Scriba repairs the
+  line, marks it as doubtful and explains the repair in the Result page.
+
 ## [0.1.6] - 2026-11-17
 
 ### Added

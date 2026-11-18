@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Minisign signatures, verified with the standard library only: the
 releases sign the Windows installer (the key's secret half in the CI, the
 public half in updates.py), and an update runs only an installer signed

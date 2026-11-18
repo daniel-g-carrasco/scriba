@@ -16,6 +16,10 @@ class ResultNotesTest(unittest.TestCase):
         self.assertTrue(jobs.recording_information(translate(jobs.MUTE_INFORMATION).format(time="05:05")))
         self.assertTrue(jobs.recording_information(
             translate(jobs.ECHO_INFORMATION).format(share="9 %", time="05:05")))
+        repair = translate(jobs.TIMING_INFORMATION)
+        self.assertEqual(repair, "Alla riapertura sono state corrette le battute con orari incoerenti.")
+        self.assertTrue(jobs.recording_information(repair))
+        self.assertEqual(translate("inconsistent times"), "orari incoerenti")
 
     def test_recording_information_is_recognised_without_hiding_failures(self):
         for note in (

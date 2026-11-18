@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Outstanding work, including completion callbacks and the cleanup they start.
 
 An activity owns a ticket until its owner finishes it. Cancellation alone does

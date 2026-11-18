@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """What the app needs from Windows itself, through ctypes: the title bars
 in the content's colour, the executable's icon on every window, the files
 that would run when opened. Imported only on Windows.
@@ -86,9 +87,10 @@ PROCESS_PER_MONITOR_DPI_AWARE = 2       # Windows 8.1's per monitor, and DPI_AWA
 def per_monitor_dpi() -> bool:
     """The process follows each screen's dpi (per monitor v2, else Windows
     8.1's per monitor), as the manifest asks for the built exe. Called
-    before GTK opens the display, it makes a run from the sources behave as
-    the exe (without it GDK makes the process system DPI aware). False when
-    it was set already (the manifest) or Windows does not know it."""
+    before the toolkit opens the display, it makes a run from the sources
+    behave as the exe (without it GTK's GDK makes the process system DPI
+    aware). False when it was set already (the manifest) or Windows does
+    not know it."""
     user32 = ctypes.WinDLL("user32", use_last_error=True)
     try:
         user32.SetProcessDpiAwarenessContext.argtypes = [ctypes.c_void_p]
@@ -240,9 +242,9 @@ DRIVE_REMOTE = 4
 
 def on_network(path: str) -> bool:
     """The file is on another computer: a UNC path, or a drive letter
-    mapped to a share (GetDriveTypeW says DRIVE_REMOTE). What Scriba writes
-    for such a file goes to the computer's own folders instead: a shared
-    server's folder belongs to everybody (trascrivi.py did the same)."""
+    mapped to a share (GetDriveTypeW says DRIVE_REMOTE). What an app
+    writes for such a file can go to the computer's own folders instead:
+    a shared server's folder belongs to everybody."""
     full = os.path.abspath(path)
     sep = os.sep
     if full.startswith(sep + sep):
@@ -335,7 +337,7 @@ def choose_folder_native(title: str, initial: str | None = None, owner: int = 0,
     """Run on a dedicated worker: path on accept, None on cancel, OSError on failure.
 
     The worker owns every COM interface and memory allocation for its complete
-    lifetime. The integer owner HWND may be obtained by the GTK main thread.
+    lifetime. The integer owner HWND may be obtained by the window's main thread.
     https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-imodalwindow-show
     """
     ole = ctypes.WinDLL("ole32")

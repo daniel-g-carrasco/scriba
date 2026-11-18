@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Notifications on Windows 10 and 11: the toasts of the Windows Runtime
 (Windows.UI.Notifications), through ctypes, no extra module. GLib has no
 notifications on Windows (Gio.Notification does nothing there).

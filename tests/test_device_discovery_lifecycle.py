@@ -15,7 +15,8 @@ _setup.gtk_or_skip()
 import fake_engines  # noqa: E402
 from test_window import TestApp  # noqa: E402
 from scriba.app.backend import Backend  # noqa: E402
-from scriba.app.engines import process, whisper  # noqa: E402
+from scriba.app import process  # noqa: E402
+from scriba.app.engines import whisper  # noqa: E402
 from scriba.gui import ui  # noqa: E402
 from scriba.gui.preferences import PreferencesDialog  # noqa: E402
 from scriba.gui.window import MainWindow  # noqa: E402

@@ -41,6 +41,7 @@ def reasons() -> dict[str, str]:
         "repeated": _("repeated many times"),
         "quiet": _("voice very faint"),
         "dense": _("too much text for its length"),
+        "inconsistent_times": _("inconsistent times"),
         UNSPECIFIED: _("doubtful"),
     }
 

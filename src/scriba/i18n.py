@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """GNU gettext set-up. Catalogues live in po/ and are compiled by
 tools/compile_po.py (to locale/ in a checkout, to /app/share/locale in the
 Flatpak, to share/locale in the Windows build). Source strings are English;
@@ -84,12 +85,54 @@ def _(message: str) -> str:
     return _translation.gettext(message)
 
 
+def N_(message: str) -> str:
+    """A string marked for the catalogue and translated later, where it is
+    shown (a table of names written before the language is known)."""
+    return message
+
+
 def ngettext(singular: str, plural: str, n: int) -> str:
     return _translation.ngettext(singular, plural, n)
 
 
 def pgettext(context: str, message: str) -> str:
     return _translation.pgettext(context, message)
+
+
+def language() -> str:
+    """The language of the interface: that of the catalogue loaded
+    ("it"), English without one."""
+    return (_translation.info().get("language") or "en").split("_")[0]
+
+
+def share_with_children(variable: str) -> None:
+    """This process's language given to the processes it starts, through
+    the environment they inherit, in `variable` (the app's own name, as
+    "<PREFIX>_WINDOW_LANGUAGE"): their messages speak it too."""
+    os.environ[variable] = language()
+
+
+def inherited(variable: str, default: str = "") -> str:
+    """In a child process: the language its parent shared in `variable`
+    (share_with_children), else `default` (a child started on its own, by
+    a test or a tool; "" is the desktop's language)."""
+    return os.environ.get(variable) or default
+
+
+def setup_as_child(domain: str, variable: str, checkout: Path | None = None, default: str = "") -> None:
+    """setup() in a child process, in the language its parent shared."""
+    setup(domain, checkout, inherited(variable, default))
+
+
+def number(value: float, decimals: int | None = 2, sign: bool = False, grouping: bool = False) -> str:
+    """A measure as the language of the interface writes it: 3,58 in
+    Italian, 3.58 in English; with grouping 12.345,6 and 12,345.6; with
+    sign +3,58. `decimals` None: as many as the value has, up to six
+    figures (Python's "g": 450, 13,5, 0,045), for a value read from a file
+    and said back as it was written."""
+    shape = "g" if decimals is None else f".{decimals}f"
+    text = f"{value:{'+' if sign else ''}{',' if grouping else ''}{shape}}"
+    return text.translate(str.maketrans(",.", ".,")) if language() == "it" else text
 
 
 def count(n: int) -> str:

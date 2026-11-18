@@ -865,53 +865,39 @@ class WindowTest(unittest.TestCase):
         window.update_banner.emit("button-clicked")
         self.assertEqual(asked, ["dialog"])
 
-    def test_the_check_shows_the_banner_and_opens_the_dialog_only_when_asked(self):
+    def test_the_banner_and_manual_check_can_reopen_a_previous_proposal(self):
         release = updates.Release("99.0.0", "https://example/release", "Notes", [])
+        self.app.cfg.last_update_offered = release.version
         self.app.window = self.window()
-        shown, notes = [], []
+        shown = []
         with mock.patch.object(app_mod, "run_in_thread", lambda work, done: done(release, None)), \
-                mock.patch.object(type(self.app), "_show_update", lambda _app, r: shown.append(r.version)), \
-                mock.patch.object(type(self.app), "notify", lambda _app, *a, **k: notes.append(a[0])):
+                mock.patch.object(type(self.app), "_show_update", lambda _app, r, **_kw: shown.append(r.version)):
             self.app.check_updates(manual=False)
             self.assertTrue(self.app.window.update_banner.get_revealed())
-            self.assertEqual(shown, [])                 # found by itself: the banner, no dialog in the way
-            self.assertEqual(len(notes), 1)             # and a notification: the window is not in front
+            self.assertEqual(shown, [])
             self.app.window.update_banner.emit("button-clicked")
-            self.assertEqual(shown, ["99.0.0"])         # the banner's button opens it
+            self.assertEqual(shown, ["99.0.0"])
             self.app.check_updates(manual=True)
-            self.assertEqual(shown, ["99.0.0", "99.0.0"])   # asked for: the dialog at once
-            self.assertEqual(len(notes), 1)
+            self.assertEqual(shown, ["99.0.0", "99.0.0"])
 
-    def test_the_window_coming_back_checks_for_updates_at_most_every_few_hours(self):
+    def test_the_window_coming_back_respects_the_automatic_update_preference(self):
         window = self.app.window = self.window()
         self.app._update_checks = True              # as do_startup has it on Windows
+        self.app.cfg.last_update_check = "2026-11-12"   # as 0.1.2 left it
+        self.app.cfg.check_updates = False
         checks = []
-        with mock.patch.object(app_mod, "UPDATE_RECHECK_DELAY_S", 0), \
-                mock.patch.object(type(self.app), "check_updates", lambda _app, manual: checks.append(manual)):
+        with mock.patch.object(type(self.app), "check_updates", lambda _app, manual: checks.append(manual)):
             window.present()
-            self.assertTrue(_setup.spin(lambda: checks == [False], 5))      # by itself: no dialog asked
-            self.assertEqual(self.app.saved, 1)
-            self.assertIn("T", self.app.cfg.last_update_check)              # the date and the time
-            for _ in range(3):                      # to the tray and back, again and again
-                window.set_visible(False)
-                window.present()
-                _setup.spin(lambda: False, 0.2)
-            self.assertEqual(checks, [False])
-            self.app.cfg.last_update_check = "2026-11-12"                   # as 0.1.2 left it
-            self.app.cfg.check_updates = False
-            window.set_visible(False)
-            window.present()
-            _setup.spin(lambda: False, 0.3)
-            self.assertEqual(checks, [False])       # switched off in the preferences
+            self.assertTrue(_setup.spin(lambda: not self.app._update_timer))
+            self.assertEqual(checks, [])
             self.app.cfg.check_updates = True
-            window.set_visible(False)
+            window.hide()
             window.present()
-            self.assertTrue(_setup.spin(lambda: checks == [False, False], 5))
+            self.assertTrue(_setup.spin(lambda: checks == [False]))
 
     def test_a_test_app_never_checks_by_itself(self):
         window = self.app.window = self.window()
-        with mock.patch.object(app_mod, "UPDATE_RECHECK_DELAY_S", 0), \
-                mock.patch.object(type(self.app), "check_updates") as check:
+        with mock.patch.object(type(self.app), "check_updates") as check:
             window.present()
             _setup.spin(lambda: False, 0.3)
         check.assert_not_called()                   # not started: no request to GitHub from the tests

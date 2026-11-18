@@ -32,8 +32,6 @@ from .preferences import PreferencesDialog, about_dialog  # noqa: E402
 from .window import MainWindow  # noqa: E402
 
 SOURCE_ICONS = PACKAGE_DIR.parent.parent / "data" / "icons"
-UPDATE_CHECK_DELAY_S = 60      # after the start: the user's work comes first
-UPDATE_RECHECK_DELAY_S = 5     # after the window comes back from the tray or the taskbar
 
 
 def settings_notice_text(notice: config.Notice) -> str:
@@ -238,9 +236,11 @@ class App(Adw.Application):
         self._update_checks = False     # the checks made by themselves: on in do_startup (Windows)
         self._update_timer = 0
         self._pending_check: bool | None = None
+        self._checking_updates: bool | None = None   # None: idle; otherwise whether the result was requested
         self._pending_release = None
         self._available_release = None
         self._update_dialog = None
+        self._update_dialog_automatic = False
         self._verified_installer = None
         self.toasts = None          # Windows: wintoast.Toasts, when the Windows Runtime answers
         self.restyle_windows: Callable[[], None] = lambda: None     # Windows: native_windows()
@@ -288,9 +288,8 @@ class App(Adw.Application):
 
         if WINDOWS:
             self._windows_notifications()
-            # a while after start, and when the window comes back (window_came_back)
+            # The window schedules the check when it is shown.
             self._update_checks = True
-            self._schedule_update_check(UPDATE_CHECK_DELAY_S)
             from scriba.app import updates
             project = services.project()
             run_in_thread(lambda: updates.clean_downloads(project), lambda *_: None)    # the installers of earlier updates
@@ -602,86 +601,97 @@ class App(Adw.Application):
     # -- a newer version (Windows: on Linux the Flatpak brings it) ----------------------
 
     def window_came_back(self) -> None:
-        """The window shown again (from the tray, or restored from the
-        taskbar): a check, if the last one is old enough."""
-        self._schedule_update_check(UPDATE_RECHECK_DELAY_S)
-
-    def _schedule_update_check(self, delay_s: int) -> None:
-        # one waiting at a time: a window shown and hidden again and again
-        # makes one check at most, and only when updates.check_due says so
+        """Check on the first map and when restored from the tray or taskbar."""
         if self._update_checks and not self._update_timer and not self.closing:
-            self._update_timer = GLib.timeout_add_seconds(delay_s, self._automatic_update_check)
+            self._update_timer = GLib.idle_add(self._automatic_update_check)
 
     def _automatic_update_check(self) -> bool:
-        """A check made by itself. It opens no dialog: a newer version is a
-        banner (and a notification with the window not in front), held back
-        while a recording, a transcription or a download is going
-        (check_updates, work_changed)."""
         self._update_timer = 0
         if self.closing or self.exit_ready or not self.cfg.check_updates:
             return False
         from scriba.app import updates
         now = datetime.datetime.now()
-        if updates.check_due(self.cfg.last_update_check, now):
-            self.cfg.last_update_check = updates.check_stamp(now)
-            self.save_config()
+        if updates.check_due(self.cfg.last_update_check, now, config.UPDATE_CHECK_INTERVAL_MINUTES / 60):
             self.check_updates(manual=False)
         return False
 
     def check_updates(self, manual: bool) -> None:
         if self.closing or self.exit_ready:
-            return False
+            return
         from scriba.app import updates
-        if self.work_busy or self.installing:
-            self._pending_check = bool(self._pending_check) or manual
-            if self._pending_release is not None:
-                release, asked = self._pending_release
-                self._pending_release = (release, asked or manual)
+        if self._checking_updates is not None:
+            self._checking_updates |= manual
+            return
+        if self._update_work_busy or self.installing:
+            self._pending_check = manual or self._pending_check is True
+            if manual:
+                self._show_update_check_delay()
             return
         project = services.project()
+        self._checking_updates = manual
 
         def done(release, error) -> None:
+            requested = self._checking_updates
+            self._checking_updates = None
+            if self.closing or self.exit_ready:
+                return
             if error:
-                if manual:
+                if requested:
                     self._window().toast(_("The check for updates failed: {error}").format(error=error))
                 return
+            self.cfg.last_update_check = updates.check_stamp(datetime.datetime.now())
+            self.save_config()
             if not updates.is_newer(release.version, __version__):
-                if manual:
+                if requested:
                     self._window().toast(_("{app} {version} is up to date").format(app=APP_NAME, version=__version__))
                 return
-            self._offer_update(release, manual)
+            self._offer_update(release, bool(requested))
 
         run_in_thread(lambda: updates.latest_release(project), done)
 
+    def _show_update_check_delay(self) -> None:
+        window = self._window()
+        if self.installing:
+            message = _("Scriba will check for updates after installation finishes.")
+        elif window.record.busy:
+            message = _("Scriba will check for updates after recording finishes.")
+        elif window.transcribe.busy:
+            message = _("Scriba will check for updates after transcription finishes.")
+        elif self.downloads.busy:
+            message = _("Scriba will check for updates after the model download finishes.")
+        else:
+            message = _("Scriba will check for updates after saving the result.")
+        window.toast(message)
+
     @property
     def work_busy(self) -> bool:
+        return self._update_work_busy or (self.window is not None and self.window.cards.running is not None)
+
+    @property
+    def _update_work_busy(self) -> bool:
         return (self._downloads is not None and self._downloads.busy) or (
             self.window is not None and (self.window.record.busy or self.window.transcribe.busy
-                                         or self.window.cards.running is not None or self.window.result.busy))
+                                         or self.window.result.busy))
 
     def update_allowed(self, release) -> bool:
         if self.closing or self.installing:
             return False
-        if self.work_busy:
+        if self._update_work_busy:
             self._pending_release = (release, True)
             return False
         return True
 
     def _offer_update(self, release, manual: bool) -> None:
         if self.closing or self.exit_ready:
-            return False
+            return
         self._available_release = release
-        if self.work_busy or self.installing:
+        if self._update_work_busy or self.installing:
             self._pending_release = (release, manual or bool(self._pending_release and self._pending_release[1]))
             return
         window = self._window()
         window.show_update(release.version, lambda: self._show_update(release))
-        if manual:
-            self._show_update(release)
-        elif not window.is_active():
-            self.notify(_("{app} {version} is available").format(app=APP_NAME, version=release.version),
-                        _("Click to see what is new and update."), tag="update",
-                        on_click=lambda: self._show_update(release))
+        if manual or self.cfg.last_update_offered != release.version:
+            self._show_update(release, automatic=not manual)
 
     def work_changed(self) -> None:
         """Suppress proposals for the whole job, including recording start and finish."""
@@ -694,24 +704,30 @@ class App(Adw.Application):
             self.window.cards.stop()
         elif not self.downloads.busy:
             self.window.cards.start_if_needed()
-        if self.work_busy:
+        if self._update_work_busy:
             if self._available_release is not None and self._pending_release is None:
                 self._pending_release = (self._available_release, False)
             dialog = self._update_dialog
             if dialog is not None:
-                self._pending_release = (dialog.release, True)
+                if not self._update_dialog_automatic and (
+                    self._pending_release is None or self._pending_release[0].version == dialog.release.version
+                ):
+                    self._pending_release = (dialog.release, True)
                 self._update_dialog = None
                 dialog.close()             # cancels a download; its final callback still checks the gate
             return
         if self.installing or self.window._closing:
             return
+        if self._pending_check is not None:
+            manual, self._pending_check = self._pending_check, None
+            if manual:
+                self._pending_release = None
+            if manual or self.cfg.check_updates:
+                self.check_updates(manual)
         if self._pending_release is not None:
             release, manual = self._pending_release
-            self._pending_release = self._pending_check = None
+            self._pending_release = None
             self._offer_update(release, manual)
-        elif self._pending_check is not None:
-            manual, self._pending_check = self._pending_check, None
-            self.check_updates(manual)
 
     def remember_installer(self, release, path) -> None:
         # updates.download holds the verified file against changes until exit.
@@ -732,9 +748,15 @@ class App(Adw.Application):
         self.installing = False
         self.work_changed()
 
-    def _show_update(self, release) -> None:
+    def _show_update(self, release, *, automatic: bool = False) -> None:
         from .update_dialog import UpdateDialog
         if not self.update_allowed(release):
+            return
+        if self._update_dialog is not None:
+            if self._update_dialog.release.version != release.version:
+                self._pending_release = (release, not automatic)
+            elif not automatic:
+                self._update_dialog_automatic = False
             return
         window = self._window()
         window.present()
@@ -742,12 +764,18 @@ class App(Adw.Application):
         dialog = UpdateDialog(release, app=self,
                               ready_installer=ready[1] if ready and ready[0] == release.version else None)
         self._update_dialog = dialog
+        self._update_dialog_automatic = automatic
         dialog.connect("closed", lambda *_: self._update_closed(dialog))
         dialog.present(window)
+        if self.cfg.last_update_offered != release.version:
+            self.cfg.last_update_offered = release.version
+            self.save_config()
 
     def _update_closed(self, dialog) -> None:
         if self._update_dialog is dialog:
             self._update_dialog = None
+            if self._pending_release is not None:
+                self.work_changed()
 
 
 def main(argv=None) -> int:

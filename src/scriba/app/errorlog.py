@@ -1,13 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """The errors of the windowed app, kept in a file.
 
 A program started from the desktop has nobody reading its stderr: the
-Windows build has no console at all (the entry point points the streams at
-the null device), the desktop on Linux hands it to the journal, which
-nobody opens. A traceback of a button's callback, which PyGObject prints
-and then carries on, or a `log.complain`, would leave no trace. Here
-stderr becomes a tee: what it wrote before still goes where it went (the
-console, the journal), and it also goes to `errors.log` in the state
-folder, with the date and time before each burst of lines.
+Windows build has no console at all (Python starts it with sys.stderr set
+to None, or an entry point points the streams at the null device), the
+desktop on Linux hands it to the journal, which nobody opens. A traceback
+of a button's callback, which PyGObject prints and then carries on, or a
+`log.complain`, would leave no trace. Here stderr becomes a tee: what it
+wrote before still goes where it went (the console, the journal), and it
+also goes to `errors.log` in the state folder, with the date and time
+before each burst of lines.
 
 The file does not grow without end: past MAX_BYTES it becomes
 `errors.log.1` (the one before is dropped) and a new one starts. Nothing
@@ -136,7 +138,7 @@ class ErrorLog(io.TextIOBase):
 
 
 def _nowhere(stream) -> bool:
-    """No stream, or the null device the Windows build points them at."""
+    """No stream, or the null device a windowed build may point them at."""
     return stream is None or getattr(stream, "name", None) == os.devnull
 
 

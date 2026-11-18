@@ -52,10 +52,6 @@ msgstr "{app} {version} è aggiornata"
 msgid "{app} {version} is available"
 msgstr "È disponibile {app} {version}"
 
-#: src/scriba/gui/application.py:257
-msgid "Click to see what is new and update."
-msgstr "Fai clic per vedere le novità e aggiornare."
-
 #: src/scriba/gui/window.py:71
 msgid "Update…"
 msgstr "Aggiorna…"
@@ -256,8 +252,8 @@ msgstr "Controlla gli aggiornamenti automaticamente"
 
 #: src/scriba/gui/preferences.py
 #, python-brace-format
-msgid "At start-up and when the window is opened again, at most every {hours} hours, from the project's releases on GitHub; nothing about you or your files is sent"
-msgstr "All'avvio e quando si riapre la finestra, al massimo ogni {hours} ore, dalle versioni pubblicate su GitHub; non viene inviato nulla su di te o sui tuoi file"
+msgid "When you open or restore the window, Scriba checks GitHub if the last successful check was at least {minutes} minutes ago."
+msgstr "Quando apri o ripristini la finestra, Scriba controlla su GitHub se sono passati almeno {minutes} minuti dall'ultimo controllo riuscito."
 
 #: src/scriba/gui/window.py:287
 msgid "Measuring the space taken by the app's files…"
@@ -2391,3 +2387,30 @@ msgstr "Raggruppa le voci (community-1)"
 
 msgid "Prepares voice comparisons (community-1)"
 msgstr "Prepara il confronto delle voci (community-1)"
+#: src/scriba/app/jobs.py
+msgid "Lines with inconsistent times were repaired when reopening this meeting."
+msgstr "Alla riapertura sono state corrette le battute con orari incoerenti."
+
+#: src/scriba/data/markdown.py
+msgid "inconsistent times"
+msgstr "orari incoerenti"
+
+#: src/scriba/gui/application.py
+msgid "Scriba will check for updates after installation finishes."
+msgstr "Scriba controllerà gli aggiornamenti al termine dell’installazione."
+
+#: src/scriba/gui/application.py
+msgid "Scriba will check for updates after recording finishes."
+msgstr "Scriba controllerà gli aggiornamenti al termine della registrazione."
+
+#: src/scriba/gui/application.py
+msgid "Scriba will check for updates after transcription finishes."
+msgstr "Scriba controllerà gli aggiornamenti al termine della trascrizione."
+
+#: src/scriba/gui/application.py
+msgid "Scriba will check for updates after the model download finishes."
+msgstr "Scriba controllerà gli aggiornamenti al termine dello scaricamento dei modelli."
+
+#: src/scriba/gui/application.py
+msgid "Scriba will check for updates after saving the result."
+msgstr "Scriba controllerà gli aggiornamenti dopo aver salvato il risultato."

@@ -1,14 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """A program run as a child process: its lines read as they come, and
 stopped when the user cancels.
 
-ffmpeg and whisper-cli are driven, not linked (the plan: engines guided as
-Spola guides rclone). Both say how far they are on their own streams, a
-line at a time (ffmpeg's `-progress pipe:1` on stdout, whisper's
+For the programs an app drives rather than links (ffmpeg, a speech
+engine, a sync tool). They say how far they are on their own streams, a
+line at a time (ffmpeg's `-progress pipe:1` on stdout, another's
 `progress = 35%` on stderr), so each stream has a reader thread that hands
 the lines on as they arrive; the caller's thread waits on the cancel event
 in between. Cancelling terminates the child (on Windows TerminateProcess:
-neither program has work to save, and what they wrote lives in a
-temporary folder the caller throws away) and raises Cancelled.
+for a program with no work to save, whose output lives in a temporary
+folder the caller throws away) and raises Cancelled.
 
 Bytes, never text mode: Windows' text mode turns LF into CRLF, and the
 console's code page would garble the Italian in a file name (the lines
@@ -23,7 +24,7 @@ import sys
 import threading
 from collections.abc import Callable, Sequence
 
-from scriba.app.task import Cancelled
+from .task import Cancelled
 
 KEEP_LINES = 200            # the tail of stderr kept for an error's detail
 GRACE = 5.0                 # seconds a terminated child has to go before it is killed

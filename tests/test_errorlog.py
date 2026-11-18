@@ -1,8 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """The windowed app's errors kept in a file (app/errorlog.py): what stderr
 receives lands in errors.log with the time, a console still sees the same
-text, the null device of the Windows build counts as nowhere, the file
-stays under its limit, and a traceback of a GLib callback (the way a
-button's callback fails) reaches it."""
+text, no stream or the null device counts as nowhere, the file stays under
+its limit, and a file that cannot be written or a console that went away
+never breaks stderr. That a traceback of a toolkit's callback reaches the
+file is an app's test: a common test does not load the toolkit."""
 
 import io
 import os
@@ -13,13 +15,18 @@ import threading
 import unittest
 from pathlib import Path
 
-import _setup  # noqa: F401
+import _setup
 
-from scriba.app import diagnostics, errorlog
-from scriba.app.config import Config
-from scriba.app.paths import Paths
+errorlog = _setup.shared("app.errorlog")
 
 STAMP = re.compile(r"^--- \d{4}-\d\d-\d\d \d\d:\d\d:\d\d ---$", re.M)
+
+
+class GoneConsole(io.StringIO):
+    """A console that went away: every write fails."""
+
+    def write(self, text):
+        raise OSError("the console is gone")
 
 
 class ErrorLogTest(unittest.TestCase):
@@ -35,7 +42,7 @@ class ErrorLogTest(unittest.TestCase):
             sys.stderr = before
         self.addCleanup(put_back)
 
-    def stream(self, **options) -> errorlog.ErrorLog:
+    def stream(self, **options):
         stream = errorlog.ErrorLog(self.path, **options)
         self.addCleanup(stream.close)
         return stream
@@ -43,20 +50,23 @@ class ErrorLogTest(unittest.TestCase):
     def read(self) -> str:
         return self.path.read_text(encoding="utf-8")
 
+    def test_the_file_is_named_in_the_state_folder(self):
+        self.assertEqual(errorlog.log_file(Path("state")), Path("state") / "errors.log")
+
     def test_a_run_without_errors_leaves_no_file(self):
         errorlog.install(self.path)
         self.assertFalse(self.path.exists())
 
     def test_what_stderr_receives_lands_in_the_file_with_the_time(self):
-        null = open(os.devnull, "w")            # as the Windows build without a console
+        null = open(os.devnull, "w")            # as a windowed build pointed at the null device
         self.addCleanup(null.close)
         sys.stderr = null
         stream = errorlog.install(self.path)
         self.assertIsNone(stream.echo)
-        print("scriba: something: ValueError: wrong", file=sys.stderr)
+        print("my-app: something: ValueError: wrong", file=sys.stderr)
         text = self.read()
         self.assertRegex(text, STAMP)
-        self.assertIn("scriba: something: ValueError: wrong", text)
+        self.assertIn("my-app: something: ValueError: wrong", text)
 
     def test_a_console_sees_the_same_text_and_no_more(self):
         console = io.StringIO()
@@ -65,6 +75,23 @@ class ErrorLogTest(unittest.TestCase):
         print("first line", file=sys.stderr)
         self.assertEqual("first line\n", console.getvalue())
         self.assertIn("first line", self.read())
+
+    def test_a_console_that_went_away_leaves_the_file(self):
+        stream = self.stream(echo=GoneConsole())
+        stream.write("after the console\n")
+        self.assertIsNone(stream.echo)
+        self.assertIn("after the console", self.read())
+
+    def test_a_file_that_cannot_be_written_leaves_the_console(self):
+        folder = self.path.parent
+        folder.parent.mkdir(parents=True, exist_ok=True)
+        folder.write_text("a file where the folder should be", encoding="utf-8")
+        console = io.StringIO()
+        stream = self.stream(echo=console)
+        self.assertEqual(stream.write("first\n"), len("first\n"))
+        stream.write("second\n")
+        self.assertEqual("first\nsecond\n", console.getvalue())
+        self.assertTrue(stream._broken)
 
     def test_a_burst_gets_the_time_once_and_a_later_one_again(self):
         now = [1000.0]
@@ -91,8 +118,14 @@ class ErrorLogTest(unittest.TestCase):
         self.assertIn("ValueError: wrong", self.read())
         self.assertNotIn("\x1b", self.read())
 
+    def test_without_a_console_there_is_no_file_number(self):
+        stream = self.stream()
+        self.assertFalse(stream.isatty())
+        with self.assertRaises(io.UnsupportedOperation):
+            stream.fileno()
+
     def test_an_exception_in_a_thread_lands_in_the_file(self):
-        sys.stderr = None
+        sys.stderr = None                       # as the windowed exe starts
         errorlog.install(self.path)
 
         def fails():
@@ -103,39 +136,6 @@ class ErrorLogTest(unittest.TestCase):
         text = self.read()
         self.assertRegex(text, STAMP)
         self.assertIn("RuntimeError: a thread that broke", text)
-
-    def test_an_exception_in_a_glib_callback_lands_in_the_file_and_the_loop_goes_on(self):
-        try:
-            import gi
-            from gi.repository import GLib
-        except ImportError:
-            self.skipTest("PyGObject")
-        del gi
-        sys.stderr = None
-        errorlog.install(self.path)
-        after = []
-
-        def clicked():
-            raise TypeError("'tuple' object is not callable")
-        context = GLib.MainContext.default()
-        GLib.idle_add(clicked)
-        GLib.idle_add(lambda: after.append(True) and False)
-        for _ in range(20):
-            context.iteration(False)
-            if after:
-                break
-        self.assertEqual([True], after)
-        text = self.read()
-        self.assertRegex(text, STAMP)
-        self.assertIn("TypeError: 'tuple' object is not callable", text)
-        self.assertIn("in clicked", text)
-
-    def test_the_report_of_a_problem_names_the_file(self):
-        state = self.path.parent
-        paths = Paths(state.parent / "config", state, state.parent / "data")
-        line = [x for x in diagnostics.summary("Scriba", "0", Config(), paths, "GTK").splitlines()
-                if x.startswith("errors:")]
-        self.assertEqual([f"errors: {self.path} (none)"], line)
 
 
 if __name__ == "__main__":

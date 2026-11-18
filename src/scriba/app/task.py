@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """What every long piece of work without a window shares: how it is
 stopped, and how it says it failed.
 

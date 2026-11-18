@@ -34,7 +34,8 @@ LOW_CONFIDENCE = "low_confidence"
 REPEATED = "repeated"
 QUIET = "quiet"
 DENSE = "dense"
-REASONS = (NO_SPEECH, LOW_CONFIDENCE, REPEATED, QUIET, DENSE)
+INCONSISTENT_TIMES = "inconsistent_times"
+REASONS = (NO_SPEECH, LOW_CONFIDENCE, REPEATED, QUIET, DENSE, INCONSISTENT_TIMES)
 
 # The thresholds of flag_doubtful (see there for the reasons)
 NO_SPEECH_ABOVE = 0.6
@@ -88,6 +89,14 @@ class Turn:
     start: float
     end: float
     label: str                          # the voice engine's own label
+
+
+def repair_times(line: Segment) -> Segment:
+    """Keep the start as a listening point when the duration is unreliable."""
+    if line.end < line.start:
+        doubts = line.doubts if INCONSISTENT_TIMES in line.doubts else (*line.doubts, INCONSISTENT_TIMES)
+        return replace(line, end=line.start, words=(), doubts=doubts)
+    return line
 
 
 def spoken(segments: Iterable[Segment]) -> list[Segment]:

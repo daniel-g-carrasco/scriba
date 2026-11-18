@@ -58,7 +58,7 @@ from scriba.core.paragraphs import paragraphs
 from scriba.core.subtitles import subtitles as cut_subtitles
 from scriba.data import files, markdown, session as sessions, srt, termfiles, txt
 from scriba.data.timing import clock
-from scriba.i18n import _
+from scriba.i18n import N_, _
 
 from . import models
 from scriba.app.engines import vad
@@ -452,10 +452,11 @@ ECHO_INFORMATION = ("The microphone heard the computer's sound (loudspeakers) in
                     "come from the computer's track only.")
 MUTE_INFORMATION = ("{time} of speech on your microphone fell where you were muted in the call: it was "
                     "not transcribed, and its sound stays in the recording.")
+TIMING_INFORMATION = N_("Lines with inconsistent times were repaired when reopening this meeting.")
 
 
 def recording_information(note: str) -> bool:
-    """Only successful recording cleanup is informational; unknown notes stay visible.
+    """Recognise informational notes; unknown notes stay visible as warnings.
 
     Meetings save translated sentences. Match complete templates in both supported
     languages so reopening after a language change keeps the same severity.
@@ -464,7 +465,7 @@ def recording_information(note: str) -> bool:
 
     for language in ("en", "it"):
         translate = translation_for(language).gettext
-        for template in (ECHO_INFORMATION, MUTE_INFORMATION,
+        for template in (ECHO_INFORMATION, MUTE_INFORMATION, TIMING_INFORMATION,
                          "Several different voices are heard from the same Teams participant.",
                          "Very similar voices share a Teams participant; you can give them the same name.",
                          "One voice appears under several Teams participants; no name was proposed."):
@@ -746,11 +747,14 @@ def _brought_back(part: _Part, segments) -> list[seg.Segment]:
     """whisper's lines with the recording's times, and the level each had
     as recorded (before any gain: QUIET is about the recording)."""
     from scriba.app.engines import audio
+    segments = [seg.repair_times(line) for line in segments]
     lines = []
     for s, (start, end) in zip(segments, timeline.spans(part.pieces, [(s.start, s.end) for s in segments]),
                                strict=True):
-        lines.append(replace(s, start=start, end=end, level=audio.level(part.samples, start, end),
-                             words=timeline.words(part.pieces, s.words, start, end)))
+        # Even equal engine times can land on opposite sides of a seam.
+        line = seg.repair_times(replace(s, start=start, end=end))
+        lines.append(replace(line, level=audio.level(part.samples, line.start, line.end),
+                             words=timeline.words(part.pieces, line.words, line.start, line.end)))
     return seg.spoken(lines)
 
 
@@ -921,14 +925,16 @@ def open_session(path: str | os.PathLike) -> tuple[Result, Request]:
         if snapshot is not None:
             lines = []
             for item in snapshot["segments"]:
-                item = {**item, "doubts": tuple(item.get("doubts", ())), "words": _saved_words(item)}
+                doubts = item.get("doubts", [])
+                if not isinstance(doubts, list) or not all(isinstance(d, str) for d in doubts):
+                    raise ValueError("invalid saved doubts")
+                item = {**item, "doubts": tuple(doubts), "words": _saved_words(item)}
                 line = seg.Segment(**item)
-                if (not isinstance(line.text, str) or not isinstance(line.doubts, tuple)
-                        or not all(isinstance(d, str) for d in line.doubts)
+                if (not isinstance(line.text, str)
                         or (line.speaker is not None and not isinstance(line.speaker, str))
                         or line.start.__class__ not in (int, float) or not math.isfinite(line.start)
                         or line.end.__class__ not in (int, float) or not math.isfinite(line.end)
-                        or line.start < 0 or line.end < line.start):
+                        or line.start < 0 or line.end < 0):
                     raise ValueError("invalid saved segment")
                 lines.append(line)
             head = dict(snapshot["header"])
@@ -959,7 +965,11 @@ def open_session(path: str | os.PathLike) -> tuple[Result, Request]:
     except (OSError, ValueError, TypeError, KeyError, AttributeError, StopIteration) as e:
         raise Failure(_("This meeting cannot be reopened: its saved transcript or automatic subtitles are "
                         "missing or damaged."), str(e)) from e
-    # the warning as the doubts saved say (a meeting saved before 14/11/2026 has none)
+    repaired = [seg.repair_times(line) for line in lines]
+    if any(new is not old for new, old in zip(repaired, lines, strict=True)):
+        notes.append(_(TIMING_INFORMATION))
+    lines = repaired
+    # the warning reflects the saved doubts and any repaired lines
     header = replace(header, doubtful_share=seg.doubt_warning(lines))
     result = Result(list(meeting.outputs), path, lines, len(seg.speakers_of(lines)), meeting.duration,
                     options.get("device", "cpu"), dict(meeting.timings), notes, source, path.parent,

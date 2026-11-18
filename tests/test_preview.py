@@ -71,8 +71,8 @@ def _child_close(source: Path):
     from gi.repository import Adw, Gio, GLib
     import fake_engines
     from test_window import TestApp
-    from scriba.app import jobs, preview
-    from scriba.app.engines import ffmpeg, process
+    from scriba.app import jobs, preview, process
+    from scriba.app.engines import ffmpeg
     from scriba.core.segments import Segment
     from scriba.gui.window import MainWindow
 

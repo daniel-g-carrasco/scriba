@@ -1,8 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """What a report of a problem needs, in one text: the app's version and
 paths, the toolkit's versions (the gui says them: this layer does not load
 the toolkit), the settings, the room its files take. The
 About window shows it under Troubleshooting, with a Save button. Nothing
-in it is a secret: what a user pastes in an issue must be safe to paste."""
+in it is a secret: what a user pastes in an issue must be safe to paste.
+
+The module knows no app and no toolkit: name, version and the toolkit's
+line are given by the caller; `cfg` is read for theme, language,
+check_updates and notices only."""
 
 from __future__ import annotations
 

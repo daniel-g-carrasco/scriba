@@ -46,7 +46,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from scriba.app.engines import ffmpeg, process
+from scriba.app import process
+from scriba.app.engines import ffmpeg
 from scriba.app.task import Failure, check
 from scriba.core import callmute, devices, levels, loudness, spans
 from scriba.data import files

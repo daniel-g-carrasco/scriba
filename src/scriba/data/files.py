@@ -1,23 +1,27 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Where a produced file goes, and how it gets there.
 
-Two rules hold for every file Scriba writes for the user. It never takes
+Two rules hold for every file an app writes for the user. It never takes
 the place of a file that is already there: a name that is taken becomes
-`name_R01.ext`, `name_R02.ext`... (as trascrivi.py did, the usual convention
-of revisions). And it appears whole or not at all: the text goes to
-a temporary file in the same folder (so that the rename never crosses a
-disk), is flushed to the disk, and only then takes its name, so a crash or
-a full disk leaves at most a stray temporary file, never half a transcript
-under the real name.
+`name_R01.ext`, `name_R02.ext`... (the usual convention of revisions). And
+it appears whole or not at all: the text goes to a temporary file in the
+same folder (so that the rename never crosses a disk), is flushed to the
+disk, and only then takes its name, so a crash or a full disk leaves at
+most a stray temporary file, never half a document under the real name.
+
+A file of the app's own, updated in place, is replace() here or atomic.py.
 """
 
 from __future__ import annotations
 
 import os
 import tempfile
-import time
 from pathlib import Path
 
+from .atomic import replace_patiently
+
 MAX_REVISIONS = 9999        # past this a folder is not a folder of revisions any more: something is wrong
+TEMPORARY_PREFIX = ".new-"  # a file being written, hidden on Linux, until it takes its name
 
 
 def _dotted(ext: str) -> str:
@@ -42,10 +46,10 @@ def free_name(folder: str | os.PathLike, stem: str, ext: str) -> Path:
 
 def _temporary(folder: Path, text: str) -> str:
     """The text in a new temporary file in `folder`, on the disk: its path."""
-    fd, tmp = tempfile.mkstemp(prefix=".scriba-", suffix=".tmp", dir=folder)
+    fd, tmp = tempfile.mkstemp(prefix=TEMPORARY_PREFIX, suffix=".tmp", dir=folder)
     try:
         # newline="": the text is written as it is, "\n" on Windows too, so
-        # that the same transcript is the same bytes on both systems
+        # that the same text is the same bytes on both systems
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
             f.write(text)
             f.flush()
@@ -66,7 +70,7 @@ def _discard(tmp: str) -> None:
 def free_stem(folder: str | os.PathLike, stem: str, exts) -> str:
     """The first of `stem`, `stem_R01`, `stem_R02`... under which none of
     the extensions `exts` is taken in `folder`: the files of one
-    transcription (md, txt, srt, the meeting's own) then share their name,
+    piece of work (a text, its subtitles, its notes) then share their name,
     as a set, instead of one being `_R01` and its neighbour not."""
     folder = Path(folder)
     for n in range(MAX_REVISIONS + 1):
@@ -105,9 +109,9 @@ def claim(tmp: str | os.PathLike, folder: str | os.PathLike, stem: str, ext: str
 
 
 def temporary_name(folder: str | os.PathLike, suffix: str) -> Path:
-    """A new empty file in `folder` for a program to write into (ffmpeg's
-    video), to be given its name with claim() when it is whole."""
-    fd, tmp = tempfile.mkstemp(prefix=".scriba-", suffix=suffix, dir=folder)
+    """A new empty file in `folder` for a program to write into (an
+    encoder's video), to be given its name with claim() when it is whole."""
+    fd, tmp = tempfile.mkstemp(prefix=TEMPORARY_PREFIX, suffix=suffix, dir=folder)
     os.close(fd)
     return Path(tmp)
 
@@ -185,24 +189,8 @@ def replace(path: str | os.PathLike, text: str) -> None:
     path = Path(path)
     tmp = _temporary(path.parent, text)
     try:
-        _replace_patiently(tmp, path)
+        replace_patiently(tmp, path)
     except BaseException:
         _discard(tmp)
         raise
 
-
-REPLACE_WAITS = (0.05, 0.1, 0.2, 0.4)      # seconds between tries: under a second in all
-
-
-def _replace_patiently(tmp: str | os.PathLike, path: Path) -> None:
-    """os.replace, tried again for a moment when Windows refuses it: an
-    antivirus or the indexer holds a file that was just written open for
-    an instant, and the rename then fails with PermissionError although
-    nothing is wrong. Any other error, and a refusal that lasts, is raised."""
-    for wait in REPLACE_WAITS:
-        try:
-            os.replace(tmp, path)
-            return
-        except PermissionError:
-            time.sleep(wait)
-    os.replace(tmp, path)

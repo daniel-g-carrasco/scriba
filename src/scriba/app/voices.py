@@ -29,7 +29,8 @@ def select(requested, where=None, cancelled=None):
 
 
 def run(samples, where, speakers=None, requested='auto', progress=None, cancelled=None, force_cpu=False):
-    from scriba.app.engines import process, bundle
+    from scriba.app import process
+    from scriba.app.engines import bundle
     from scriba.core.segments import Turn
     import numpy as np
     check(cancelled)

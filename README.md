@@ -6,9 +6,9 @@
 
 Record meetings and transcribe them on your own computer, with speakers and subtitles.
 
-**[Download Scriba 0.1.6 for Windows](https://github.com/daniel-g-carrasco/scriba/releases/download/v0.1.6/scriba-setup-v0.1.6-windows-x64.exe)**. Install it once; Scriba checks for newer stable releases and offers signed updates. Windows may show a SmartScreen warning because the installer has no Authenticode certificate: choose **More info**, then **Run anyway**. Chrome may keep the download as "Unconfirmed … .crdownload" because the file is rarely downloaded: open the downloads list (`Ctrl+J`) and choose **Keep** before opening it. The installer's own signature is checked by Scriba for every update.
+**[Download Scriba 0.1.7 for Windows](https://github.com/daniel-g-carrasco/scriba/releases/download/v0.1.7/scriba-setup-v0.1.7-windows-x64.exe)**. Install it once; Scriba checks for newer stable releases and offers signed updates. Windows may show a SmartScreen warning because the installer has no Authenticode certificate: choose **More info**, then **Run anyway**. Chrome may keep the download as "Unconfirmed … .crdownload" because the file is rarely downloaded: open the downloads list (`Ctrl+J`) and choose **Keep** before opening it. The installer's own signature is checked by Scriba for every update.
 
-[All downloads and corresponding sources](https://github.com/daniel-g-carrasco/scriba/releases/tag/v0.1.6) include the Windows portable ZIP and Linux Flatpak. Extract the entire portable ZIP before opening `Scriba.exe`. The Linux Flatpak uses GNOME Platform 50 with CPU and Vulkan transcription.
+[All downloads and corresponding sources](https://github.com/daniel-g-carrasco/scriba/releases/tag/v0.1.7) include the Windows portable ZIP and Linux Flatpak. Extract the entire portable ZIP before opening `Scriba.exe`. The Linux Flatpak uses GNOME Platform 50 with CPU and Vulkan transcription.
 
 Scriba records the microphone and computer sound on separate tracks, or opens an existing audio or video recording. It writes Markdown, plain text and subtitles, and can add subtitles to a copy of a video. Audio and text are processed locally. Network access is used to download speech models and check for updates.
 
@@ -53,7 +53,7 @@ On Windows, launch MSYS2 from PowerShell so its environment is preserved:
 
 ```powershell
 $env:MSYSTEM='UCRT64'
-& C:\msys64\usr\bin\bash.exe -lc 'cd /c/path/to/scriba && ruff check --select F,E9,B . && env -u MSYSTEM python -W default -W ignore::DeprecationWarning:gi.events -m unittest discover -s tests'
+& C:\msys64\usr\bin\bash.exe -lc 'cd /c/path/to/scriba && ruff check --select F,E9,B . && env -u MSYSTEM python -W default -W ignore::DeprecationWarning:gi.events tools/run_tests.py tests'
 ```
 
 Window tests require a display. Optional engine and recording tests need their explicit test variables. Screenshots use invented data:

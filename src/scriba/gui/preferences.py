@@ -14,7 +14,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, Gtk  # noqa: E402
 
 from scriba import APP_ID, APP_NAME, WEBSITE, WINDOWS, __version__  # noqa: E402
-from scriba.app import credits, diagnostics, jobs, models, recording  # noqa: E402
+from scriba.app import config, credits, diagnostics, jobs, models, recording  # noqa: E402
 from scriba.core import terms  # noqa: E402
 from scriba.i18n import _, ngettext  # noqa: E402
 
@@ -213,11 +213,10 @@ class PreferencesDialog(Adw.PreferencesDialog):
 
         if WINDOWS:
             group = Adw.PreferencesGroup(title=_("Updates"))
-            from scriba.app.updates import CHECK_EVERY_HOURS
             updates = Adw.SwitchRow(title=_("Check for updates automatically"),
-                                    subtitle=_("At start-up and when the window is opened again, at most every "
-                                               "{hours} hours, from the project's releases on GitHub; nothing "
-                                               "about you or your files is sent").format(hours=CHECK_EVERY_HOURS),
+                                    subtitle=_("When you open or restore the window, Scriba checks GitHub if the "
+                                               "last successful check was at least {minutes} minutes ago."
+                                               ).format(minutes=config.UPDATE_CHECK_INTERVAL_MINUTES),
                                     active=cfg.check_updates)
             updates.connect("notify::active", lambda r, _p: self._set("check_updates", r.get_active()))
             group.add(updates)

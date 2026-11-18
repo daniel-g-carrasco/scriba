@@ -1,10 +1,12 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """A worker remains owned until its completion callback releases its ticket."""
 
 import unittest
 
-import _setup  # noqa: F401
+import _setup
 
-from scriba.core.activity import Activities
+activity = _setup.shared("core.activity")
+Activities = activity.Activities
 
 
 class ActivitiesTest(unittest.TestCase):
@@ -48,6 +50,10 @@ class ActivitiesTest(unittest.TestCase):
 
         activities.subscribe(failed)
         activities.subscribe(lambda: seen.append(activities.active_count))
-        with self.assertLogs("scriba.core.activity", level="ERROR"):
+        with self.assertLogs(activity.__name__, level="ERROR"):
             activities.finish(activities.acquire())
         self.assertEqual(seen, [1, 0])
+
+
+if __name__ == "__main__":
+    unittest.main()

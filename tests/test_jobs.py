@@ -73,6 +73,28 @@ class StandIns:
 
 
 class ChainTest(unittest.TestCase):
+    def test_reversed_engine_times_are_repaired_before_writing_the_result(self):
+        StandIns(self)
+        transcript = whisper.Transcript([
+            Segment(3.3, 0.5, "Check the time.", avg_logprob=-1.6,
+                    words=((0.1, 0.2), (0.2, 0.3), (0.3, 0.4))),
+            Segment(4.0, 4.5, "Next line."),
+        ], "en", None, None)
+        with mock.patch.object(whisper, "transcribe", return_value=transcript):
+            result = jobs.run(jobs.Request(self.source, self.out))
+
+        line = result.segments[0]
+        self.assertAlmostEqual(line.start, 10.1)
+        self.assertEqual(line.end, line.start)
+        self.assertEqual(line.words, ())
+        self.assertEqual(line.doubts, ("low_confidence", "inconsistent_times"))
+        saved = json.loads(result.session.read_text(encoding="utf-8"))["transcript"]["segments"]
+        self.assertEqual(saved[0]["end"], saved[0]["start"])
+        self.assertEqual(saved[0]["doubts"], list(line.doubts))
+        reopened, _ = jobs.open_session(result.session)
+        self.assertEqual(reopened.segments, result.segments)
+        self.assertEqual(reopened.notes, [])
+
     def test_teams_proposals_survive_reopening_and_only_enter_files_after_save(self):
         named = (("Ada Example", 0.0, 20.0),)
         tracks = (ffmpeg.Track(0, "Microphone", "me"), ffmpeg.Track(1, "Output", "others", named_spans=named))
@@ -381,6 +403,41 @@ class NamesTest(unittest.TestCase):
         Path(next(o.path for o in old.outputs if o.kind == "srt")).unlink()
         with self.assertRaises(Failure):
             jobs.open_session(path)
+
+    def test_a_meeting_with_reversed_times_reopens_with_an_information_note(self):
+        raw = json.loads(self.result.session.read_text(encoding="utf-8"))
+        second = raw["transcript"]["segments"][1]
+        second.update(end=1.0, words=[[1.0, 2.0]])
+        content = json.dumps(raw)
+        self.result.session.write_text(content, encoding="utf-8")
+
+        opened, _ = jobs.open_session(self.result.session)
+
+        self.assertEqual(len(opened.segments), 2)
+        self.assertEqual(opened.segments[0], self.result.segments[0])
+        line = opened.segments[1]
+        self.assertEqual(line.start, second["start"])
+        self.assertEqual(line.end, second["start"])
+        self.assertEqual(line.text, second["text"])
+        self.assertEqual(line.words, ())
+        self.assertEqual(line.doubts, (*second["doubts"], "inconsistent_times"))
+        self.assertEqual(opened.notes, [*raw["transcript"]["notes"], jobs.TIMING_INFORMATION])
+        self.assertTrue(jobs.recording_information(opened.notes[-1]))
+        self.assertEqual(self.result.session.read_text(encoding="utf-8"), content)
+
+    def test_a_saved_segment_with_missing_text_or_invalid_values_is_refused(self):
+        original = self.result.session.read_text(encoding="utf-8")
+        for field, value in (("text", None), ("start", "1.0"), ("end", float("inf")), ("doubts", "quiet")):
+            with self.subTest(field=field):
+                raw = json.loads(original)
+                line = raw["transcript"]["segments"][0]
+                if value is None:
+                    del line[field]
+                else:
+                    line[field] = value
+                self.result.session.write_text(json.dumps(raw), encoding="utf-8")
+                with self.assertRaises(Failure):
+                    jobs.open_session(self.result.session)
 
     def test_all_names_can_be_cleared_in_place(self):
         jobs.save_names(self.result, {"Speaker 1": "Anna"})

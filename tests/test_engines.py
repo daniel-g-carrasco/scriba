@@ -20,14 +20,13 @@ import subprocess
 import sys
 import tempfile
 import threading
-import time
 import unittest
 from pathlib import Path
 
 import _setup
 
 from scriba.app import models
-from scriba.app.engines import diarize, ffmpeg, process, vad, whisper
+from scriba.app.engines import diarize, ffmpeg, vad, whisper
 from scriba.app.task import Cancelled, Failure
 
 MODELS = os.environ.get(models.MODELS_DIR_VARIABLE, "")
@@ -63,27 +62,6 @@ def fixture_ffmpeg() -> str:
 def run_ffmpeg(*args: str) -> None:
     subprocess.run([fixture_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", *args], check=True,
                    stdin=subprocess.DEVNULL)
-
-
-class ProcessTest(unittest.TestCase):
-    def test_the_lines_arrive_from_both_streams_and_the_exit_status_is_kept(self):
-        out, err = [], []
-        code = "import sys; print('one'); print('two'); sys.stderr.write('uno\\r\\ndue\\n'); sys.exit(3)"
-        done = process.run([sys.executable, "-c", code], on_stdout=out.append, on_stderr=err.append)
-        self.assertEqual((out, err, done.returncode), (["one", "two"], ["uno", "due"], 3))
-        self.assertEqual(done.stderr_tail, ["uno", "due"])
-
-    def test_a_cancelled_child_is_stopped_at_once(self):
-        stop = threading.Event()
-        threading.Timer(0.3, stop.set).start()
-        began = time.monotonic()
-        with self.assertRaises(Cancelled):
-            process.run([sys.executable, "-c", "import time; time.sleep(60)"], cancelled=stop)
-        self.assertLess(time.monotonic() - began, 10)
-
-    def test_a_program_that_is_not_there_is_an_os_error(self):
-        with self.assertRaises(OSError):
-            process.run([os.path.join(tempfile.gettempdir(), "no-such-program-here.exe")])
 
 
 class FfmpegTest(unittest.TestCase):

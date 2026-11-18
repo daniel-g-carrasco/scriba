@@ -1,5 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """A newer version, from the GitHub releases (Windows; on Linux the Flatpak
-brings it, from GNOME Software).
+brings it, from the desktop's software centre).
 
 The latest release from GitHub's API, standard library only: by itself at
 start and when the window comes back, at most every CHECK_EVERY_HOURS
@@ -7,9 +8,11 @@ start and when the window comes back, at most every CHECK_EVERY_HOURS
 release's installer, checks it against the SHA-256 GitHub publishes for it
 and against the project's own signature (minisign.py: the CI signs it with
 a key GitHub does not hold, so an installer replaced in the release with
-its digest is still refused), and starts it: Setup asks the running app to
-quit, replaces the files and starts it again. The portable build and a run
-from the sources open the release page.
+its digest is still refused), and starts it (installer_command): Setup
+asks the running app to quit, replaces the files and starts it again. The
+portable build and a run from the sources open the release page. A
+project with no release yet is NoRelease: nothing to update to, not a
+failure.
 
 What an update never does: start an installer that is not the one named
 for the release's own version (an answer that pairs a newer tag with an
@@ -38,8 +41,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from scriba.i18n import _
-
+from ..i18n import _
 from . import minisign
 
 SIGNATURE_SUFFIX = ".minisig"
@@ -51,12 +53,20 @@ INSTALLER_MAX_BYTES = 512 * 2**20
 CHUNK = 256 * 1024
 # a check made by itself, at start or when the window comes back: at most this
 # often. Once a day missed a release published after the morning's check
-# (Daniel, 14/11/2026); GitHub allows 60 requests an hour without a token
+# (14/11/2026); GitHub allows 60 requests an hour without a token
 CHECK_EVERY_HOURS = 4
 
 
 class UpdateError(Exception):
     pass
+
+
+class NoRelease(UpdateError):
+    """GitHub has no release of the project yet (it answers 404 for the
+    latest): nothing to update to, not a failure. A caller that takes every
+    UpdateError as a failure still does (its text is GitHub's answer, as
+    before); one that knows NoRelease says nothing, or says it its way: a
+    check by itself that logs it logs "GitHub answered 404" at every start."""
 
 
 @dataclass(frozen=True)
@@ -67,6 +77,7 @@ class Project:
     exe_name: str           # the Windows executable's name: the User-Agent of the requests
     version: str            # the version running
     public_key: str         # the releases' signing key (minisign), its public half
+    env_prefix: str = ""    # the developer aids' variables start with it (ENV_PREFIX); "": the slug's, "MY_APP"
 
     @property
     def releases_url(self) -> str:
@@ -85,10 +96,20 @@ class Project:
         return f"{self.slug}-update-"
 
     @property
+    def _prefix(self) -> str:
+        return self.env_prefix or self.slug.upper().replace("-", "_")
+
+    @property
     def dev_release_variable(self) -> str:
         """Developer aid: the environment variable naming a release described
         in a local file, to try the dialog without publishing one."""
-        return f"{self.slug.upper().replace('-', '_')}_DEV_RELEASE_API"
+        return f"{self._prefix}_DEV_RELEASE_API"
+
+    @property
+    def dev_downloads_variable(self) -> str:
+        """Developer aid, with dev_release_variable: the prefix the files of
+        that release must have (needed by the frozen build: release_source)."""
+        return f"{self._prefix}_DEV_RELEASE_DOWNLOADS"
 
     def installer_name(self, version: str) -> str:
         return f"{self.slug}-setup-v{version.strip().lstrip('vV')}-windows-x64.exe"
@@ -178,9 +199,9 @@ def is_newer(candidate: str, current: str) -> bool:
 def check_due(last: str, now: datetime.datetime, every_hours: float = CHECK_EVERY_HOURS) -> bool:
     """Whether a check made by itself is due now. `last` is when the last
     one was made, as the settings keep it (check_stamp); a date alone, as
-    0.1.2 and earlier wrote it, counts from that day's midnight. An empty or
-    unreadable value is due, and so is one in the future (a clock put back
-    would otherwise stop the checks until it got there again)."""
+    the once-a-day check wrote it, counts from that day's midnight. An empty
+    or unreadable value is due, and so is one in the future (a clock put
+    back would otherwise stop the checks until it got there again)."""
     try:
         then = datetime.datetime.fromisoformat(last.strip())
     except (AttributeError, TypeError, ValueError):
@@ -202,6 +223,43 @@ def installed_build() -> bool:
             and (Path(sys.executable).parent / "unins000.exe").is_file())
 
 
+def checks_by_itself(platform: str | None = None, frozen: bool | None = None) -> bool:
+    """Whether the checks made by themselves (check_due says when) are for
+    this run: the Windows build only. The Flatpak's updates come from the
+    desktop's software centre, and a run from the sources (the developer's,
+    the tests') asks nobody unless asked."""
+    platform = sys.platform if platform is None else platform
+    frozen = bool(getattr(sys, "frozen", False)) if frozen is None else frozen
+    return platform == "win32" and frozen
+
+
+def distribution_channel(environ=None) -> str:
+    """How this run was delivered: "flatpak", "installed" (Setup),
+    "portable" (the zip) or "source". Never inferred from a release."""
+    environ = os.environ if environ is None else environ
+    if environ.get("FLATPAK_ID") or Path("/.flatpak-info").is_file():
+        return "flatpak"
+    if installed_build():
+        return "installed"
+    if getattr(sys, "frozen", False):
+        return "portable"
+    return "source"
+
+
+def automatic_install_supported() -> bool:
+    """An update can be installed without the user's hands: Setup's build only."""
+    return distribution_channel() == "installed"
+
+
+def automatic_install_allowed(*, enabled: bool, opted_in: bool, channel: str,
+                              signed_installer: bool, dirty: bool) -> bool:
+    """The rule only, for an update installed without asking: the checks on
+    (`enabled`), the user's choice (`opted_in`), Setup's build (`channel`),
+    an installer signed for the release, and no unsaved work (`dirty`). The
+    download must still verify the signature before anything runs."""
+    return enabled and opted_in and channel == "installed" and signed_installer and not dirty
+
+
 def ssl_context():
     """The frozen Windows build ships a CA bundle: MSYS2's OpenSSL does not
     always see the Windows certificate store."""
@@ -216,9 +274,9 @@ def ssl_context():
     return context
 
 
-def _get(project: Project, url: str, timeout: float):
+def _get(project: Project, url: str, timeout: float, *, accept: str = "application/vnd.github+json"):
     request = urllib.request.Request(url, headers={"User-Agent": f"{project.exe_name}/{project.version}",
-                                                   "Accept": "application/vnd.github+json"})
+                                                   "Accept": accept})
     return urllib.request.urlopen(request, timeout=timeout, context=ssl_context())
 
 
@@ -238,19 +296,67 @@ def parse_release(project: Project, data: dict) -> Release:
                    assets)
 
 
+def release_source(project: Project, environ=None, frozen: bool | None = None) -> tuple[str, str]:
+    """Where the latest release is asked, and the prefix its files must
+    have: GitHub's. Developer aid, to try the whole update without
+    publishing a release: project.dev_release_variable names another answer
+    (a local file, a local server); from the sources it is enough, the
+    frozen build also needs project.dev_downloads_variable (the prefix of
+    its files' addresses). Either way the installer must still be signed
+    with the project's key and named for the release's version: these
+    variables change where a file is fetched, never what is trusted."""
+    environ = os.environ if environ is None else environ
+    frozen = bool(getattr(sys, "frozen", False)) if frozen is None else frozen
+    api = environ.get(project.dev_release_variable)
+    downloads = environ.get(project.dev_downloads_variable)
+    if api and (downloads or not frozen):
+        return api, downloads or project.downloads
+    return project.latest_release_api, project.downloads
+
+
+def _latest_web_release(project: Project, timeout: float) -> Release:
+    """Resolve /latest and read the installer's digest from GitHub's asset list."""
+    with _get(project, project.releases_url + "/latest", timeout, accept="text/html") as response:
+        url = response.geturl()
+    match = re.fullmatch(re.escape(project.releases_url) + r"/tag/([vV]?[0-9]+(?:\.[0-9]+){1,3})", url)
+    if match is None:
+        raise UpdateError(_("unexpected answer from GitHub"))
+    tag = match[1]
+    release = Release(tag.lstrip("vV"), url, "")
+    name = project.installer_name(release.version)
+    download = f"{project.downloads}{tag}/{name}"
+    path = download.removeprefix("https://github.com").encode()
+    with _get(project, f"{project.releases_url}/expanded_assets/{tag}", timeout, accept="text/html") as response:
+        listing = response.read(RELEASE_MAX_BYTES + 1)
+    if len(listing) > RELEASE_MAX_BYTES:
+        raise UpdateError(_("unexpected answer from GitHub"))
+    digest, signed = None, False
+    for row in re.finditer(rb"<li\b[^>]*>(.*?)</li>", listing, re.DOTALL):
+        if b'href="' + path + b'"' in row[1]:
+            digest = re.search(rb"sha256:([0-9a-fA-F]{64})(?![0-9a-fA-F])", row[1])
+        if b'href="' + path + SIGNATURE_SUFFIX.encode() + b'"' in row[1]:
+            signed = True
+    if digest is not None and signed:
+        release.assets.append(Asset(name, download, 0, digest[1].decode(), download + SIGNATURE_SUFFIX))
+    return release
+
+
 def latest_release(project: Project, timeout: float = 15.0) -> Release:
-    # developer aid: a release described in a local file, to try the dialog
-    # without publishing one; never in the built app
-    url = project.latest_release_api
-    if not getattr(sys, "frozen", False):
-        url = os.environ.get(project.dev_release_variable) or url
+    url = release_source(project)[0]
     try:
-        with _get(project, url, timeout) as response:
-            raw = response.read(RELEASE_MAX_BYTES + 1)
+        try:
+            with _get(project, url, timeout) as response:
+                raw = response.read(RELEASE_MAX_BYTES + 1)
+        except urllib.error.HTTPError as e:
+            if url == project.latest_release_api and e.code in (403, 429):
+                return _latest_web_release(project, timeout)
+            raise
         if len(raw) > RELEASE_MAX_BYTES:
             raise UpdateError(_("unexpected answer from GitHub"))
         data = json.loads(raw)
     except urllib.error.HTTPError as e:
+        if e.code == 404:
+            raise NoRelease(_("GitHub answered {code}").format(code=e.code)) from None
         raise UpdateError(_("GitHub answered {code}").format(code=e.code)) from None
     except (urllib.error.URLError, OSError, ValueError) as e:
         raise UpdateError(str(getattr(e, "reason", e))) from None
@@ -262,9 +368,10 @@ def installer_of(project: Project, release: Release) -> Asset | None:
     from the project's own releases, with the SHA-256 GitHub gives for it
     and its signature. Else None: the dialog then opens the release page."""
     wanted = project.installer_name(release.version).lower()
+    downloads = release_source(project)[1]
     return next((a for a in release.assets
-                 if project.is_installer(a.name) and a.name.lower() == wanted and a.url.startswith(project.downloads)
-                 and a.sha256 and a.signature_url.startswith(project.downloads)), None)
+                 if project.is_installer(a.name) and a.name.lower() == wanted and a.url.startswith(downloads)
+                 and a.sha256 and a.signature_url.startswith(downloads)), None)
 
 
 def per_user_install() -> bool:
@@ -273,6 +380,20 @@ def per_user_install() -> bool:
     local = os.environ.get("LOCALAPPDATA", "")
     return bool(local) and os.path.normcase(os.path.abspath(sys.executable)).startswith(
         os.path.normcase(os.path.abspath(local)) + os.sep)
+
+
+def installer_command(installer: Path, restart: bool = False) -> list[str]:
+    """Setup as the app starts it: silent but with its progress shown, no
+    restart of Windows, and for this user only when the app is installed
+    for this user (no elevation). `restart`: the app quits as soon as Setup
+    has started, so Setup cannot see it running (its mutex): /RESTARTAPP=1
+    asks Setup to start it again at the end (the app's .iss must read it)."""
+    args = [str(installer), "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART"]
+    if per_user_install():
+        args.append("/CURRENTUSER")
+    if restart:
+        args.append("/RESTARTAPP=1")
+    return args
 
 
 _held: list = []        # the handles of the installers kept open (see hold)

@@ -3,7 +3,9 @@
 All network and process boundaries are replaced; no installer is run.
 """
 
+import datetime
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -14,11 +16,12 @@ _setup.gtk_or_skip()
 import fake_engines  # noqa: E402
 from test_window import TestApp  # noqa: E402
 
-from scriba.app import services, updates  # noqa: E402
+from scriba.app import config, services, updates  # noqa: E402
 from scriba.app.engines import ffmpeg  # noqa: E402
 from scriba.gui import application as app_mod  # noqa: E402
 from scriba.gui.update_dialog import UpdateDialog  # noqa: E402
 from scriba.gui.window import MainWindow  # noqa: E402
+from scriba.i18n import _  # noqa: E402
 
 
 class UpdateWorkTest(unittest.TestCase):
@@ -33,12 +36,90 @@ class UpdateWorkTest(unittest.TestCase):
         self.release = updates.Release("99.0.0", "https://example/release", "Notes", [])
         self.presented, self.notices = [], []
         self.enterContext(mock.patch.object(UpdateDialog, "present", lambda dialog, _parent: self.presented.append(dialog)))
-        self.enterContext(mock.patch.object(UpdateDialog, "close", lambda dialog: dialog._cancel.set()))
+        self.enterContext(mock.patch.object(UpdateDialog, "close", lambda dialog: dialog.emit("closed")))
         self.enterContext(mock.patch.object(self.app, "notify", lambda *args, **kwargs: self.notices.append(args[0])))
         self.enterContext(mock.patch.object(updates, "latest_release", return_value=self.release))
 
     def immediate_check(self):
         return mock.patch.object(app_mod, "run_in_thread", lambda work, done: done(work(), None))
+
+    def test_reopening_the_window_checks_after_thirty_minutes(self):
+        now = datetime.datetime(2026, 11, 18, 9)
+        self.app._update_checks = True
+        checked = updates.latest_release
+        checked.return_value = updates.Release("0.0.1", "", "")
+        with self.immediate_check(), mock.patch.object(app_mod.datetime, "datetime", wraps=datetime.datetime) as clock:
+            clock.now.return_value = now
+            self.window.present()
+            self.assertTrue(_setup.spin(lambda: checked.call_count == 1))
+            for minutes, count in ((29, 1), (31, 2)):
+                self.window.hide()
+                clock.now.return_value = now + datetime.timedelta(minutes=minutes)
+                self.window.present()
+                self.assertTrue(_setup.spin(lambda: not self.app._update_timer))
+                self.assertEqual(checked.call_count, count)
+        self.assertEqual(self.app.cfg.last_update_check, "2026-11-18T09:31:00")
+
+    def test_an_automatic_check_waits_and_only_a_success_updates_the_time(self):
+        self.app._update_checks = True
+        self.app.cfg.last_update_check = "2020-01-01"
+        self.window.record._starting = True
+        callbacks = []
+        with mock.patch.object(app_mod, "run_in_thread", lambda _work, done: callbacks.append(done)):
+            self.app.window_came_back()
+            self.assertTrue(_setup.spin(lambda: not self.app._update_timer))
+            self.assertEqual(callbacks, [])
+            self.assertEqual(self.app.cfg.last_update_check, "2020-01-01")
+            self.window.record._starting = False
+            self.window.page_changed()
+            self.assertEqual(len(callbacks), 1)
+            callbacks.pop()(None, OSError("offline"))
+            self.assertEqual(self.app.cfg.last_update_check, "2020-01-01")
+            self.app.window_came_back()
+            self.assertTrue(_setup.spin(lambda: len(callbacks) == 1))
+            callbacks.pop()(updates.Release("0.0.1", "", ""), None)
+        self.assertGreater(datetime.datetime.fromisoformat(self.app.cfg.last_update_check),
+                           datetime.datetime(2020, 1, 1))
+
+    def test_manual_check_shows_new_release_while_graphics_cards_are_tested(self):
+        with mock.patch.object(self.window.cards, "running", threading.Event()), self.immediate_check():
+            self.app.check_updates(manual=True)
+            updates.latest_release.assert_called_once()
+            self.assertTrue(self.window.update_banner.get_revealed())
+            self.assertEqual(len(self.presented), 1)
+
+    def test_manual_check_shows_new_release_during_preview_playback(self):
+        with mock.patch.object(self.window.result, "media") as preview, self.immediate_check():
+            preview.get_playing.return_value = True
+            self.app.check_updates(manual=True)
+            updates.latest_release.assert_called_once()
+            self.assertEqual(len(self.presented), 1)
+
+    def test_manual_check_shows_new_release_immediately_when_idle(self):
+        with self.immediate_check():
+            self.app.check_updates(manual=True)
+        updates.latest_release.assert_called_once()
+        self.assertTrue(self.window.update_banner.get_revealed())
+        self.assertEqual(len(self.presented), 1)
+
+    def test_manual_check_explains_recording_delay_and_reports_the_fresh_result(self):
+        self.app.cfg.last_update_offered = self.release.version
+        with self.immediate_check(), mock.patch.object(self.window, "toast") as toast:
+            self.app.check_updates(manual=False)
+            self.window.record._starting = True
+            self.window.page_changed()
+            self.app.check_updates(manual=True)
+            updates.latest_release.assert_called_once()
+            toast.assert_called_once_with(_("Scriba will check for updates after recording finishes."))
+            self.assertEqual(self.presented, [])
+
+            fresh_release = updates.Release("99.1.0", "https://example/new-release", "New notes", [])
+            updates.latest_release.return_value = fresh_release
+            self.window.record._starting = False
+            self.window.page_changed()
+            self.assertEqual(updates.latest_release.call_count, 2)
+            self.assertEqual(len(self.presented), 1)
+            self.assertIs(self.presented[0].release, fresh_release)
 
     def test_checks_and_proposals_wait_through_start_pause_finalisation_and_transcription(self):
         with self.immediate_check():
@@ -66,13 +147,15 @@ class UpdateWorkTest(unittest.TestCase):
         self.window.page_changed()
         pending[0](self.release, None)
         self.assertFalse(self.window.update_banner.get_revealed())
+        self.assertEqual(self.presented, [])
         self.assertEqual(self.notices, [])
         self.window.transcribe.job = None
         self.window.page_changed()
         self.assertTrue(self.window.update_banner.get_revealed())
-        self.assertEqual(len(self.notices), 1)
+        self.assertEqual(len(self.presented), 1)
 
-    def test_an_existing_banner_and_notification_click_wait_until_the_work_is_over(self):
+    def test_an_existing_banner_click_waits_until_the_work_is_over(self):
+        self.app.cfg.last_update_offered = self.release.version
         with self.immediate_check():
             self.app.check_updates(manual=False)
         self.assertTrue(self.window.update_banner.get_revealed())
@@ -86,6 +169,7 @@ class UpdateWorkTest(unittest.TestCase):
         self.assertEqual(len(self.presented), 1)
 
     def test_a_manual_request_is_kept_when_an_older_banner_was_deferred(self):
+        self.app.cfg.last_update_offered = self.release.version
         with self.immediate_check():
             self.app.check_updates(manual=False)
             self.window.record._starting = True
@@ -94,6 +178,38 @@ class UpdateWorkTest(unittest.TestCase):
             self.assertEqual(self.presented, [])
             self.window.record._starting = False
             self.window.page_changed()
+        self.assertEqual(len(self.presented), 1)
+
+    def test_later_keeps_the_banner_and_the_same_version_is_not_proposed_again(self):
+        with self.immediate_check(), mock.patch.object(self.app, "save_config", side_effect=lambda: config.save(
+            self.app.cfg, self.app.paths.config_file
+        )):
+            self.app.check_updates(manual=False)
+            self.assertEqual(len(self.presented), 1)
+            self.presented[0].later.emit("clicked")
+            self.assertTrue(self.window.update_banner.get_revealed())
+            # Read back the saved setting as a new process would.
+            self.app.cfg = config.load(self.app.paths.config_file)
+            self.app.check_updates(manual=False)
+            self.assertEqual(len(self.presented), 1)
+            updates.latest_release.return_value = updates.Release("99.1.0", "", "")
+            self.app.check_updates(manual=False)
+            self.assertEqual(len(self.presented), 2)
+            self.assertEqual(self.app.cfg.last_update_offered, "99.1.0")
+
+    def test_the_first_proposal_waits_for_models_and_is_not_repeated_after_recording(self):
+        with mock.patch.object(self.app, "_downloads", mock.Mock(busy=True)), self.immediate_check():
+            self.app.check_updates(manual=False)
+            self.assertEqual(self.presented, [])
+            self.app._downloads.busy = False
+            self.window.page_changed()
+        self.assertEqual(len(self.presented), 1)
+        self.window.record._starting = True
+        self.window.page_changed()
+        self.assertTrue(self.presented[0]._cancel.is_set())
+        self.window.record._starting = False
+        self.window.page_changed()
+        self.assertTrue(self.window.update_banner.get_revealed())
         self.assertEqual(len(self.presented), 1)
 
     def test_a_closed_dialogs_late_verified_callback_updates_the_dialog_reopened_after_work(self):
