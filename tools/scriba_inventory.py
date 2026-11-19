@@ -23,6 +23,20 @@ COMMUNITY = {
 }
 
 
+def package_notice_path(member: str) -> PurePosixPath | None:
+    """Path within the package's notice folder for an owned MSYS2 file."""
+    if member.endswith("/"):
+        return None
+    parts = member.split("/", 5)
+    if len(parts) >= 4 and parts[1:3] == ["share", "licenses"]:
+        return common.relative_path("/".join(parts[3:]))
+    if (len(parts) == 6 and parts[1] == "lib" and parts[2].startswith("python")
+            and parts[3] == "site-packages" and parts[4].endswith(".dist-info")
+            and parts[5].startswith("licenses/")):
+        return common.relative_path("/".join(parts[4:]))
+    return None
+
+
 def seal(bundle: Path, revision: str) -> dict:
     """Keep the input provenance and seal every byte of the final payload."""
     previous = json.loads((bundle / PACKAGES).read_bytes())
@@ -56,7 +70,7 @@ def seal(bundle: Path, revision: str) -> dict:
     for record in previous["packages"]:
         name = record["package"]
         short = name.removeprefix("mingw-w64-ucrt-x86_64-")
-        paths = [f"{LICENSES}{short}/{common.package_notice_path(member)}" for member in record["licence_files"]]
+        paths = [f"{LICENSES}{short}/{package_notice_path(member)}" for member in record["licence_files"]]
         paths += [LICENSES + p for p in record.get("upstream_licence_files", [])]
         key = register("msys2", name, record["version"], paths, base=record["base"], licenses=record["licences"])
         for field, prefix in (("origins", ""), ("module_origins", "module:")):

@@ -45,10 +45,10 @@ from urllib.parse import quote
 
 try:
     import gstplay_receipt
-    from package_inventory import package_notice_path
+    from scriba_inventory import package_notice_path
 except ModuleNotFoundError:
     from tools import gstplay_receipt
-    from tools.package_inventory import package_notice_path
+    from tools.scriba_inventory import package_notice_path
 
 ROOT = Path(__file__).resolve().parent.parent
 PREFIX = Path(sys.prefix)                       # MSYS2: C:/msys64/ucrt64

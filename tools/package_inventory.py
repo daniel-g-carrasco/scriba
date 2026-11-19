@@ -30,20 +30,6 @@ def relative_path(name: str) -> PurePosixPath:
     return path
 
 
-def package_notice_path(member: str) -> PurePosixPath | None:
-    """Path within the package's notice folder for an owned MSYS2 file."""
-    if member.endswith("/"):
-        return None
-    parts = member.split("/", 5)
-    if len(parts) >= 4 and parts[1:3] == ["share", "licenses"]:
-        return relative_path("/".join(parts[3:]))
-    if (len(parts) == 6 and parts[1] == "lib" and parts[2].startswith("python")
-            and parts[3] == "site-packages" and parts[4].endswith(".dist-info")
-            and parts[5].startswith("licenses/")):
-        return relative_path("/".join(parts[4:]))
-    return None
-
-
 def within(path: Path, root: Path) -> str | None:
     try:
         return path.relative_to(root).as_posix()
