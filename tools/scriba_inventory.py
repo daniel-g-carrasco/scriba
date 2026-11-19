@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path, PurePosixPath
 
-import package_inventory as common
+try:
+    import package_inventory as common
+except ModuleNotFoundError:
+    from tools import package_inventory as common
 
 LICENSES = "_internal/licenses/"
 PACKAGES = LICENSES + "PACKAGES.json"
@@ -53,8 +56,7 @@ def seal(bundle: Path, revision: str) -> dict:
     for record in previous["packages"]:
         name = record["package"]
         short = name.removeprefix("mingw-w64-ucrt-x86_64-")
-        paths = [LICENSES + short + "/" + str(PurePosixPath(*PurePosixPath(p).parts[3:]))
-                 for p in record["licence_files"]]
+        paths = [f"{LICENSES}{short}/{common.package_notice_path(member)}" for member in record["licence_files"]]
         paths += [LICENSES + p for p in record.get("upstream_licence_files", [])]
         key = register("msys2", name, record["version"], paths, base=record["base"], licenses=record["licences"])
         for field, prefix in (("origins", ""), ("module_origins", "module:")):

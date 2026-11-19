@@ -348,6 +348,28 @@ class InventoryTest(unittest.TestCase):
         self.assertIn("No package licence files installed", text)
         self.assertNotIn("as its authors' licence allows", text)
 
+    def test_python_package_notice_in_dist_info_is_copied_and_sealed(self):
+        from tools import scriba_inventory
+
+        source = "lib/python3.14/site-packages/example/__init__.py"
+        notice = "example-3.1.3.dist-info/licenses/LICENSE"
+        installed = f"lib/python3.14/site-packages/{notice}"
+        package = self.package("python-example", [source, installed], version="3.1.3-1")
+        self.write(self.prefix / installed, "The original Python package licence")
+        self.pyz.append(("example", str(self.prefix / source), "PYMODULE"))
+        self.build_inventory()
+        self.write(self.root / "LICENSE", "GNU GPL version 3")
+        self.write(self.root / "COPYRIGHT", "Scriba attribution")
+        (self.root / "LICENSES").mkdir()
+        finish.licences(self.internal, prefix=self.prefix, root=self.root, toc_dir=self.tocs)
+        self.write(self.internal / "community-runtime/community-runtime-windows.json", "{}")
+        bundle = self.internal.parent
+        target = f"_internal/licenses/python-example/{notice}"
+        manifest = scriba_inventory.seal(bundle, "a" * 40)
+        self.assertEqual((bundle / target).read_bytes(), (self.prefix / installed).read_bytes())
+        self.assertEqual(manifest["components"][f"msys2:{package}"]["license_files"], [target])
+        self.assertEqual(manifest["issues"], [])
+
     def test_verified_upstream_notices_are_copied_and_bound_to_the_package_version(self):
         source = "lib/python3.14/site-packages/example.py"
         package = self.package("python-example", [source])

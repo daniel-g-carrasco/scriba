@@ -15,7 +15,7 @@ environment variables) from them.
 import sys
 from pathlib import Path
 
-__version__ = "0.1.7"
+__version__ = "0.1.8"
 
 WINDOWS = sys.platform == "win32"
 

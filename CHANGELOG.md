@@ -7,6 +7,8 @@ available from GitHub Releases. Linux Flatpak builds and runtime checks use GNOM
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-11-19
+
 ### Added
 - While making the listening copy, Scriba shows the current track and how
   much audio it has processed.

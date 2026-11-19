@@ -45,8 +45,10 @@ from urllib.parse import quote
 
 try:
     import gstplay_receipt
+    from package_inventory import package_notice_path
 except ModuleNotFoundError:
     from tools import gstplay_receipt
+    from tools.package_inventory import package_notice_path
 
 ROOT = Path(__file__).resolve().parent.parent
 PREFIX = Path(sys.prefix)                       # MSYS2: C:/msys64/ucrt64
@@ -222,9 +224,9 @@ def installed_packages(prefix: Path) -> tuple[dict, dict]:
                           "base": (fields.get("BASE") or [name])[0],
                           "licences": fields.get("LICENSE", []), "url": (fields.get("URL") or [""])[0]}
         members = pacman_fields(folder / "files").get("FILES", [])
-        packages[name]["licence_files"] = [member for member in members if
-                                            member.startswith((prefix.name + "/share/licenses/", "usr/share/licenses/")) and
-                                            not member.endswith("/")]
+        packages[name]["licence_files"] = [member for member in members
+                                            if member.startswith((prefix.name + "/", "usr/"))
+                                            and package_notice_path(member) is not None]
         for member in members:
             if member.endswith("/"):
                 continue
@@ -608,7 +610,7 @@ def licences(internal: Path, *, prefix: Path = PREFIX, root: Path = ROOT, toc_di
         short = package.removeprefix(PACKAGE_PREFIX)
         for member in record["licence_files"]:
             source = prefix.parent / member
-            relative = PurePosixPath(*PurePosixPath(member).parts[3:])
+            relative = package_notice_path(member)
             destination = out / short / Path(relative)
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
@@ -692,6 +694,10 @@ def main(argv=None) -> int:
 
         manifest = seal(bundle, args.inventory_revision)
         print(f"Inventory: {len(manifest['files'])} inputs, {len(manifest['issues'])} unresolved records")
+        for issue in manifest["issues"]:
+            print(f"Inventory: {issue['target']}: {issue['reason']}", file=sys.stderr)
+        if manifest["issues"]:
+            return 1
     weight(bundle)
     for name in missing:
         print(f"MISSING {name}", file=sys.stderr)

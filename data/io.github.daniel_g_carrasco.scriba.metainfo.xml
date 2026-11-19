@@ -50,6 +50,11 @@
   </requires>
 
   <releases>
+    <release version="0.1.8" date="2026-11-19" type="stable">
+      <description>
+        <p>Recording finalization shows its progress. Scriba can detect the end of a Teams meeting, match voices to names and suggest editable meeting titles. Change the listening balance during playback.</p>
+      </description>
+    </release>
     <release version="0.1.7" date="2026-11-18" type="stable">
       <description>
         <p>Scriba checks for updates when its window opens and offers each new version once. Delayed manual checks explain the wait, and meetings with reversed transcript times can reopen.</p>

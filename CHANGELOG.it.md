@@ -1,5 +1,21 @@
 # Novità di Scriba
 
+## [0.1.8] - 2026-11-19
+
+### Aggiunte
+- Durante la creazione della copia da ascoltare, Scriba mostra la traccia in lavorazione e quanto audio ha elaborato.
+- Con il rilevamento di Teams attivo, Scriba può avvisarti quando una riunione rilevata sembra terminata e assegnare i nomi alle voci quando la corrispondenza è univoca.
+- Scriba propone un titolo modificabile da Teams o dalla trascrizione. Le nuove esportazioni usano data e titolo.
+
+### Modifiche
+- Il cursore cambia il bilanciamento mentre ascolti l'anteprima. Il pulsante mantiene la stessa larghezza tra ascolto e arresto.
+
+### Correzioni
+- Le tracce che durano molto più della registrazione vengono limitate nella copia finale. Gli originali sono conservati.
+- Scriba raggruppa gli avvisi sulle tracce silenziate. Apostrofi, e commerciali e parentesi angolari vengono mostrati correttamente.
+- Se manca il tuo nome, puoi inserirlo dalla pagina Risultato quando scegli «La mia voce».
+- L'installer Windows mostra l'icona di Scriba.
+
 ## [0.1.7] - 2026-11-18
 
 ### Modifiche
