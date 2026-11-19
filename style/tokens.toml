@@ -28,6 +28,9 @@ tile = 24               # the outcome's icon beside its title (the Result page):
 record = 32             # the Record and Stop buttons' icons (the Record page): the one big control there
 
 [size]
+update_width = 480
+update_height = 580
+update_content = 440
 meter = 120             # a level meter's width beside a device's name (the Record page)
 
 [line]

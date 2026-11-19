@@ -86,4 +86,13 @@ class PreflightSafetyTest(unittest.TestCase):
         for message in ('UpdateCloseManually', 'UpdateWorkBusy', 'UpdateFilesBusy'):
             self.assertIn('italian.' + message + '=', self.script)
             self.assertIn('english.' + message + '=', self.script)
-        self.assertIn('Check: AppWasRunning', self.script)
+        self.assertIn('Check: ShouldRestartApp', self.script)
+
+    def test_restart_arguments_share_one_setup_action_with_the_older_automatic_restart(self):
+        restart = routine(self.script, 'ShouldRestartApp')
+        self.assertIn('WasRunning or', restart)
+        for switch in ('RESTARTAPP', 'RELAUNCH'):
+            self.assertIn("{param:" + switch + "|0}", restart)
+        run = self.script.split("[Run]", 1)[1].split("[Code]", 1)[0]
+        self.assertEqual(run.count("Check: ShouldRestartApp"), 1)
+        self.assertEqual(run.count("Check: not ShouldRestartApp"), 1)

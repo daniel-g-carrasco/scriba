@@ -14,7 +14,8 @@ import fake_engines  # noqa: E402
 from test_window import TestApp  # noqa: E402
 
 from scriba.app import models  # noqa: E402
-from scriba.gui.preferences import PreferencesDialog, preference_size  # noqa: E402
+from scriba.gui.preferences import PreferencesDialog  # noqa: E402
+from scriba.gui.sizing import preference_size  # noqa: E402
 
 
 class ModelsInterfaceTest(unittest.TestCase):
@@ -132,7 +133,7 @@ class ModelsInterfaceTest(unittest.TestCase):
     def test_preferences_size_has_no_minimum_larger_than_the_available_workarea(self):
         self.assertEqual(preference_size(600, 640, 400, 300), (400, 300))
         self.assertEqual(preference_size(600, 640, 1200, 900), (600, 640))
-        with mock.patch("scriba.gui.preferences._available_size", return_value=(400, 300)):
+        with mock.patch("scriba.gui.preferences.available_size", return_value=(400, 300)):
             dialog = PreferencesDialog(self.window, self.app)
             dialog.present(self.window)
             self.assertTrue(_setup.spin(lambda: dialog.get_root() is not None))

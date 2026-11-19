@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -38,8 +39,9 @@ import threading
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+from urllib.parse import quote
 
 from ..i18n import _
 from . import minisign
@@ -49,6 +51,8 @@ SIGNATURE_MAX_BYTES = 4096
 # what is read at most: GitHub's answer about a release (a few tens of KB),
 # an installer whose size the release does not give
 RELEASE_MAX_BYTES = 2**20
+ITALIAN_NOTES = "release-notes.it.md"
+NOTES_MAX_BYTES = 256 * 1024
 INSTALLER_MAX_BYTES = 512 * 2**20
 CHUNK = 256 * 1024
 # a check made by itself, at start or when the window comes back: at most this
@@ -58,7 +62,13 @@ CHECK_EVERY_HOURS = 4
 
 
 class UpdateError(Exception):
-    pass
+    """An update failure. For latest_release, http_response records whether
+    HTTP headers arrived, even if reading or interpreting the body failed.
+    Other operations and local developer fixtures default to False."""
+
+    def __init__(self, *args, http_response: bool = False):
+        super().__init__(*args)
+        self.http_response = http_response
 
 
 class NoRelease(UpdateError):
@@ -134,6 +144,8 @@ class Release:
     url: str                    # the release's page
     notes: str
     assets: list[Asset] = field(default_factory=list)
+    tag: str = ""
+    notes_in_english: bool = False
 
 
 def notes_sections(notes: str, limit: int = 12) -> list[tuple[str, list[str]]]:
@@ -274,26 +286,32 @@ def ssl_context():
     return context
 
 
-def _get(project: Project, url: str, timeout: float, *, accept: str = "application/vnd.github+json"):
+def _get(project: Project, url: str, timeout: float):
     request = urllib.request.Request(url, headers={"User-Agent": f"{project.exe_name}/{project.version}",
-                                                   "Accept": accept})
+                                                   "Accept": "application/vnd.github+json"})
     return urllib.request.urlopen(request, timeout=timeout, context=ssl_context())
 
 
 def parse_release(project: Project, data: dict) -> Release:
-    tag = str(data.get("tag_name") or "")
-    if not tag:
+    tag = data.get("tag_name") if isinstance(data, dict) else None
+    if not isinstance(tag, str) or not tag.strip():
         raise UpdateError(_("unexpected answer from GitHub"))
     listed = data.get("assets") or []
+    if not isinstance(listed, list) or any(not isinstance(asset, dict) for asset in listed):
+        raise UpdateError(_("unexpected answer from GitHub"))
     signatures = {str(a.get("name") or ""): str(a.get("browser_download_url") or "") for a in listed}
     assets = []
     for a in listed:
         name, digest = str(a.get("name") or ""), str(a.get("digest") or "")
-        assets.append(Asset(name, str(a.get("browser_download_url") or ""), int(a.get("size") or 0),
+        try:
+            size = int(a.get("size") or 0)
+        except (TypeError, ValueError, OverflowError):
+            raise UpdateError(_("unexpected answer from GitHub")) from None
+        assets.append(Asset(name, str(a.get("browser_download_url") or ""), size,
                             digest[7:] if digest.startswith("sha256:") else "",
                             signatures.get(name + SIGNATURE_SUFFIX, "")))
     return Release(tag.lstrip("vV"), str(data.get("html_url") or project.releases_url), str(data.get("body") or ""),
-                   assets)
+                   assets, tag=tag)
 
 
 def release_source(project: Project, environ=None, frozen: bool | None = None) -> tuple[str, str]:
@@ -314,53 +332,62 @@ def release_source(project: Project, environ=None, frozen: bool | None = None) -
     return project.latest_release_api, project.downloads
 
 
-def _latest_web_release(project: Project, timeout: float) -> Release:
-    """Resolve /latest and read the installer's digest from GitHub's asset list."""
-    with _get(project, project.releases_url + "/latest", timeout, accept="text/html") as response:
-        url = response.geturl()
-    match = re.fullmatch(re.escape(project.releases_url) + r"/tag/([vV]?[0-9]+(?:\.[0-9]+){1,3})", url)
-    if match is None:
-        raise UpdateError(_("unexpected answer from GitHub"))
-    tag = match[1]
-    release = Release(tag.lstrip("vV"), url, "")
-    name = project.installer_name(release.version)
-    download = f"{project.downloads}{tag}/{name}"
-    path = download.removeprefix("https://github.com").encode()
-    with _get(project, f"{project.releases_url}/expanded_assets/{tag}", timeout, accept="text/html") as response:
-        listing = response.read(RELEASE_MAX_BYTES + 1)
-    if len(listing) > RELEASE_MAX_BYTES:
-        raise UpdateError(_("unexpected answer from GitHub"))
-    digest, signed = None, False
-    for row in re.finditer(rb"<li\b[^>]*>(.*?)</li>", listing, re.DOTALL):
-        if b'href="' + path + b'"' in row[1]:
-            digest = re.search(rb"sha256:([0-9a-fA-F]{64})(?![0-9a-fA-F])", row[1])
-        if b'href="' + path + SIGNATURE_SUFFIX.encode() + b'"' in row[1]:
-            signed = True
-    if digest is not None and signed:
-        release.assets.append(Asset(name, download, 0, digest[1].decode(), download + SIGNATURE_SUFFIX))
-    return release
-
-
 def latest_release(project: Project, timeout: float = 15.0) -> Release:
     url = release_source(project)[0]
+    http_response = False
     try:
-        try:
-            with _get(project, url, timeout) as response:
-                raw = response.read(RELEASE_MAX_BYTES + 1)
-        except urllib.error.HTTPError as e:
-            if url == project.latest_release_api and e.code in (403, 429):
-                return _latest_web_release(project, timeout)
-            raise
+        response = _get(project, url, timeout)
+        http_response = url.lower().startswith(("https://", "http://"))
+        with response as stream:
+            raw = stream.read(RELEASE_MAX_BYTES + 1)
         if len(raw) > RELEASE_MAX_BYTES:
             raise UpdateError(_("unexpected answer from GitHub"))
-        data = json.loads(raw)
+        return parse_release(project, json.loads(raw))
     except urllib.error.HTTPError as e:
-        if e.code == 404:
-            raise NoRelease(_("GitHub answered {code}").format(code=e.code)) from None
-        raise UpdateError(_("GitHub answered {code}").format(code=e.code)) from None
-    except (urllib.error.URLError, OSError, ValueError) as e:
-        raise UpdateError(str(getattr(e, "reason", e))) from None
-    return parse_release(project, data)
+        error_type = NoRelease if e.code == 404 else UpdateError
+        raise error_type(_("GitHub answered {code}").format(code=e.code), http_response=True) from None
+    except UpdateError as e:
+        e.http_response = http_response
+        raise
+    except (OSError, ValueError, http.client.HTTPException) as e:
+        raise UpdateError(str(getattr(e, "reason", e)), http_response=http_response) from None
+
+
+def with_localized_notes(project: Project, release: Release, language: str, timeout: float = 10.0) -> Release:
+    """Load the Italian asset for this exact release. Call off the UI thread.
+
+    A missing or unusable translation leaves the English release body available.
+    """
+    if re.split(r"[-_]", language.lower(), maxsplit=1)[0] != "it" or not is_newer(release.version, project.version):
+        return release
+    fallback = replace(release, notes_in_english=bool(release.notes))
+    tag = release.tag or f"v{release.version}"
+    allowed = {f"{project.downloads}{quote(tag, safe='')}/{ITALIAN_NOTES}"}
+    downloads = release_source(project)[1]
+    if downloads != project.downloads:
+        allowed.add(f"{downloads.rstrip('/')}/{ITALIAN_NOTES}")
+    matches = [asset for asset in release.assets if asset.name == ITALIAN_NOTES and asset.url in allowed]
+    if len(matches) != 1:
+        return fallback
+    asset = matches[0]
+    if asset.size < 0 or asset.size > NOTES_MAX_BYTES:
+        return fallback
+    try:
+        with _get(project, asset.url, timeout) as response:
+            raw = response.read(NOTES_MAX_BYTES + 1)
+        if len(raw) > NOTES_MAX_BYTES or (asset.size and asset.size != len(raw)):
+            return fallback
+        if asset.sha256 and hashlib.sha256(raw).hexdigest() != asset.sha256.lower():
+            return fallback
+        identity, _, notes = raw.decode("utf-8").partition("\n")
+        if identity.strip() != f"<!-- release-notes: it v{release.version} -->" or not notes_sections(notes):
+            return fallback
+    except urllib.error.HTTPError as error:
+        error.close()
+        return fallback
+    except (OSError, ValueError, http.client.HTTPException):
+        return fallback
+    return replace(release, notes=notes.strip(), notes_in_english=False)
 
 
 def installer_of(project: Project, release: Release) -> Asset | None:

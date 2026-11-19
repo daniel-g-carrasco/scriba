@@ -1,3 +1,4 @@
 {
-  "src/scriba/app/updates.py": "Temporary local GitHub web fallback for API limits. Drop this entry after the change is incorporated into app-template."
+  "tools/collect_sources.py": "Scriba preserves the historical PACKAGES.json command line for signed MSYS2 archives and custom runtimes. Remove the dispatch when every caller uses inventory receipts.",
+  "tools/make_icons.py": "The GTK 4.24 renderer skips prefixed SVG elements. Keep Scriba's validation of all its icon states and the prefixed_elements helper until the model has this check."
 }

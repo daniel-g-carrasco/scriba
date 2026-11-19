@@ -19,8 +19,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y python3-gi gir1.2-glib-2.0 gettext desktop-file-utils appstream python3-numpy python3-scipy python3-sklearn ffmpeg
-          pipx install ruff
-      - run: ruff check --select F,E9,B .
+          pipx install ruff==0.17.5
+      - run: ruff check --config tools/ruff.toml .
+      - run: python3 tools/compile_po.py --check
       - run: python3 tools/compile_po.py
       # warnings as unittest shows them, but PyGObject's on Python 3.14
       # (gi.events, at every run of the main loop: thousands of lines)

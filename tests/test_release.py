@@ -88,7 +88,7 @@ class CompleteReleaseTest(unittest.TestCase):
     install. The step is the same in both workflows and is run here against
     a stand-in for gh."""
 
-    FILES = ("{slug}.flatpak", "{slug}.flatpak.minisig", "{slug}-setup-v1.2.3-windows-x64.exe",
+    FILES = ("release-notes.it.md", "{slug}.flatpak", "{slug}.flatpak.minisig", "{slug}-setup-v1.2.3-windows-x64.exe",
              "{slug}-setup-v1.2.3-windows-x64.exe.minisig", "{slug}-v1.2.3-windows-x64-portable.zip",
              "{slug}-v1.2.3-windows-x64-portable.zip.minisig",
              "{slug}-v1.2.3-windows-x64-sources.tar.xz", "{slug}-v1.2.3-windows-x64-sources.tar.xz.minisig",

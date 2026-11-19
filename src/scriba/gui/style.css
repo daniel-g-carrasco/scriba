@@ -13,5 +13,8 @@
   --icon-tile: 24px;
   --icon-record: 32px;
   --line-hair: 1px;
+  --size-update-width: 480px;
+  --size-update-height: 580px;
+  --size-update-content: 440px;
   --size-meter: 120px;
 }

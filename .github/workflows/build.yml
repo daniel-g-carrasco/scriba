@@ -157,14 +157,14 @@ jobs:
           # the notes are the version's section of CHANGELOG.md: the release
           # page says what changed, and the update window on Windows shows it
           # (GitHub's generated notes are one line with a link)
-          python3 tools/release_notes.py "${GITHUB_REF_NAME#v}" > release-notes.md
+          python3 tools/release_notes.py "${GITHUB_REF_NAME#v}" --italian-output release-notes.it.md > release-notes.md
           gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 ||
             gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --draft \
               --title "Scriba ${GITHUB_REF_NAME#v}" --notes-file release-notes.md
           gh release edit "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --notes-file release-notes.md
           gh release upload "${GITHUB_REF_NAME}" scriba.flatpak scriba.flatpak.minisig \
             "scriba-${GITHUB_REF_NAME}-linux-x86_64-sources.tar.xz" \
-            "scriba-${GITHUB_REF_NAME}-linux-x86_64-sources.tar.xz.minisig" \
+            "scriba-${GITHUB_REF_NAME}-linux-x86_64-sources.tar.xz.minisig" release-notes.it.md \
             --repo "${GITHUB_REPOSITORY}" --clobber
       - name: Published when every file is there
         # release-complete: the same step, word for word, in build.yml and in
@@ -179,7 +179,7 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           names="$(gh release view "$tag" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')"
           missing=""
-          for wanted in "scriba.flatpak" "scriba.flatpak.minisig" \
+          for wanted in "scriba.flatpak" "scriba.flatpak.minisig" "release-notes.it.md" \
                         "scriba-setup-${tag}-windows-x64.exe" "scriba-setup-${tag}-windows-x64.exe.minisig" \
                         "scriba-${tag}-windows-x64-portable.zip" "scriba-${tag}-windows-x64-portable.zip.minisig" \
                         "scriba-${tag}-windows-x64-sources.tar.xz" "scriba-${tag}-windows-x64-sources.tar.xz.minisig" \

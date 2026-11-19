@@ -55,3 +55,19 @@ class CaptureTest(unittest.TestCase):
         teams.follow(told, stop, every=0.001, opener=lambda: reader)
         self.assertEqual([r.state for r in readings], ["unavailable", "ready"])
         self.assertTrue(reader.closed)
+
+    def test_end_requires_a_seen_meeting_and_six_consecutive_absences(self):
+        states = (["no-meeting"] * 6 + ["ready"] + ["no-meeting"] * 5 + ["unavailable", "minimized"]
+                  + ["no-meeting"] * 8)
+        replies = iter(teams.Reading(state) for state in states)
+        reader = Mock()
+        reader.read.side_effect = replies
+        stop, seen = threading.Event(), []
+
+        def told(reading):
+            seen.append(reading.state)
+            if len(seen) == len(states):
+                stop.set()
+
+        teams.follow(told, stop, every=0.001, opener=lambda: reader)
+        self.assertEqual([i for i, state in enumerate(seen) if state == "ended"], [19])

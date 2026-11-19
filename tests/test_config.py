@@ -98,7 +98,7 @@ class ConfigTest(unittest.TestCase):
             self.assertEqual([n.kind for n in cfg.notices], ["newer"])
             save(cfg, path)
             data = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual((data["brand_new"], data["version"]), (True, config.CONFIG_VERSION))
+            self.assertEqual((data["brand_new"], data["version"]), (True, 7))
             # an older format goes through the migration steps, one by one
             path.write_text(json.dumps({"version": 0, "old_theme": "dark"}), encoding="utf-8")
             with mock.patch.dict(config.MIGRATIONS, {0: lambda d: {**d, "theme": d.pop("old_theme")}}):
@@ -107,6 +107,25 @@ class ConfigTest(unittest.TestCase):
             self.assertEqual(cfg.notices, [])
             path.write_text(json.dumps({"version": 0}), encoding="utf-8")
             self.assertEqual(load(path).notices[0].kind, "recovered")   # no step for it: as damaged
+
+    def test_two_loaded_components_keep_each_others_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            path.write_text('{"version": 1, "theme": "dark", "unknown": {"v": 1}}', encoding="utf-8")
+            window = load(path)
+            updater = load(path)
+            window.theme = "light"
+            save(window, path)
+            updater.last_update_offered = "9.0.0"
+            save(updater, path)
+            updater.last_update_check = "2026-11-18T10:00:00"
+            save(updater, path)
+            final = load(path)
+            self.assertEqual(final.theme, "light")
+            self.assertEqual(final.last_update_offered, "9.0.0")
+            self.assertEqual(final.last_update_check, "2026-11-18T10:00:00")
+            self.assertEqual(final.extra, {"unknown": {"v": 1}})
+            self.assertEqual(final.diarization_backend, "auto")
 
     def test_no_secret_is_ever_saved(self):
         self.assertNotIn("password", json.dumps(Config().to_json()).lower())

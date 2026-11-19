@@ -136,7 +136,7 @@ for dist in ('numpy', 'scipy', 'scikit-learn', 'joblib', 'threadpoolctl', 'PyGOb
 # elements are coreelements', wavparse is there already.
 GST_PLUGINS = [
     'coreelements', 'wasapi2', 'audioconvert', 'audioresample', 'audiorate', 'level', 'flac',
-    'playback', 'typefindfunctions', 'autodetect', 'volume', 'gio', 'audiofx',
+    'playback', 'typefindfunctions', 'autodetect', 'volume', 'gio', 'audiofx', 'app',
     'isomp4', 'matroska', 'wavparse', 'audioparsers', 'ogg',
     'mpg123', 'opus', 'vorbis', 'mediafoundation',
     'd3d11', 'd3d12', 'videoparsersbad', 'videoconvertscale',
@@ -159,7 +159,13 @@ a = Analysis(
     },
     # not numpy.f2py: scipy's array API layer copies every name of numpy,
     # f2py's too, and without it the voices fail at their first import
-    excludes=['tkinter', 'pytest', 'IPython', 'matplotlib', 'pandas', 'PIL', 'sympy', 'torch', 'torchaudio', 'torchcodec', 'pyannote', 'huggingface_hub',
+    # Numerical and GI test suites are development fixtures. Keep runtime helpers
+    # such as numpy.f2py and any numerical backend selected by the app.
+    excludes=['numpy.tests', 'scipy.tests', 'sklearn.tests', 'joblib.test',
+              'numpy._core.tests', 'numpy.linalg.tests', 'numpy.random.tests',
+              'scipy.sparse.tests', 'scipy.cluster.tests', 'scipy.linalg.tests',
+              'sklearn.cluster.tests', 'sklearn.utils.tests',
+              'tkinter', 'pytest', 'IPython', 'matplotlib', 'pandas', 'PIL', 'sympy', 'torch', 'torchaudio', 'torchcodec', 'pyannote', 'huggingface_hub',
               'scipy._lib.array_api_compat.torch', 'sklearn.externals.array_api_compat.torch'],
 )
 

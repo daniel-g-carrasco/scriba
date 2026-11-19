@@ -27,6 +27,7 @@ from scriba.app.log import complain  # noqa: E402
 from scriba.app.paths import in_flatpak  # noqa: E402
 from scriba.i18n import _  # noqa: E402
 
+from .secondaries import present_secondary, watch_dialog  # noqa: E402
 from .ui import activities, load_style, run_in_thread  # noqa: E402
 from .preferences import PreferencesDialog, about_dialog  # noqa: E402
 from .window import MainWindow  # noqa: E402
@@ -195,6 +196,7 @@ def native_windows(cache: Path) -> Callable[[], None]:
             window = model.get_item(i)
             window.connect("map", native)
             window.add_css_class("system-titlebar")     # the hairline under the title bar (gui/app.css)
+            watch_dialog(window, Adw, winquirks.hwnd_of)
             winquirks.watch(window)     # GTK 4.24's restore and popover quirks (see winquirks.py)
 
     toplevels = Gtk.Window.get_toplevels()
@@ -269,7 +271,7 @@ class App(Adw.Application):
         for name, handler in (("quit", self.request_quit),
                               ("about", lambda: about_dialog(self._window(), self.cfg, self.paths)),
                               ("models", lambda: self._window().show_models()),
-                              ("preferences", lambda: PreferencesDialog(self._window(), self).present(self._window())),
+                              ("preferences", lambda: present_secondary(PreferencesDialog(self._window(), self), self._window())),
                               ("check-updates", lambda: self.check_updates(manual=True)),
                               ("error-log", lambda: self._window().show_error_log())):
             action = Gio.SimpleAction.new(name, None)
@@ -647,7 +649,11 @@ class App(Adw.Application):
                 return
             self._offer_update(release, bool(requested))
 
-        run_in_thread(lambda: updates.latest_release(project), done)
+        from scriba.app import update_release
+
+        language = i18n.language()
+        run_in_thread(lambda: updates.with_localized_notes(
+            project, update_release.latest_release(project), language), done)
 
     def _show_update_check_delay(self) -> None:
         window = self._window()
@@ -766,7 +772,7 @@ class App(Adw.Application):
         self._update_dialog = dialog
         self._update_dialog_automatic = automatic
         dialog.connect("closed", lambda *_: self._update_closed(dialog))
-        dialog.present(window)
+        present_secondary(dialog, window)
         if self.cfg.last_update_offered != release.version:
             self.cfg.last_update_offered = release.version
             self.save_config()

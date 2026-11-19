@@ -93,6 +93,9 @@ msgid "{app} {version} Is Available"
 msgstr "È disponibile {app} {version}"
 
 #: src/scriba/gui/update_dialog.py:85
+msgid "Release notes in English"
+msgstr "Note di rilascio in inglese"
+
 msgid "What Is New"
 msgstr "Novità"
 
@@ -385,8 +388,8 @@ msgid "Speech to text, precise and slower (whisper large-v3)"
 msgstr "Dal parlato al testo, preciso e più lento (whisper large-v3)"
 
 #: src/scriba/app/models.py
-msgid "Finds where somebody speaks (Silero)"
-msgstr "Trova dove qualcuno parla (Silero)"
+#~ msgid "Finds where somebody speaks (Silero)"
+#~ msgstr "Trova dove qualcuno parla (Silero)"
 
 #: src/scriba/app/models.py
 msgid "Tells the voices apart (WeSpeaker)"
@@ -792,8 +795,8 @@ msgid "One recording at a time: {name} is open."
 msgstr "Una registrazione alla volta: è aperta {name}."
 
 #: src/scriba/gui/models_page.py
-msgid "Download the Speech Models"
-msgstr "Scarica i modelli di trascrizione"
+#~ msgid "Download the Speech Models"
+#~ msgstr "Scarica i modelli di trascrizione"
 
 #: src/scriba/gui/models_page.py src/scriba/gui/preferences.py
 msgid "Download"
@@ -801,8 +804,8 @@ msgstr "Scarica"
 
 #: src/scriba/gui/models_page.py
 #, python-brace-format
-msgid "{size}, from {site}, licence {licence}"
-msgstr "{size}, da {site}, licenza {licence}"
+#~ msgid "{size}, from {site}, licence {licence}"
+#~ msgstr "{size}, da {site}, licenza {licence}"
 
 #: src/scriba/gui/models_page.py
 msgid "Downloaded"
@@ -810,8 +813,8 @@ msgstr "Scaricato"
 
 #: src/scriba/gui/models_page.py
 #, python-brace-format
-msgid "Scriba works on this computer and sends nothing anywhere. To understand speech it needs these models: {size} to download once, from their authors' own pages, each checked before it is used."
-msgstr "Scriba lavora su questo computer e non invia nulla a nessuno. Per capire il parlato servono questi modelli: {size} da scaricare una volta sola, dalle pagine dei loro autori, ciascuno controllato prima dell'uso."
+#~ msgid "Scriba works on this computer and sends nothing anywhere. To understand speech it needs these models: {size} to download once, from their authors' own pages, each checked before it is used."
+#~ msgstr "Scriba lavora su questo computer e non invia nulla a nessuno. Per capire il parlato servono questi modelli: {size} da scaricare una volta sola, dalle pagine dei loro autori, ciascuno controllato prima dell'uso."
 
 #: src/scriba/gui/models_page.py
 #, python-brace-format
@@ -823,13 +826,13 @@ msgid "Stopping…"
 msgstr "Interruzione…"
 
 #: src/scriba/gui/models_page.py
-msgid "Download cancelled: what arrived is kept, and the next download goes on from there."
-msgstr "Download annullato: ciò che è arrivato resta, e il prossimo download riparte da lì."
+#~ msgid "Download cancelled: what arrived is kept, and the next download goes on from there."
+#~ msgstr "Download annullato: ciò che è arrivato resta, e il prossimo download riparte da lì."
 
 #: src/scriba/gui/models_page.py
 #, python-brace-format
-msgid "The download failed: {error}"
-msgstr "Il download non è riuscito: {error}"
+#~ msgid "The download failed: {error}"
+#~ msgstr "Il download non è riuscito: {error}"
 
 #: src/scriba/gui/models_page.py
 msgid "Try Again"
@@ -856,8 +859,8 @@ msgid "Precise, slower"
 msgstr "Precisa, più lenta"
 
 #: src/scriba/gui/preferences.py
-msgid "Precise Model"
-msgstr "Modello preciso"
+#~ msgid "Precise Model"
+#~ msgstr "Modello preciso"
 
 #: src/scriba/gui/preferences.py
 msgid "Usual Folder for the Files"
@@ -918,18 +921,18 @@ msgid "Automatic uses the fastest in the test: {now}"
 msgstr "Automatica usa la più veloce nella prova: {now}"
 
 #: src/scriba/gui/preferences.py
-msgid "Downloaded: “Precise” can be chosen for a transcription"
-msgstr "Scaricato: per una trascrizione si può scegliere «Precisa»"
+#~ msgid "Downloaded: “Precise” can be chosen for a transcription"
+#~ msgstr "Scaricato: per una trascrizione si può scegliere «Precisa»"
 
 #: src/scriba/gui/preferences.py
 #, python-brace-format
-msgid "Not downloaded: {size}, from Hugging Face"
-msgstr "Non scaricato: {size}, da Hugging Face"
+#~ msgid "Not downloaded: {size}, from Hugging Face"
+#~ msgstr "Non scaricato: {size}, da Hugging Face"
 
 #: src/scriba/gui/preferences.py
 #, python-brace-format
-msgid "Downloading: {percent} %"
-msgstr "Download: {percent} %"
+#~ msgid "Downloading: {percent} %"
+#~ msgstr "Download: {percent} %"
 
 #: src/scriba/gui/preferences.py
 msgid "Next to the recording (the documents folder for a recording on a server)"
@@ -1114,8 +1117,8 @@ msgid "How Many People"
 msgstr "Quante persone"
 
 #: src/scriba/gui/transcribe.py
-msgid "Counted by the App"
-msgstr "Le conta l'app"
+#~ msgid "Counted by the App"
+#~ msgstr "Le conta l'app"
 
 #: src/scriba/gui/transcribe.py
 msgid "If you know how many, the voices come out better"
@@ -1134,8 +1137,8 @@ msgid "Terms and Names"
 msgstr "Termini e nomi"
 
 #: src/scriba/gui/transcribe.py
-msgid "Names, acronyms and words of the trade to be written right, separated by commas: the client, the project's code, the people in the call."
-msgstr "Nomi, sigle e parole del mestiere da scrivere giusti, separati da virgole: il cliente, il codice del progetto, le persone della call."
+#~ msgid "Names, acronyms and words of the trade to be written right, separated by commas: the client, the project's code, the people in the call."
+#~ msgstr "Nomi, sigle e parole del mestiere da scrivere giusti, separati da virgole: il cliente, il codice del progetto, le persone della call."
 
 #: src/scriba/gui/transcribe.py
 msgid "Terms, separated by commas"
@@ -1259,36 +1262,36 @@ msgid "Only a file on this computer can be transcribed."
 msgstr "Si può trascrivere solo un file che sta su questo computer."
 
 #: src/scriba/gui/window.py
-msgid "Open a Recording…"
-msgstr "Apri una registrazione…"
+#~ msgid "Open a Recording…"
+#~ msgstr "Apri una registrazione…"
 
 #: src/scriba/gui/window.py
 msgid "Open a Recording"
 msgstr "Apri una registrazione"
 
 #: src/scriba/gui/window.py
-msgid "Audio and video"
-msgstr "Audio e video"
+#~ msgid "Audio and video"
+#~ msgstr "Audio e video"
 
 #: src/scriba/gui/window.py
 msgid "All files"
 msgstr "Tutti i file"
 
 #: src/scriba/gui/window.py
-msgid "Stop the Transcription?"
-msgstr "Fermare la trascrizione?"
+#~ msgid "Stop the Transcription?"
+#~ msgstr "Fermare la trascrizione?"
 
 #: src/scriba/gui/window.py
-msgid "The work done so far is lost, and no file is written."
-msgstr "Il lavoro fatto finora va perso, e nessun file viene scritto."
+#~ msgid "The work done so far is lost, and no file is written."
+#~ msgstr "Il lavoro fatto finora va perso, e nessun file viene scritto."
 
 #: src/scriba/gui/window.py
 msgid "Keep Working"
 msgstr "Continua"
 
 #: src/scriba/gui/window.py
-msgid "Stop and Close"
-msgstr "Ferma e chiudi"
+#~ msgid "Stop and Close"
+#~ msgstr "Ferma e chiudi"
 
 #: src/scriba/app/engines/ffmpeg.py
 msgid "ffmpeg could not measure the loudness of {name}."
@@ -1299,8 +1302,8 @@ msgid "together"
 msgstr "insieme"
 
 #: src/scriba/app/recorder.py
-msgid "The sound devices cannot be listed."
-msgstr "Non si riesce a elencare i dispositivi audio."
+#~ msgid "The sound devices cannot be listed."
+#~ msgstr "Non si riesce a elencare i dispositivi audio."
 
 #: src/scriba/app/recorder.py
 msgid "The disk is almost full: the recording was stopped and its files closed."
@@ -1503,16 +1506,16 @@ msgid "Recording Is Not Possible Here"
 msgstr "Qui non si può registrare"
 
 #: src/scriba/gui/record.py
-msgid "Closing the Files…"
-msgstr "Chiusura dei file…"
+#~ msgid "Closing the Files…"
+#~ msgstr "Chiusura dei file…"
 
 #: src/scriba/gui/record.py
 msgid "What Is Recorded"
 msgstr "Cosa si registra"
 
 #: src/scriba/gui/record.py
-msgid "Tracks"
-msgstr "Tracce"
+#~ msgid "Tracks"
+#~ msgstr "Tracce"
 
 #: src/scriba/gui/record.py
 msgid "Open the Folder"
@@ -1555,8 +1558,8 @@ msgid "Every output is recorded, and the silent ones are left out at the end."
 msgstr "Si registrano tutte le uscite, e alla fine si lasciano fuori quelle mute."
 
 #: src/scriba/gui/record.py
-msgid "The tracks are joined in one file and the mix to listen to is made."
-msgstr "Le tracce vengono unite in un file solo e si prepara il file da ascoltare."
+#~ msgid "The tracks are joined in one file and the mix to listen to is made."
+#~ msgstr "Le tracce vengono unite in un file solo e si prepara il file da ascoltare."
 
 #: src/scriba/gui/record.py
 msgid "Your voice from the microphone and the others' from the computer, on separate tracks."
@@ -1591,8 +1594,8 @@ msgid "The recording stopped at {time}: {detail}"
 msgstr "La registrazione si è fermata alle {time}: {detail}"
 
 #: src/scriba/gui/record.py
-msgid "Automatic: every output"
-msgstr "Automatico: tutte le uscite"
+#~ msgid "Automatic: every output"
+#~ msgstr "Automatico: tutte le uscite"
 
 #: src/scriba/gui/record.py
 msgid "room on the disk for about {minutes} minutes"
@@ -1635,16 +1638,16 @@ msgid "its level shows once a program uses it: opening it would switch the heads
 msgstr "il livello si vede quando un programma lo usa: aprirlo adesso metterebbe le cuffie in qualità telefonica"
 
 #: src/scriba/gui/record.py
-msgid "Automatic: every output; the call is on {device}, {why}"
-msgstr "Automatico: tutte le uscite; la call è su {device}, {why}"
+#~ msgid "Automatic: every output; the call is on {device}, {why}"
+#~ msgstr "Automatico: tutte le uscite; la call è su {device}, {why}"
 
 #: src/scriba/gui/record.py
-msgid "Automatic: {device}, {why}"
-msgstr "Automatico: {device}, {why}"
+#~ msgid "Automatic: {device}, {why}"
+#~ msgstr "Automatico: {device}, {why}"
 
 #: src/scriba/gui/record.py
-msgid "{device}, chosen by hand"
-msgstr "{device}, scelto a mano"
+#~ msgid "{device}, chosen by hand"
+#~ msgstr "{device}, scelto a mano"
 
 #: src/scriba/gui/result.py
 msgid "Me"
@@ -1659,16 +1662,16 @@ msgid "{n} tracks"
 msgstr "{n} tracce"
 
 #: src/scriba/gui/window.py
-msgid "Keep Recording"
-msgstr "Continua a registrare"
+#~ msgid "Keep Recording"
+#~ msgstr "Continua a registrare"
 
 #: src/scriba/gui/window.py
-msgid "Stop the Recording?"
-msgstr "Fermare la registrazione?"
+#~ msgid "Stop the Recording?"
+#~ msgstr "Fermare la registrazione?"
 
 #: src/scriba/gui/window.py
-msgid "What was recorded so far is kept: the files are closed properly before the window goes."
-msgstr "Quello che è stato registrato finora resta: i file vengono chiusi per bene prima che la finestra si chiuda."
+#~ msgid "What was recorded so far is kept: the files are closed properly before the window goes."
+#~ msgstr "Quello che è stato registrato finora resta: i file vengono chiusi per bene prima che la finestra si chiuda."
 
 #: src/scriba/gui/window.py
 msgid "Recorded in {path}: open it once the transcription in progress is done."
@@ -1725,8 +1728,8 @@ msgid "Not tested yet."
 msgstr "Non ancora provate."
 
 #: src/scriba/gui/preferences.py
-msgid "A transcription is in progress: the test waits for its end."
-msgstr "C'è una trascrizione in corso: la prova aspetta che finisca."
+#~ msgid "A transcription is in progress: the test waits for its end."
+#~ msgstr "C'è una trascrizione in corso: la prova aspetta che finisca."
 
 #: src/scriba/cli.py
 msgid "record the microphone and the computer's sound"
@@ -2136,12 +2139,16 @@ msgid "From {time} the computer's sound is recorded again."
 msgstr "Dalle {time} l'audio del computer è di nuovo registrato."
 
 #, python-brace-format
-msgid "{track}: switched off in Scriba from {start} to {end}, silence on its track."
-msgstr "{track}: spento in Scriba da {start} a {end}, silenzio sulla sua traccia."
+msgid "from {start} to {end}"
+msgstr "da {start} a {end}"
 
 #, python-brace-format
-msgid "{track}: switched off in Scriba from {start} to the end, silence on its track."
-msgstr "{track}: spento in Scriba da {start} alla fine, silenzio sulla sua traccia."
+msgid "from {start} to the end"
+msgstr "da {start} alla fine"
+
+#, python-brace-format
+msgid "{track}: switched off in Scriba {intervals}. There is silence on its track during these intervals."
+msgstr "{track}: spento in Scriba {intervals}. In questi intervalli la sua traccia è silenziosa."
 
 msgid "People Speaking"
 msgstr "Persone che parlano"
@@ -2205,12 +2212,8 @@ msgid "The microphone hears the computer's sound: with earphones the transcript 
 msgstr "Il microfono sente l'audio del computer: con le cuffie la trascrizione viene meglio. Scriba toglierà quell'audio dalla tua traccia."
 
 #, python-brace-format
-msgid "{track}: muted in the call from {start} to {end}; what the microphone heard there stays in the recording but not in the transcript."
-msgstr "{track}: in silenzio nella chiamata da {start} a {end}; ciò che il microfono ha sentito lì resta nella registrazione ma non nella trascrizione."
-
-#, python-brace-format
-msgid "{track}: muted in the call from {start} to the end; what the microphone heard there stays in the recording but not in the transcript."
-msgstr "{track}: in silenzio nella chiamata da {start} alla fine; ciò che il microfono ha sentito lì resta nella registrazione ma non nella trascrizione."
+msgid "{track}: muted in the call {intervals}. What the microphone heard there stays in the recording but not in the transcript."
+msgstr "{track}: in silenzio nella chiamata {intervals}. Ciò che il microfono ha sentito lì resta nella registrazione ma non nella trascrizione."
 
 #, python-brace-format
 msgid "{time} of speech on your microphone fell where you were muted in the call: it was not transcribed, and its sound stays in the recording."
@@ -2414,3 +2417,39 @@ msgstr "Scriba controllerà gli aggiornamenti al termine dello scaricamento dei 
 #: src/scriba/gui/application.py
 msgid "Scriba will check for updates after saving the result."
 msgstr "Scriba controllerà gli aggiornamenti dopo aver salvato il risultato."
+
+msgid "At start-up and when the window is opened again, at most every {hours} hours, from the project's releases on GitHub; nothing about you or your files is sent"
+msgstr "All'avvio e quando riapri la finestra, al massimo ogni {hours} ore. Scriba consulta le versioni su GitHub senza inviare dati su di te o sui tuoi file."
+
+msgid "Click to see what is new and update."
+msgstr "Fai clic per vedere le novità e aggiornare."
+
+msgid "Finish the current work before installing the update."
+msgstr "Termina il lavoro in corso prima di installare l'aggiornamento."
+
+msgid "The unusually long track could not be shortened."
+msgstr "Impossibile accorciare la traccia fuori durata."
+
+msgid "{track}: longer than the recording. The copy was shortened and the original track was kept."
+msgstr "{track}: più lunga della registrazione. La copia è stata accorciata e la traccia originale è stata conservata."
+
+msgid "Track {n} of {total}"
+msgstr "Traccia {n} di {total}"
+
+msgid "Writing the listening copy"
+msgstr "Scrittura della copia da ascoltare"
+
+msgid "The Teams meeting appears to have ended. Scriba is still recording."
+msgstr "La riunione di Teams sembra conclusa. Scriba sta ancora registrando."
+
+msgid "Meeting Title"
+msgstr "Titolo della riunione"
+
+msgid "Save Title"
+msgstr "Salva titolo"
+
+msgid "Enter your name to label this voice and save it in Preferences."
+msgstr "Inserisci il tuo nome per assegnarlo a questa voce e salvarlo nelle preferenze."
+
+msgid "Save Name"
+msgstr "Salva nome"

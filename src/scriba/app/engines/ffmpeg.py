@@ -23,6 +23,8 @@ from __future__ import annotations
 import json
 import os
 import threading
+from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -67,6 +69,7 @@ class Media:
     video: bool             # a picture that moves (cover art does not count)
     subtitle_tracks: int
     tracks: tuple[Track, ...] = ()      # the sound tracks, in order
+    meeting_title: str = ""
 
     @property
     def roles(self) -> tuple[Track, ...]:
@@ -123,9 +126,10 @@ def parse_probe(text: str) -> Media:
     :stream_disposition=attached_pic) says about the file."""
     data = json.loads(text or "{}")
     streams = data.get("streams") or []
+    container = data.get("format") or {}
     kinds = [(s.get("codec_type"), (s.get("disposition") or {}).get("attached_pic", 0)) for s in streams]
     try:
-        duration = float((data.get("format") or {}).get("duration") or 0.0)
+        duration = float(container.get("duration") or 0.0)
     except ValueError:
         duration = 0.0
     tracks = []
@@ -140,7 +144,9 @@ def parse_probe(text: str) -> Media:
                             spans.read_spans(tags.get(NAMED_TAG))))
     return Media(duration=duration, sound_tracks=len(tracks),
                  video=any(k == "video" and not p for k, p in kinds),
-                 subtitle_tracks=sum(1 for k, _p in kinds if k == "subtitle"), tracks=tuple(tracks))
+                 subtitle_tracks=sum(1 for k, _p in kinds if k == "subtitle"), tracks=tuple(tracks),
+                 meeting_title=next((v for k, v in (container.get("tags") or {}).items()
+                                     if k.upper() == "SCRIBA_MEETING_TITLE" and isinstance(v, str)), ""))
 
 
 def probe(source: str | os.PathLike, cancelled: threading.Event | None = None) -> Media:
@@ -148,7 +154,8 @@ def probe(source: str | os.PathLike, cancelled: threading.Event | None = None) -
     lines: list[str] = []
     try:
         done = process.run([str(_need("ffprobe")), "-v", "error", "-show_entries",
-                            "format=duration:stream=codec_type:stream_disposition=attached_pic:stream_tags", "-of", "json",
+                            "format=duration:format_tags:stream=codec_type:stream_disposition=attached_pic:stream_tags",
+                            "-of", "json",
                             os.fspath(source)], on_stdout=lines.append, cancelled=cancelled)
     except OSError as e:
         raise Failure(_("ffprobe could not be started."), str(e)) from e
@@ -210,24 +217,32 @@ def decode(source: str | os.PathLike, dest: str | os.PathLike, duration: float =
 
 def loudness_arguments(ffmpeg: str, source: str, stream: int = 0) -> list[str]:
     """EBU R128's measure (ebur128, the true peak too): nothing written."""
-    return [ffmpeg, "-nostdin", "-hide_banner", "-nostats", "-i", source, "-map", f"0:a:{stream}", "-vn",
+    return [ffmpeg, "-nostdin", "-hide_banner", "-nostats", "-progress", "pipe:1", "-i", source, "-map", f"0:a:{stream}", "-vn",
             "-af", "ebur128=peak=true", "-f", "null", "-"]
 
 
 def measure_loudness(source: str | os.PathLike, stream: int = 0,
-                     cancelled: threading.Event | None = None) -> loudness.Loudness:
+                     cancelled: threading.Event | None = None,
+                     on_seconds: Callable[[float], None] | None = None) -> loudness.Loudness:
     """How loud the sound track `stream` of `source` is (EBU R128, at the
     file's own rate). Failure when ffmpeg cannot measure it."""
-    lines: list[str] = []
+    lines: deque[str] = deque(maxlen=40)
+
+    def heard(line: str) -> None:
+        reached = progress_seconds(line)
+        if reached is not None and on_seconds is not None:
+            on_seconds(reached)
+
     try:
         done = process.run(loudness_arguments(str(_need("ffmpeg")), os.fspath(source), stream),
+                           on_stdout=heard if on_seconds is not None else None,
                            on_stderr=lines.append, cancelled=cancelled)
     except OSError as e:
         raise Failure(_("ffmpeg could not be started."), str(e)) from e
     try:
         if done.returncode != 0:
             raise ValueError(done.detail)
-        return loudness.parse_ebur128("\n".join(lines[-40:]))
+        return loudness.parse_ebur128("\n".join(lines))
     except (ValueError, KeyError) as e:
         raise Failure(_("ffmpeg could not measure the loudness of {name}.").format(name=Path(source).name),
                       str(e)) from e

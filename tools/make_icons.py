@@ -1,27 +1,28 @@
 #!/usr/bin/env python3
-"""The PNG sizes of the app icon (GdkPixbuf with librsvg, which GTK brings:
-no Pillow), from the scalable one in data/icons/hicolor/scalable/apps:
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""The PNG sizes of the app icon, from the scalable one in
+data/icons/hicolor/scalable/apps (drawn as make_ico.py draws: GdkPixbuf
+in a GTK app, Qt in a Qt app; no Pillow):
 
   data/icons/hicolor/<N>x<N>/apps/<APP_ID>.png   for N in 64, 128, 256
   site/icon.png                                   the 256 one, for the site and the Flatpak page
 
     python3 tools/make_icons.py
 
-The scalable SVG is the master: edit it, run this, commit both. The SVGs
-GTK loads are written plain (<defs>, never <ns0:defs>): this refuses one
-with an SVG element under a prefix before drawing anything.
+The scalable SVG is the master: edit it, run this, commit both. It needs
+tools/make_ico.py next to it.
 """
 
 import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "src"))
-from scriba import APP_ID  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from make_ico import ROOT, icon_paths, identity, render_png  # noqa: E402
 
-SVG = ROOT / "data" / "icons" / "hicolor" / "scalable" / "apps" / f"{APP_ID}.svg"
 SIZES = (64, 128, 256)
+
+
 SVG_NS = "http://www.w3.org/2000/svg"
 
 
@@ -43,24 +44,23 @@ def prefixed_elements(text: str) -> list[str]:
     return found.findall(text)
 
 
-def main() -> int:
-    for svg in sorted(SVG.parent.glob(f"{APP_ID}*.svg")):
-        if bad := prefixed_elements(svg.read_text(encoding="utf-8")):
-            print(f"{svg.relative_to(ROOT)}: {len(bad)} elements under a prefix ({bad[0]}...): "
-                  "GTK does not draw them, write the SVG without it", file=sys.stderr)
+def main(root: Path = ROOT) -> int:
+    root = Path(root)
+    app_id = identity(root)["APP_ID"]
+    svg, _small = icon_paths(root)
+    for master in sorted(svg.parent.glob(f"{app_id}*.svg")):
+        if bad := prefixed_elements(master.read_text(encoding="utf-8")):
+            print(f"{master.relative_to(root)}: {len(bad)} prefixed SVG elements ({bad[0]}...) are invisible in GTK",
+                  file=sys.stderr)
             return 1
-    import gi
-    gi.require_version("GdkPixbuf", "2.0")
-    from gi.repository import GdkPixbuf
-
     for size in SIZES:
-        pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(str(SVG), size, size)
-        out = ROOT / "data" / "icons" / "hicolor" / f"{size}x{size}" / "apps" / f"{APP_ID}.png"
+        png = render_png(svg, size)
+        out = root / "data" / "icons" / "hicolor" / f"{size}x{size}" / "apps" / f"{app_id}.png"
         out.parent.mkdir(parents=True, exist_ok=True)
-        pixbuf.savev(str(out), "png", [], [])
-        print(out.relative_to(ROOT))
-        if size == 256 and (ROOT / "site").is_dir():
-            pixbuf.savev(str(ROOT / "site" / "icon.png"), "png", [], [])
+        out.write_bytes(png)
+        print(out.relative_to(root))
+        if size == 256 and (root / "site").is_dir():
+            (root / "site" / "icon.png").write_bytes(png)
             print("site/icon.png")
     return 0
 

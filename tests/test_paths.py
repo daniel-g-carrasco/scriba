@@ -59,6 +59,26 @@ class PathsTest(unittest.TestCase):
         found = Paths(Path("c"), Path("s"), Path("d"))
         self.assertEqual(found.log_file("my-app.log"), Path("s") / "my-app.log")
 
+    @unittest.skipUnless(_setup.WINDOWS, "Windows only")
+    def test_local_ini_is_authoritative_and_xdg_can_override_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            local, roaming = root / "Local", root / "Roaming"
+            env = {"APPDATA": str(roaming), "LOCALAPPDATA": str(local)}
+            choice = {"windows_local_config": True, "config_name": "settings.ini"}
+            for present in ((local,), (roaming,), (local, roaming)):
+                with self.subTest(present=present), tempfile.TemporaryDirectory(dir=root) as profile:
+                    scoped_env = {var: str(Path(profile) / Path(value).name) for var, value in env.items()}
+                    for base in present:
+                        file = Path(profile) / base.name / EXE_NAME / "settings.ini"
+                        file.parent.mkdir(parents=True)
+                        file.write_text(base.name, encoding="utf-8")
+                    found = Paths.from_env(SLUG, EXE_NAME, scoped_env, **choice)
+                    self.assertEqual(found.config_file, Path(scoped_env["LOCALAPPDATA"]) / EXE_NAME / "settings.ini")
+                    self.assertEqual(found.config_file.is_file(), local in present)
+            isolated = Paths.from_env(SLUG, EXE_NAME, {**env, "XDG_CONFIG_HOME": str(root / "xdg")}, **choice)
+            self.assertEqual(isolated.config_file, root / "xdg" / SLUG / "settings.ini")
+
     def test_nearest_folder(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(nearest_folder(os.path.join(tmp, "a", "b", "c.txt")), tmp)

@@ -29,16 +29,16 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, Gtk  # noqa: E402
 
 from scriba import APP_NAME, WINDOWS  # noqa: E402
-from scriba.app import errorlog  # noqa: E402
 from scriba.i18n import _  # noqa: E402
 
+from . import about_widgets, update_widgets  # noqa: E402
 from .cards import CardTest  # noqa: E402
 from .models_page import ModelsPage, progress_text  # noqa: E402
 from .record import RecordPage  # noqa: E402
 from .result import ResultPage  # noqa: E402
 from .style_values import SPACE_S  # noqa: E402
 from .transcribe import TranscribePage  # noqa: E402
-from .ui import escape, file_dialog_done, header_bar, report, run_in_thread  # noqa: E402
+from .ui import file_dialog_done, header_bar, report, run_in_thread  # noqa: E402
 from .ui import open_path as ui_open_path  # noqa: E402
 
 STATE_VERSION = 1       # window.json of another layout is ignored
@@ -132,10 +132,7 @@ class MainWindow(_WindowBase):
         section.append(_("Models"), "app.models")
         section.append(_("Preferences"), "app.preferences")
         menu.append_section(None, section)
-        about = Gio.Menu()
-        about.append(_("Open the Error Log"), "app.error-log")
-        about.append(_("About {app}").format(app=APP_NAME), "app.about")
-        menu.append_section(None, about)
+        menu.append_section(None, about_widgets.troubleshooting_menu(APP_NAME))
         button = Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu, primary=True,
                                 tooltip_text=_("Main Menu"))
         if WINDOWS:
@@ -152,7 +149,7 @@ class MainWindow(_WindowBase):
     def _main_page(self) -> Adw.NavigationPage:
         view = self.toolbar_view = Adw.ToolbarView()
         self.models = ModelsPage(self)
-        self.models_banner = Adw.Banner(button_label=_("Models"), revealed=False)
+        self.models_banner = Adw.Banner(use_markup=False, button_label=_("Models"), revealed=False)
         self.models_banner.connect("button-clicked", lambda *_: self.show_models())
         self.app.downloads.subscribe(self._models_changed)
         header = header_bar()
@@ -171,8 +168,7 @@ class MainWindow(_WindowBase):
         view.add_top_bar(header)
         # a newer version: said here for as long as it is there, whatever
         # else announced it (a notification is gone in a few seconds)
-        self.update_banner = Adw.Banner(button_label=_("Update…"), revealed=False)
-        self.update_banner.connect("button-clicked", lambda *_: self._update_asked())
+        self.update_banner = update_widgets.update_banner(lambda: self._update_asked())
         self._update_asked = lambda: None
         self._update_version = ""
         view.add_top_bar(self.update_banner)
@@ -216,11 +212,11 @@ class MainWindow(_WindowBase):
         """The banner of a newer version; asked() opens what it brings."""
         self._update_asked = asked
         self._update_version = version
-        self.update_banner.set_title(_("{app} {version} is available").format(app=APP_NAME, version=version))
+        self.update_banner.set_title(update_widgets.update_title(APP_NAME, version))
         self.refresh_update_banner()
 
     def toast(self, text: str) -> None:
-        self.toasts.add_toast(Adw.Toast(title=escape(text), timeout=5))     # (a toast reads markup)
+        self.toasts.add_toast(Adw.Toast(use_markup=False, title=text, timeout=5))
 
     def settings_changed(self) -> None:
         """A preference changed: what the page shows from it, again."""
@@ -229,11 +225,7 @@ class MainWindow(_WindowBase):
     def show_error_log(self) -> None:
         """The file the app's errors go to (app/errorlog.py), with the
         default app for text; a toast when nothing went wrong yet."""
-        path = errorlog.log_file(self.app.paths.state)
-        if not path.is_file():
-            self.toast(_("No errors have been recorded."))
-            return
-        ui_open_path(self, str(path))
+        about_widgets.open_error_log(self.app.paths, lambda path: ui_open_path(self, path), self.toast)
 
     # -- recordings --------------------------------------------------------------------
 

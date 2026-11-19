@@ -9,6 +9,7 @@ from __future__ import annotations
 import ctypes
 import hashlib
 import math
+import re
 import threading
 from ctypes import wintypes as w
 from dataclasses import dataclass
@@ -19,14 +20,16 @@ from scriba.app.log import complain
 from scriba.core import teams
 
 EVERY_S = 0.5
+END_OBSERVATIONS = 6
 PW_RENDERFULLCONTENT = 2
 
 
 @dataclass(frozen=True)
 class Reading:
-    state: str  # ready, minimized, no-meeting, unavailable
+    state: str  # ready, minimized, no-meeting, unavailable, ended
     active: tuple[str, ...] = ()
     people: int = 0
+    title: str = ""
 
 
 class CapturePolicy:
@@ -216,20 +219,21 @@ class Reader(com.Indicator):
             meeting, tiles = self._elements(hwnd)
             if not meeting:
                 continue
+            title = self._meeting_title(hwnd)
             if self._window != hwnd:
                 self._policy, self._window = CapturePolicy(), hwnd
             if self._user32.IsIconic(hwnd):
                 self._policy = CapturePolicy()
-                return Reading("minimized")
+                return Reading("minimized", title=title)
             if not self._user32.IsWindowVisible(hwnd) or not tiles:
-                return Reading("unavailable")
+                return Reading("unavailable", title=title)
             rect = self._rect(hwnd)
             printed = self._capture(hwnd, rect)
             self.covered = not self._uncovered(hwnd, rect)
             screen = self._capture(hwnd, rect, screen=True) if not self.covered else None
             pixels = self._policy.choose(printed, screen)
             if pixels is None:
-                return Reading("unavailable", people=len(tiles))
+                return Reading("unavailable", people=len(tiles), title=title)
             self.capture_source = "print-window" if pixels is printed else "screen"
             left, top, right, bottom = rect
             active = []
@@ -237,9 +241,20 @@ class Reader(com.Indicator):
                 tile = (math.floor(a - left), math.floor(b - top), math.ceil(c - left), math.ceil(d - top))
                 if teams.border(pixels, right - left, bottom - top, (right - left) * 4, tile).active:
                     active.append(name)
-            return Reading("ready", tuple(dict.fromkeys(active)), len(tiles))
+            return Reading("ready", tuple(dict.fromkeys(active)), len(tiles), title)
         self._policy, self._window = CapturePolicy(), None
         return Reading("no-meeting")
+
+    def _meeting_title(self, hwnd) -> str:
+        text = ctypes.create_unicode_buffer(256)
+        read = self._user32.GetWindowTextW
+        read.argtypes = [w.HWND, w.LPWSTR, ctypes.c_int]
+        read.restype = ctypes.c_int
+        if not read(hwnd, text, len(text)):
+            return ""
+        title = re.split(r"\s+(?:[|–-])\s+(?:Microsoft )?Teams\b", text.value, maxsplit=1,
+                         flags=re.IGNORECASE)[0].strip()
+        return title if title.casefold() not in {"microsoft teams", "teams", "meeting", "riunione"} else ""
 
     def _uncovered(self, hwnd, rect):
         """Conservative z-order check: even a partial overlap disables screen fallback."""
@@ -275,6 +290,8 @@ def follow(told, stop: threading.Event, every=EVERY_S, opener=Reader):
         complain("opening Teams observations", error)
         told(Reading("unavailable"))
         return
+    saw_meeting = False
+    absent = 0
     try:
         while not stop.is_set():
             try:
@@ -282,6 +299,12 @@ def follow(told, stop: threading.Event, every=EVERY_S, opener=Reader):
             except OSError as error:
                 complain("reading Teams observations", error)
                 reading = Reading("unavailable")
+            if reading.state in ("ready", "minimized"):
+                saw_meeting = True
+            absent = absent + 1 if saw_meeting and reading.state == "no-meeting" else 0
+            if absent == END_OBSERVATIONS:
+                reading = Reading("ended")
+                saw_meeting = False
             told(reading)
             if stop.wait(every):
                 break

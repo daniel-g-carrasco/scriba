@@ -34,7 +34,7 @@ def vtable_function(obj, slot, prototype):
 
 class ToastTest(unittest.TestCase):
     def test_a_string_with_emoji_reaches_windows_whole(self):
-        for text in ("C:\\Users\\someone\\Foto \U0001f600 mare", "\u00e0\u00e8\u00ec \U0001f1ee\U0001f1f9 ok", ""):
+        for text in ("C:\\Fixtures\\someone\\Foto \U0001f600 mare", "\u00e0\u00e8\u00ec \U0001f1ee\U0001f1f9 ok", ""):
             with wintoast._HString(text) as handle:
                 self.assertEqual(hstring_text(handle), text)
 

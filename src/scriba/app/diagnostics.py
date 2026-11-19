@@ -14,10 +14,23 @@ from __future__ import annotations
 import os
 import platform
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from .errorlog import log_file
 from .paths import Paths, in_flatpak
+
+
+@dataclass(frozen=True)
+class Preferences:
+    """The values an adapter for an INI or other settings format reports.
+
+    JSON settings objects can still be passed directly. None means the
+    application could not supply a value.
+    """
+    theme: str | None = None
+    language: str | None = None
+    check_updates: bool | None = None
 
 
 def human(size: int | None) -> str:
@@ -61,8 +74,9 @@ def summary(name: str, version: str, cfg, paths: Paths, toolkit: str) -> str:
         f"errors: {log_file(paths.state)}" + ("" if log_file(paths.state).is_file() else " (none)"),
         f"preferences: theme {cfg.theme!r}, language {cfg.language!r}, check updates {cfg.check_updates}",
     ]
-    if cfg.notices:
-        lines.append("settings file: " + "; ".join(f"{n.kind} {n.detail} {n.reason}".strip() for n in cfg.notices))
+    notices = getattr(cfg, "notices", ())
+    if notices:
+        lines.append("settings file: " + "; ".join(f"{n.kind} {n.detail} {n.reason}".strip() for n in notices))
     return "\n".join(lines)
 
 

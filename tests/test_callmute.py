@@ -139,13 +139,13 @@ class RecordingTagTest(unittest.TestCase):
         self.assertEqual(media.tracks[1].muted, ())
         self.assertEqual(len(media.roles), 2)
 
-    def test_the_notes_say_where_the_user_was_muted(self):
+    def test_one_note_per_track_lists_every_muted_interval(self):
         from scriba.app import recording
         take = recording.Take("me-1", "me", "Mic", Path("a.flac"), muted=((65.0, 70.0), (100.0, None)))
         notes = recording.muted_notes([take])
-        self.assertEqual(len(notes), 2)
-        self.assertIn("01:05", notes[0])
-        self.assertIn("to the end", notes[1])
+        self.assertEqual(len(notes), 1)
+        self.assertIn("from 01:05 to 01:10", notes[0])
+        self.assertIn("from 01:40 to the end", notes[0])
 
 
 class ChainTest(unittest.TestCase):

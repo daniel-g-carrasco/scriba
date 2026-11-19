@@ -124,6 +124,7 @@ def event_words(event: recording.Event, minutes: int = 0) -> str:
         recording.ADDED: _("{device} appeared at {time}: it is recorded on a track of its own."),
         recording.DISK_LOW: _("The disk is filling up: about {minutes} minutes are left."),
         recording.DISK_FULL: _("The disk is almost full: the recording was stopped at {time}."),
+        recording.TEAMS_ENDED: _("The Teams meeting appears to have ended. Scriba is still recording."),
         recording.FAILED: _("The recording stopped at {time}: {detail}"),
     }.get(event.kind, event.kind).format(device=event.device, time=at, detail=event.detail, minutes=minutes)
 
@@ -149,7 +150,7 @@ class Side:
     def __init__(self, page: "RecordPage", kind: str) -> None:
         self.page, self.kind = page, kind
         is_input = kind == dev.INPUT
-        self.row = Adw.ExpanderRow(title=_("Microphone") if is_input else _("Computer Sound"),
+        self.row = Adw.ExpanderRow(use_markup=False, title=_("Microphone") if is_input else _("Computer Sound"),
                                    subtitle=_("Looking for the devices…"), show_enable_switch=False,
                                    subtitle_lines=1, title_lines=1)
         self.icon = Gtk.Image(icon_name=ICONS[kind])
@@ -162,7 +163,7 @@ class Side:
                                    self.row.set_enable_expansion(button.get_active()))
         self.row.add_suffix(self.switch_button)
         self.row.connect("notify::enable-expansion", lambda r, _p: self._switched(r.get_enable_expansion()))
-        self.auto = Adw.ActionRow(title=_("Automatic Choice"), subtitle_lines=0, activatable=True)
+        self.auto = Adw.ActionRow(use_markup=False, title=_("Automatic Choice"), subtitle_lines=0, activatable=True)
         self.auto_check = Gtk.CheckButton(valign=Gtk.Align.CENTER)
         self.auto.add_prefix(self.auto_check)
         self.auto.set_activatable_widget(self.auto_check)
@@ -232,10 +233,10 @@ class Side:
                                                        "switch the headset to telephone quality")) if t)
             elif device.id in meters.failed:
                 tags = " · ".join(t for t in (tags, meters.failed[device.id]) if t)
-            if row.get_title() != escape(device.name):
-                row.set_title(escape(device.name))
-            if row.get_subtitle() != escape(tags):
-                row.set_subtitle(escape(tags))
+            if row.get_title() != device.name:
+                row.set_title(device.name)
+            if row.get_subtitle() != tags:
+                row.set_subtitle(tags)
             bar.set_value(self._value(meters, device.id))
             bar.set_sensitive(device.id not in meters.closed and device.id not in meters.failed)
         self._summary(meters, plan, call_output, found)
@@ -266,13 +267,13 @@ class Side:
             text = _("Automatic · {device}").format(device=device.name) if device else _("Automatic")
         else:
             text = _("Chosen · {device}").format(device=device.name) if device else _("No device found")
-        self.row.set_subtitle(escape(text))
+        self.row.set_subtitle(text)
         self.row.set_tooltip_text(text)
         auto = _("Chosen now: {device} ({why})").format(device=choice.device.name, why=why) \
             if choice is not None and choice.device is not None else _("The app chooses the device where the call is")
         if self.kind == dev.OUTPUT:
             auto = _("Every output is recorded, and the silent ones are left out at the end.") + " " + auto
-        self.auto.set_subtitle(escape(auto))
+        self.auto.set_subtitle(auto)
         self.meter.set_value(self._value(meters, device.id) if device is not None and on else 0.0)
 
     def _sync_devices(self, found: list[dev.Device]) -> None:
@@ -284,7 +285,7 @@ class Side:
         for device in found:
             if device.id in self.rows:
                 continue
-            row = Adw.ActionRow(title=escape(device.name), title_lines=0, subtitle_lines=0, activatable=True)
+            row = Adw.ActionRow(use_markup=False, title=device.name, title_lines=0, subtitle_lines=0, activatable=True)
             check = Gtk.CheckButton(valign=Gtk.Align.CENTER, group=self.auto_check)
             check.connect("toggled", lambda b, d=device.id: b.get_active() and self._chose(d))
             row.add_prefix(check)
@@ -335,7 +336,7 @@ class Side:
             text = _("Recording · {device}").format(device=takes[0].device)
         else:
             text = _("No active device")
-        self.row.set_subtitle(escape(text))
+        self.row.set_subtitle(text)
         self.row.set_tooltip_text(text)
         peaks = [levels.fraction(status.levels[take.key][1]) for take in takes if take.key in status.levels]
         self.meter.set_value(max(peaks, default=0.0) if status.state == "recording" and not off and not muted else 0.0)
@@ -352,6 +353,7 @@ class RecordPage(Adw.Bin):
         self._tick_id = 0
         self._starting = self._stopping = False
         self._finishing = recording.CLOSING     # the step after the stop, set by the worker (one assignment)
+        self._mix_progress = None
         self._stop_requested = False
         self.last_error = ""
         self.last_finished: recording.Finished | None = None
@@ -387,7 +389,7 @@ class RecordPage(Adw.Bin):
 
     def _page(self) -> Gtk.Widget:
         view = Adw.ToolbarView()
-        self.banner = Adw.Banner(revealed=False)
+        self.banner = Adw.Banner(use_markup=False, revealed=False)
         view.add_bottom_bar(self.banner)
         page = Adw.PreferencesPage()
 
@@ -424,18 +426,18 @@ class RecordPage(Adw.Bin):
         group.add(hero)
         page.add(group)
 
-        self.sources = Adw.PreferencesGroup(title=_("What Is Recorded"),
+        self.sources = Adw.PreferencesGroup(title=escape(_("What Is Recorded")),
                                             description=escape(_("Your voice from the microphone and the others' "
                                                                  "from the computer, on separate tracks.")))
         self.input_side, self.output_side = Side(self, dev.INPUT), Side(self, dev.OUTPUT)
         self.sources.add(self.input_side.row)
         self.sources.add(self.output_side.row)
-        self.teams_row = Adw.ActionRow(title=_("Names from Teams"), visible=False)
+        self.teams_row = Adw.ActionRow(use_markup=False, title=_("Names from Teams"), visible=False)
         self.sources.add(self.teams_row)
         page.add(self.sources)
 
         group = Adw.PreferencesGroup()
-        self.folder_row = Adw.ActionRow(title=_("Folder for the Recordings"), subtitle_lines=2)
+        self.folder_row = Adw.ActionRow(use_markup=False, title=_("Folder for the Recordings"), subtitle_lines=2)
         self.folder_row.add_prefix(Gtk.Image(icon_name="folder-music-symbolic"))
         # Open in words, as the Result page has it: the folder's icon is the choice's
         show = Gtk.Button(label=_("Open Folder"), tooltip_text=_("Open the Folder"), valign=Gtk.Align.CENTER,
@@ -558,7 +560,7 @@ class RecordPage(Adw.Bin):
             self.state_label.set_label(_("Press the button to record: nothing starts by itself."))
 
     def _show_folder(self) -> None:
-        self.folder_row.set_subtitle(escape(jobs.full_path(recordings_folder(self.cfg))))
+        self.folder_row.set_subtitle(jobs.full_path(recordings_folder(self.cfg)))
 
     def _chose_folder(self, folder: str) -> None:
         if getattr(self.app, "closing", False):
@@ -583,7 +585,7 @@ class RecordPage(Adw.Bin):
         open_path(self.window, str(folder))
 
     def _banner(self, text: str) -> None:
-        self.banner.set_title(escape(text))
+        self.banner.set_title(text)
         self.banner.set_revealed(True)
 
     def _remember_error(self, message: str) -> None:
@@ -694,7 +696,7 @@ class RecordPage(Adw.Bin):
             self._add_track(take)
 
     def _add_track(self, take: recording.Take) -> None:
-        row = Adw.ActionRow(title=escape(take.device), title_lines=0, subtitle_lines=0)
+        row = Adw.ActionRow(use_markup=False, title=take.device, title_lines=0, subtitle_lines=0)
         icon = Gtk.Image(icon_name=ICONS[dev.INPUT if take.role == "me" else dev.OUTPUT])
         row.add_prefix(icon)
         self._track_icons[take.key] = icon
@@ -707,12 +709,12 @@ class RecordPage(Adw.Bin):
 
     def _show_status(self, status: recording.Status) -> None:
         self.teams_row.set_visible(bool(status.teams_state))
-        self.teams_row.set_subtitle(escape({
+        self.teams_row.set_subtitle({
             "ready": _("{n} people seen").format(n=status.teams_people),
             "minimized": _("Teams minimized: names are not read"),
             "no-meeting": _("No Teams meeting"),
             "unavailable": _("Teams picture unavailable: names are not read"),
-        }.get(status.teams_state, "")))
+        }.get(status.teams_state, ""))
         self.time_label.set_label(clock(status.elapsed))
         words = {"recording": _("Recording in progress"), "paused": _("Paused"), "stopping": _("Closing the files…"),
                  "stopped": _("Stopped"), "failed": _("Stopped")}
@@ -725,6 +727,11 @@ class RecordPage(Adw.Bin):
             state += " · " + _("microphone muted")
         if self._stopping:
             state = finishing_words(self._finishing)
+            if self._finishing == recording.MIXING and self._mix_progress is not None:
+                n, total, reached, duration = self._mix_progress
+                detail = _("Track {n} of {total}").format(n=n, total=total) if n else _("Writing the listening copy")
+                times = f"{clock(reached)} / {clock(duration)}" if duration > 0 else clock(reached)
+                state += f"\n{detail} · {times}"
         elif status.seconds_left < rec.WARN_MINUTES * 60:
             state += " · " + _("room on the disk for about {minutes} minutes").format(
                 minutes=max(int(status.seconds_left // 60), 0))
@@ -746,7 +753,7 @@ class RecordPage(Adw.Bin):
                 what += " · " + (_("until {time}") if take.replaced else _("went away at {time}")).format(
                     time=clock(take.ended))
                 row.add_css_class("dim-label")
-            row.set_subtitle(escape(what))
+            row.set_subtitle(what)
             level = status.levels.get(take.key)
             track_muted = take.role == "me" and status.call_muted
             icon = self._track_icons[take.key]
@@ -804,6 +811,7 @@ class RecordPage(Adw.Bin):
         self._stop_requested = False
         self._stopping = True
         self._finishing = recording.CLOSING
+        self._mix_progress = None
         self.state_label.set_label(finishing_words(self._finishing))
         self.pause_button.set_sensitive(False)
         self.stop_button.set_sensitive(False)
@@ -812,10 +820,14 @@ class RecordPage(Adw.Bin):
         def step(name: str) -> None:
             self._finishing = name          # read by the tick on the main loop
 
+        def mix_progress(n: int, total: int, reached: float, duration: float) -> None:
+            self._mix_progress = n, total, reached, duration
+
         def work():
             takes = recorder.stop()
             status = recorder.snapshot()
-            return self.backend.finish(takes, recorder.folder, recorder.stem, progress=step), status
+            return self.backend.finish(takes, recorder.folder, recorder.stem, progress=step,
+                                       elapsed=status.elapsed, mix_progress=mix_progress), status
 
         run_in_thread(work, self._stopped)
 

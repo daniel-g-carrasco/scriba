@@ -1,4 +1,4 @@
-; Inno Setup script for Scriba.
+﻿; Inno Setup script for Scriba.
 ; Compiled by the CI with:  ISCC.exe /DAppVersion=X.Y.Z build-aux\windows\scriba.iss
 ; Expects the PyInstaller output in dist\Scriba (repository root).
 ;
@@ -38,6 +38,7 @@ UninstallDisplayIcon={app}\Scriba.exe
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+WizardSmallImageFile=..\..\data\icons\hicolor\256x256\apps\io.github.daniel_g_carrasco.scriba.png
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ; The preflight requests an idle exit and waits for the installed images.
@@ -78,9 +79,9 @@ Name: "{group}\Scriba"; Filename: "{app}\Scriba.exe"; Comment: "{cm:AppDescripti
 Name: "{autodesktop}\Scriba"; Filename: "{app}\Scriba.exe"; Tasks: desktopicon; AppUserModelID: "io.github.daniel_g_carrasco.scriba"
 
 [Run]
-Filename: "{app}\Scriba.exe"; Description: "{cm:LaunchProgram,Scriba}"; Flags: nowait postinstall skipifsilent; Check: not AppWasRunning
-; an update (from the app's own dialog, /SILENT) starts again the app it closed
-Filename: "{app}\Scriba.exe"; Flags: nowait runasoriginaluser; Check: AppWasRunning
+Filename: "{app}\Scriba.exe"; Description: "{cm:LaunchProgram,Scriba}"; Flags: nowait postinstall skipifsilent; Check: not ShouldRestartApp
+; one launch for an update, including both generations of the explicit switch
+Filename: "{app}\Scriba.exe"; Flags: nowait runasoriginaluser; Check: ShouldRestartApp
 
 [Code]
 const
@@ -120,9 +121,10 @@ function SendMessageTimeoutW(Window: HWND; MessageId: UINT; WParam: UINT_PTR;
 var
   WasRunning: Boolean;
 
-function AppWasRunning(): Boolean;
+function ShouldRestartApp(): Boolean;
 begin
-  Result := WasRunning;
+  Result := WasRunning or (ExpandConstant('{param:RESTARTAPP|0}') = '1') or
+    (ExpandConstant('{param:RELAUNCH|0}') = '1');
 end;
 
 { Opening an image for reading alone succeeds while it is running. Request

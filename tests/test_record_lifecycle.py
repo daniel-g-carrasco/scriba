@@ -102,7 +102,7 @@ class Backend:
         self.recorders.append(recorder)
         return recorder
 
-    def finish(self, takes, folder, stem, progress=None):
+    def finish(self, takes, folder, stem, progress=None, *, elapsed=0.0, mix_progress=None):
         self.finishes += 1
         if progress is not None:
             progress(recording.JOINING)

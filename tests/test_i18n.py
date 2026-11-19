@@ -68,6 +68,22 @@ class CatalogueTestCase(unittest.TestCase):
 
 
 class LanguageTest(CatalogueTestCase):
+    def test_toolkit_language_is_set_before_import_and_inherited(self):
+        os.environ["LANGUAGE"] = "en"
+        i18n.setup(DOMAIN, self.checkout, "it-IT", toolkit=True)
+        self.assertEqual(i18n._("Preferences"), "Preferenze")
+        self.assertEqual(os.environ["LANGUAGE"], "it_IT")
+        if _setup.WINDOWS:
+            self.assertEqual(os.environ["LC_ALL"], "it_IT.UTF-8")
+        i18n.share_with_children(SHARED)
+        self.assertEqual(i18n.inherited(SHARED), "it")
+
+    def test_automatic_toolkit_language_preserves_the_desktop_override(self):
+        os.environ["LANGUAGE"] = "it_IT:en"
+        i18n.setup(DOMAIN, self.checkout, toolkit=True)
+        self.assertEqual(i18n._("Preferences"), "Preferenze")
+        self.assertEqual(os.environ["LANGUAGE"], "it_IT:en")
+
     def test_the_variables_first(self):
         os.environ["LANG"] = "it_IT.UTF-8"
         with mock.patch.object(i18n, "_system_languages", return_value=["en_US"]):
@@ -154,6 +170,15 @@ class WindowsLanguageTest(unittest.TestCase):
         languages = i18n._system_languages()
         self.assertEqual(len(languages), 1)
         self.assertRegex(languages[0], r"^[a-z]{2,3}(_[A-Z]{2})?")
+
+    def test_counts_fall_back_to_text_for_values_without_number_formatting(self):
+        class Plain:
+            def __str__(self):
+                return "plain count"
+
+        self.assertEqual(i18n.count(0), "0")
+        self.assertEqual(i18n.count("already formatted"), "already formatted")
+        self.assertEqual(i18n.count(Plain()), "plain count")
 
     def test_counts_as_the_locale_writes_them(self):
         before = locale.setlocale(locale.LC_NUMERIC)

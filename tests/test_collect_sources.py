@@ -1,7 +1,6 @@
-"""Corresponding-source collection never executes recipes or trusts unverified inputs."""
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Correspondence fixtures using the two historical PDF DLL names."""
 
-import hashlib
-import importlib.util
 import io
 import json
 import sys
@@ -9,254 +8,118 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest import mock
+from zipfile import ZipFile
 
 import _setup
 
-SPEC = importlib.util.spec_from_file_location("collect_sources", _setup.ROOT / "tools" / "collect_sources.py")
-sources = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = sources
-SPEC.loader.exec_module(sources)
+with mock.patch.object(sys, "path", [str(_setup.ROOT / "tools"), *sys.path]):
+    import collect_sources as cs
 
 
-class SourceCollectionTest(unittest.TestCase):
+def tar(path, contents):
+    with tarfile.open(path, "w") as archive:
+        for name, data in contents.items():
+            item = tarfile.TarInfo(name)
+            item.size = len(data)
+            archive.addfile(item, io.BytesIO(data))
+
+
+class SourceTest(unittest.TestCase):
     def setUp(self):
-        self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        self.recipe = b"pkgver=1\npkgrel=1\ntouch THIS_MUST_NOT_RUN\n"
-        self.recipe_hash = hashlib.sha256(self.recipe).hexdigest()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.bundle = self.root / "bundle"
+        (self.bundle / "_internal").mkdir(parents=True)
+        self.inventory = self.root / "inventory.json"
+        self.inputs = self.root / "inputs.json"
+        self.archive = self.root / "sources.zip"
+        self.items = (
+            ("mingw-w64-jbigkit", "2.1-6", "libjbig-0.dll"),
+            ("mingw-w64-lzo2", "2.10-3", "liblzo2-2.dll"),
+        )
+        data = {"schema_version": 1, "platform": "windows-x64", "components": {},
+                "files": [], "notices": {}, "issues": []}
+        receipts = {}
+        for base, version, dll in self.items:
+            owner = base.replace("mingw-w64-", "mingw-w64-ucrt-x86_64-")
+            key = f"msys2:{owner}"
+            data["components"][key] = {"kind": "msys2", "name": owner, "base": base, "version": version}
+            shipped = ("fixture bytes for " + dll).encode()
+            target = f"_internal/{dll}"
+            (self.bundle / target).write_bytes(shipped)
+            origin = f"ucrt64/bin/{dll}"
+            data["files"].append({"target": target, "component": key, "source": origin, "sha256": cs.digest(shipped)})
+            receipts[key] = {"version": version, "binary": base + ".pkg.tar", "binary_signature": base + ".pkg.tar.sig",
+                             "source": base + ".src.tar", "source_signature": base + ".src.tar.sig"}
+            version_upstream, release = version.rsplit("-", 1)
+            recipe, upstream, patch = b"recipe", b"upstream source", b"patch"
+            info = f"pkgname = {owner}\npkgbase = {base}\npkgver = {version}\n"
+            build = info + f"pkgbuild_sha256sum = {cs.digest(recipe)}\n"
+            binary = {".PKGINFO": info.encode(), ".BUILDINFO": build.encode(), origin: shipped}
+            tar(self.root / receipts[key]["binary"], binary)
+            srcinfo = (f"pkgbase = {base}\npkgver = {version_upstream}\npkgrel = {release}\n"
+                       f"source = upstream.tar\nsource = local.patch\nsha256sums = {cs.digest(upstream)}\n"
+                       f"sha256sums = {cs.digest(patch)}\n")
+            entries = {f"{base}/PKGBUILD": recipe, f"{base}/.SRCINFO": srcinfo.encode(),
+                       f"{base}/upstream.tar": upstream, f"{base}/local.patch": patch}
+            tar(self.root / receipts[key]["source"], entries)
+            (self.root / receipts[key]["source_signature"]).write_bytes(b"test signature")
+            (self.root / receipts[key]["binary_signature"]).write_bytes(b"test signature")
+        self.inventory.write_text(json.dumps(data), encoding="utf-8")
+        self.inputs.write_text(json.dumps({"schema_version": 1, "components": receipts}), encoding="utf-8")
+        self.enterContext(mock.patch.object(cs, "verify_signature"))
 
-    def archive(self, members, name="source.tar.gz"):
-        path = self.root / name
-        with tarfile.open(path, "w:gz") as archive:
-            for member_name, data in members:
-                info = tarfile.TarInfo(member_name)
-                info.size = len(data)
-                archive.addfile(info, io.BytesIO(data))
-        return path
+    def collect(self):
+        return cs.collect(self.bundle, self.inventory, self.inputs, self.archive)
 
-    def source(self, payload=b"source bytes", expected=None, recipe=None, source="upstream.tar.gz", checksum=None):
-        expected = expected or hashlib.sha256(b"source bytes").hexdigest()
-        info = (f"pkgbase = mingw-w64-example\n\tpkgver = 1\n\tpkgrel = 1\n"
-                f"\tsource = {source}\n\tsha256sums = {checksum or expected}\n")
-        return self.archive([("mingw-w64-example/.SRCINFO", info.encode()),
-                             ("mingw-w64-example/PKGBUILD", recipe or self.recipe),
-                             ("mingw-w64-example/upstream.tar.gz", payload)])
+    def test_verified_sources_archive_and_incomplete_download(self):
+        index = self.collect()
+        self.assertEqual(len(index["components"]), 2)
+        self.assertEqual(cs.verify_archive(self.archive), index)
+        print("Source fixture SHA-256", cs.sha256(self.archive))
+        for item in index["components"].values():
+            self.assertEqual(len(item["members"]), 2)
+        broken = self.root / "incomplete.zip"
+        with ZipFile(self.archive) as good, ZipFile(broken, "x") as bad:
+            for name in good.namelist():
+                if not name.endswith("lzo2.src.tar"):
+                    bad.writestr(name, good.read(name))
+        with self.assertRaises(KeyError):
+            cs.verify_archive(broken)
 
-    def test_all_payload_hashes_and_the_binary_recipe_hash_are_checked(self):
-        archive = self.source()
-        with (mock.patch.object(sources.subprocess, "run", side_effect=AssertionError("recipe executed")),
-              mock.patch.object(sources.subprocess, "Popen", side_effect=AssertionError("recipe executed"))):
-            result = sources.inspect_source(archive, "mingw-w64-example", self.recipe_hash)
-        self.assertEqual(result["recipe_sha256"], self.recipe_hash)
-        self.assertEqual(result["payloads"][0]["status"], "verified")
-        self.assertFalse((self.root / "THIS_MUST_NOT_RUN").exists())
+    def test_binary_mismatch_rejects_the_pair_even_if_the_inventory_matches_the_shipped_dll(self):
+        target = "_internal/libjbig-0.dll"
+        changed = b"a different build of JBIG"
+        (self.bundle / target).write_bytes(changed)
+        inventory = json.loads(self.inventory.read_text(encoding="utf-8"))
+        inventory["files"][0]["sha256"] = cs.digest(changed)
+        self.inventory.write_text(json.dumps(inventory), encoding="utf-8")
+        with self.assertRaisesRegex(cs.SourceError, "checksum differs.*libjbig-0.dll"):
+            self.collect()
+        self.assertFalse(self.archive.exists())
 
-    def test_a_changed_payload_is_refused(self):
-        with self.assertRaisesRegex(sources.SourceError, "checksum"):
-            sources.inspect_source(self.source(payload=b"changed"), "mingw-w64-example", self.recipe_hash)
+    def test_missing_patch_rejects_the_lzo_source(self):
+        base = self.items[1][0]
+        path = self.root / (base + ".src.tar")
+        with tarfile.open(path) as original:
+            kept = {item.name: original.extractfile(item).read() for item in original
+                    if not item.name.endswith("local.patch")}
+        tar(path, kept)
+        with self.assertRaisesRegex(cs.SourceError, "missing archive members.*local.patch"):
+            self.collect()
+        self.assertFalse(self.archive.exists())
 
-    def test_a_different_recipe_is_refused_even_when_the_payload_matches(self):
-        with self.assertRaisesRegex(sources.SourceError, "PKGBUILD"):
-            sources.inspect_source(self.source(recipe=b"different"), "mingw-w64-example", self.recipe_hash)
-
-    def test_a_recorded_recipe_exception_holds_only_for_its_exact_version_and_hashes(self):
-        built = b"pkgver=1\npkgrel=1\nmakedepends=(openssl-3)\n"
-        built_hash = hashlib.sha256(built).hexdigest()
-        kept = self.root / "kept.PKGBUILD"
-        kept.write_bytes(built)
-        known = {("mingw-w64-example", "1-1"): {"source_recipe_sha256": self.recipe_hash,
-                                                "binary_recipe_sha256": built_hash, "recipe": str(kept),
-                                                "recipe_url": "https://example.test/PKGBUILD", "reason": "test"}}
-        with mock.patch.dict(sources.RECIPE_EXCEPTIONS, known, clear=True):
-            result = sources.inspect_source(self.source(), "mingw-w64-example", built_hash, version="1-1")
-            self.assertEqual(result["recipe_exception"]["binary_recipe_sha256"], built_hash)
-            self.assertEqual(result["payloads"][0]["status"], "verified")       # the source still checked
-            for version, binary_hash in (("1-2", built_hash), ("1-1", "0" * 64), (None, built_hash)):
-                with self.subTest(version=version), self.assertRaisesRegex(sources.SourceError, "PKGBUILD"):
-                    sources.inspect_source(self.source(), "mingw-w64-example", binary_hash, version=version)
-            kept.write_bytes(b"changed")
-            with self.assertRaisesRegex(sources.SourceError, "kept binary recipe"):
-                sources.inspect_source(self.source(), "mingw-w64-example", built_hash, version="1-1")
-
-    def test_the_kept_recipes_hash_as_their_binaries_say(self):
-        for (base, version), known in sources.RECIPE_EXCEPTIONS.items():
-            with self.subTest(base=base, version=version):
-                self.assertEqual(sources.sha256(_setup.ROOT / known["recipe"]), known["binary_recipe_sha256"])
-                self.assertIn(version, known["recipe"])
-
-    def test_skip_is_recorded_explicitly_rather_than_passed_off_as_verified(self):
-        result = sources.inspect_source(self.source(checksum="SKIP"), "mingw-w64-example", self.recipe_hash)
-        self.assertEqual(result["payloads"][0]["status"], "skipped")
-        self.assertEqual(result["unhashed_sources"], 1)
-
-    def test_vcs_material_and_the_pinned_commit_are_preserved_as_unchecked(self):
-        commit = "a" * 40
-        info = ("pkgbase = mingw-w64-example\n\tpkgver = 1\n\tpkgrel = 1\n"
-                f"\tsource = repo::git+https://example.invalid/repo#commit={commit}\n\tsha256sums = SKIP\n")
-        archive = self.archive([("mingw-w64-example/.SRCINFO", info.encode()),
-                                ("mingw-w64-example/PKGBUILD", self.recipe),
-                                ("mingw-w64-example/repo/HEAD", b"a git snapshot")])
-        payload = sources.inspect_source(archive, "mingw-w64-example", self.recipe_hash)["payloads"][0]
-        self.assertEqual(payload["status"], "vcs_unchecked")
-        self.assertEqual(payload["revision"], commit)
-        self.assertTrue(payload["members"])
-
-    def test_absolute_parent_and_windows_paths_are_refused(self):
-        for path in ("../../escape", "/absolute", "C:/absolute", "x\\escape", "x/../escape", "x:stream", "folder/x:stream"):
-            with self.subTest(path=path), self.assertRaises(sources.SourceError):
-                sources.safe_member(path)
-        bad = self.archive([("../../outside", b"bad")])
-        with self.assertRaises(sources.SourceError):
-            sources.inspect_source(bad, "mingw-w64-example", self.recipe_hash)
-        self.assertFalse((self.root.parent / "outside").exists())
-
-    def test_duplicate_metadata_cannot_replace_an_earlier_recipe(self):
-        archive = self.archive([("mingw-w64-example/PKGBUILD", self.recipe),
-                                ("mingw-w64-example/PKGBUILD", b"replacement")])
-        with self.assertRaisesRegex(sources.SourceError, "duplicate"):
-            sources.inspect_source(archive, "mingw-w64-example", self.recipe_hash)
-
-    def test_inventory_paths_and_package_names_are_validated_before_access(self):
-        path = self.root / "packages.json"
-        path.write_text(json.dumps({"schema_version": 1, "packages": [
-            {"package": "mingw-w64-ucrt-x86_64-example", "version": "1-1", "files": ["../../secret"]}]}))
-        with self.assertRaises(sources.SourceError):
-            sources.load_inventory(path)
-        path.write_text(json.dumps({"schema_version": 1, "packages": [
-            {"package": "example;touch marker", "version": "1-1", "files": []}]}))
-        with self.assertRaises(sources.SourceError):
-            sources.load_inventory(path)
-
-    def test_a_signature_needs_success_and_a_valid_fingerprint(self):
-        valid = "[GNUPG:] GOODSIG key test\n[GNUPG:] VALIDSIG " + "A" * 40 + " 2026-01-01 0 0\n"
-        self.assertEqual(sources.signature_fingerprint(valid, 0), "A" * 40)
-        for output, status in ((valid, 1), ("[GNUPG:] GOODSIG key test", 0),
-                               (valid + "[GNUPG:] REVKEYSIG key test", 0)):
-            with self.subTest(status=status, output=output), self.assertRaises(sources.SourceError):
-                sources.signature_fingerprint(output, status)
-
-    def test_binary_metadata_and_bundle_origin_are_checked(self):
-        bundle = self.root / "bundle"
-        (bundle / "_internal").mkdir(parents=True)
-        data = b"a DLL"
-        (bundle / "_internal/example.dll").write_bytes(data)
-        package = "mingw-w64-ucrt-x86_64-example"
-        archive = self.archive([(".PKGINFO", f"pkgname = {package}\npkgbase = mingw-w64-example\npkgver = 1-1\n".encode()),
-                                (".BUILDINFO", f"pkgname = {package}\npkgbase = mingw-w64-example\npkgver = 1-1\npkgbuild_sha256sum = {self.recipe_hash}\n".encode()),
-                                ("ucrt64/bin/example.dll", data)], "binary.tar.gz")
-        entry = {"package": package, "version": "1-1", "files": ["_internal/example.dll"],
-                 "origins": {"_internal/example.dll": {"package_file": "ucrt64/bin/example.dll",
-                                                        "sha256": hashlib.sha256(data).hexdigest()}}}
-        result = sources.inspect_binary(archive, entry, bundle)
-        self.assertEqual(result["base"], "mingw-w64-example")
-        self.assertEqual(result["files"][0]["status"], "verified")
-        (bundle / "_internal/example.dll").write_bytes(b"tampered")
-        with self.assertRaisesRegex(sources.SourceError, "bundle"):
-            sources.inspect_binary(archive, entry, bundle)
-        entry["version"] = "2-1"
-        with self.assertRaisesRegex(sources.SourceError, "version"):
-            sources.inspect_binary(archive, entry, bundle)
-
-    def test_a_missing_declared_source_is_not_silently_accepted(self):
-        with self.assertRaisesRegex(sources.SourceError, "missing"):
-            sources.inspect_source(self.source(source="missing.tar.gz"), "mingw-w64-example", self.recipe_hash)
-
-    def test_output_inside_the_source_repository_is_refused(self):
-        with self.assertRaises(sources.SourceError):
-            sources.require_external_output(_setup.ROOT / "build" / "sources")
-        self.assertEqual(sources.require_external_output(self.root / "out"), (self.root / "out").resolve())
-
-    def test_source_order_and_architecture_specific_hashes_are_independent(self):
-        payload = b"source bytes"
-        info = ("pkgbase = mingw-w64-example\nsource_x86_64 = patches/upstream.tar.gz\n"
-                f"sha512sums_x86_64 = {hashlib.sha512(payload).hexdigest()}\n")
-        archive = self.archive([("mingw-w64-example/patches/upstream.tar.gz", payload),
-                                ("mingw-w64-example/PKGBUILD", self.recipe),
-                                ("mingw-w64-example/.SRCINFO", info.encode())])
-        result = sources.inspect_source(archive, "mingw-w64-example", self.recipe_hash)
-        self.assertEqual(result["payloads"][0]["status"], "verified")
-
-    def test_empty_inventory_is_not_a_complete_inventory(self):
-        path = self.root / "empty.json"
-        path.write_text(json.dumps({"schema_version": 1, "packages": []}))
-        with self.assertRaises(sources.SourceError):
-            sources.load_inventory(path)
-
-    def test_epoch_is_retained_in_metadata_but_removed_from_archive_filename(self):
-        self.assertEqual(sources.archive_version("1:1.9.5-2"), "1.9.5-2")
-        self.assertEqual(sources.evidence_token("example", "1:1.9.5-2"), "example-1%3A1.9.5-2")
-
-    def test_generated_inputs_are_checked_without_claiming_generated_bytes_match_inputs(self):
-        package = "mingw-w64-ucrt-x86_64-example"
-        data = b"cache generator program"
-        digest = hashlib.sha256(data).hexdigest()
-        archive = self.archive([(".PKGINFO", f"pkgname = {package}\npkgbase = mingw-w64-example\npkgver = 1-1\n".encode()),
-                                (".BUILDINFO", f"pkgname = {package}\npkgbase = mingw-w64-example\npkgver = 1-1\npkgbuild_sha256sum = {self.recipe_hash}\n".encode()),
-                                ("ucrt64/bin/generator.exe", data)], "generated.tar.gz")
-        entry = {"package": package, "version": "1-1", "files": [],
-                 "_generated_inputs": [{"package": package, "package_file": "ucrt64/bin/generator.exe", "sha256": digest}]}
-        checked = sources.inspect_binary(archive, entry, self.root)
-        self.assertEqual(checked["generated_inputs"][0]["status"], "input_verified")
-        entry["_generated_inputs"][0]["sha256"] = "0" * 64
-        with self.assertRaisesRegex(sources.SourceError, "generated"):
-            sources.inspect_binary(archive, entry, self.root)
-
-    def test_msys_package_repositories_and_architecture_are_not_mingw_defaults(self):
-        self.assertEqual(sources.package_repositories("mintty"),
-                         ("https://repo.msys2.org/msys/x86_64", "https://repo.msys2.org/msys/sources", "x86_64"))
-        self.assertEqual(sources.package_repositories("mingw-w64-ucrt-x86_64-gtk4")[2], "any")
-
-    def test_own_ffmpeg_has_its_own_source_hash_and_binary_identity(self):
-        build = self.root / "ffmpeg-build"
-        bundle = self.root / "bundle"
-        (build / "bin").mkdir(parents=True)
-        (bundle / "_internal").mkdir(parents=True)
-        source = self.root / "ffmpeg.tar.xz"
-        source.write_bytes(b"our exact FFmpeg source")
-        build_file = build / "BUILD.txt"
-        build_file.write_text(f"Sources: https://example.invalid/ffmpeg.tar.xz\nSHA-256 of the sources: {sources.sha256(source)}\n")
-        script = self.root / "build_ffmpeg.sh"
-        script.write_bytes(b"never execute this")
-        for name in ("ffmpeg.exe", "ffprobe.exe"):
-            (build / "bin" / name).write_bytes(name.encode())
-            (bundle / "_internal" / name).write_bytes(name.encode())
-        args = SimpleNamespace(ffmpeg_build=build_file, ffmpeg_source=source, ffmpeg_script=script)
-        result = sources.own_ffmpeg(args, self.root / "output", bundle)
-        self.assertEqual(result["kind"], "own_ffmpeg")
-        self.assertEqual(len(result["programs"]), 2)
-        source.write_bytes(b"different archive")
-        with self.assertRaisesRegex(sources.SourceError, "checksum"):
-            sources.own_ffmpeg(args, self.root / "different-output", bundle)
-
-    def test_custom_gstplay_source_pair_checks_the_actual_bundle_and_preserves_every_input(self):
-        build, bundle = self.root / "gstplay", self.root / "bundle"
-        build.mkdir()
-        (bundle / "_internal/licenses/gstplay").mkdir(parents=True)
-        recipe = self.root / "tools/build_gstplay.py"
-        recipe.parent.mkdir()
-        recipe.write_bytes(b"recipe data, never execute")
-        (recipe.parent / "gstplay_receipt.py").write_bytes(b"validator source")
-        record = {"component": "gstplay", "source": {"file": "upstream.tar.xz"},
-                  "patch": {"file": "gstplay-dispose.patch"}, "licence_files": [{"file": "COPYING"}],
-                  "recipe": {"project_file": "tools/build_gstplay.py", "sha256": sources.sha256(recipe)},
-                  "outputs": [{"file": "bin/libgstplay-1.0-0.dll", "sha256": hashlib.sha256(b"custom").hexdigest()}]}
-        for name in ("upstream.tar.xz", "gstplay-dispose.patch", "COPYING"):
-            (build / name).write_bytes(name.encode())
-            if name != "upstream.tar.xz":
-                (bundle / "_internal/licenses/gstplay" / name).write_bytes(name.encode())
-        (build / "BUILD.json").write_text(json.dumps(record))
-        (bundle / "_internal/licenses/gstplay/BUILD.json").write_bytes((build / "BUILD.json").read_bytes())
-        shipped = bundle / "_internal/libgstplay-1.0-0.dll"
-        shipped.write_bytes(b"custom")
-        component = {"component": "gstplay", "receipt": record, "files": ["_internal/" + shipped.name]}
-        with mock.patch.object(sources.gstplay_receipt, "read_receipt", return_value=record):
-            result = sources.own_gstplay(build / "BUILD.json", self.root / "output", bundle,
-                                         component, project_root=self.root)
-            self.assertEqual(len(result["inputs"]), 6)
-            self.assertEqual(result["programs"][0]["sha256"], sources.sha256(shipped))
-            self.assertNotIn(str(self.root), json.dumps(result))
-            shipped.write_bytes(b"stock library")
-            with self.assertRaisesRegex(sources.SourceError, "GstPlay.*bundle"):
-                sources.own_gstplay(build / "BUILD.json", self.root / "rejected", bundle,
-                                    component, project_root=self.root)
+    def test_linux_build_adapter_binds_the_archive_to_the_build_inputs(self):
+        source = self.root / "linux-source.tar"
+        source_sha = cs.digest(b"corresponding source")
+        tar(source, {"lib.c": b"corresponding source"})
+        component = {"kind": "linux", "name": "runtime"}
+        row = {"source": "lib.so", "sha256": cs.digest(b"binary")}
+        receipt = {"source": source.name, "source_sha256": cs.sha256(source),
+                   "build_inputs": {"lib.so": row["sha256"]}, "required_members": {"lib.c": source_sha}}
+        found, signature, meta = cs.verify_adapter(component, [row], self.root, receipt, "zstd")
+        self.assertEqual((found, signature, meta["members"]), (source, None, ["lib.c"]))
+        with self.assertRaisesRegex(cs.SourceError, "does not cover"):
+            cs.verify_adapter(component, [{**row, "sha256": "0" * 64}], self.root, receipt, "zstd")

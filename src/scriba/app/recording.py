@@ -45,6 +45,7 @@ import wave
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from scriba.app import process
 from scriba.app.engines import ffmpeg
@@ -54,7 +55,12 @@ from scriba.data import files
 from scriba.data.timing import clock
 from scriba.i18n import _
 
+if TYPE_CHECKING:
+    import numpy as np
+
 DURATION_SLACK = 0.2        # seconds a track of the joined file may differ from its FLAC (a frame is 0.1 s)
+CAPTURE_CLOCK_SLACK = 2.0    # allow for final buffers and the independent recorder clock
+MixProgress = Callable[[int, int, float, float], None]
 MIX_BITRATE = "96k"         # AAC for speech, two voices and a room: plenty
 # the limiter's ceiling on the mix, linear as alimiter takes it: -1.5 dBFS
 # of sample peak, so that the true peak stays under -1 dBTP after AAC
@@ -88,6 +94,7 @@ class Take:
     # the sound is kept, the transcript leaves the microphone's speech out
     muted: tuple[tuple[float, float | None], ...] = ()
     named_spans: tuple[spans.Span, ...] = ()
+    meeting_title: str = ""
 
 
 @dataclass
@@ -118,6 +125,7 @@ GONE, SWITCHED, ADDED, DISK_LOW, DISK_FULL, FAILED = "gone", "switched", "added"
 # only said (a microphone chosen by hand); the event's detail is the program
 FOLLOWED, CALL_ELSEWHERE = "followed", "call-elsewhere"
 OFF, ON = "off", "on"       # Scriba's switch for a side; the event's detail is the role ("me", "others")
+TEAMS_ENDED = "teams-ended"
 
 
 @dataclass(frozen=True)
@@ -161,6 +169,9 @@ def join_arguments(ffmpeg_path: str, takes: list[Take], dest: str) -> list[str]:
     for n in range(len(takes)):
         argv += ["-map", f"{n}:a:0"]
     argv += ["-c", "copy"]
+    meeting_title = next((take.meeting_title for take in takes if take.meeting_title), "")
+    if meeting_title:
+        argv += ["-metadata", f"SCRIBA_MEETING_TITLE={meeting_title}"]
     for n, take in enumerate(takes):
         argv += [f"-metadata:s:a:{n}", f"title={title(take)}", f"-metadata:s:a:{n}", f"{ffmpeg.ROLE_TAG}={take.role}"]
         if take.muted:
@@ -171,15 +182,14 @@ def join_arguments(ffmpeg_path: str, takes: list[Take], dest: str) -> list[str]:
 
 
 def mix_arguments(ffmpeg_path: str, takes: list[Take], measures: list[loudness.Loudness], dest: str,
-                  balance: float = 0.0, streams: list[int] | None = None, wav: bool = False) -> list[str]:
+                  balance: float = 0.0, streams: list[int] | None = None) -> list[str]:
     """Each track brought to the target on its own (one gain, in floating
     point, so that nothing is cut before the limiter), the tracks summed as
     they are (amix without its own division by the number of tracks: they
     rarely speak at once), the sum held under the ceiling. Without
     `streams` each take is a file of its own; with them, each take is that
     sound track of its file (the joined recording, or the microphone
-    without the computer's sound beside it). `wav`: a PCM WAV at 48 kHz
-    instead of AAC, for GTK's player (the balance's preview)."""
+    without the computer's sound beside it)."""
     argv = [ffmpeg_path, "-nostdin", "-hide_banner", "-loglevel", "error"]
     if streams is None:
         for take in takes:
@@ -200,16 +210,13 @@ def mix_arguments(ffmpeg_path: str, takes: list[Take], measures: list[loudness.L
                       f"alimiter=limit={LIMIT}:level=false[mix]")
     else:
         chains.append(f"{joined}alimiter=limit={LIMIT}:level=false[mix]")
-    if wav:
-        return argv + ["-filter_complex", ";".join(chains), "-map", "[mix]", "-ac", "1", "-c:a", "pcm_s16le",
-                       "-f", "wav", "-y", dest]
     return argv + ["-filter_complex", ";".join(chains), "-map", "[mix]", "-ac", "1", "-c:a", "aac",
                    "-b:a", MIX_BITRATE, "-movflags", "+faststart", "-f", "ipod", "-y", dest]
 
 
-def _run(argv: list[str], what: str, cancelled: threading.Event | None) -> None:
+def _run(argv: list[str], what: str, cancelled: threading.Event | None, *, on_stdout=None) -> None:
     try:
-        done = process.run(argv, cancelled=cancelled)
+        done = process.run(argv, cancelled=cancelled, on_stdout=on_stdout)
     except OSError as e:
         raise Failure(_("ffmpeg could not be started."), str(e)) from e
     if done.returncode != 0:
@@ -303,18 +310,42 @@ def without_echo(takes: list[Take], work: Path, streams: list[int] | None = None
     return out, used, notes
 
 
-def mix(takes: list[Take], folder: Path, stem: str, cancelled: threading.Event | None = None) -> Path | None:
+def mix(takes: list[Take], folder: Path, stem: str, cancelled: threading.Event | None = None,
+        *, progress: MixProgress | None = None) -> Path | None:
     """The mix to listen to, `<stem>_<together>.m4a` (a free name); None
     when every track is silent."""
-    measured = [(t, ffmpeg.measure_loudness(t.path, 0, cancelled)) for t in takes]
+    measured = []
+    durations = []
+    total = len(takes)
+    for n, take in enumerate(takes, 1):
+        duration = ffmpeg.probe(take.path, cancelled).duration if progress is not None else 0.0
+        durations.append(duration)
+        if progress is not None:
+            progress(n, total, 0.0, duration)
+        measure = ffmpeg.measure_loudness(
+            take.path, 0, cancelled,
+            on_seconds=(lambda seconds, n=n, duration=duration: progress(n, total, seconds, duration))
+            if progress is not None else None)
+        measured.append((take, measure))
     audible = [(t, m) for t, m in measured if not loudness.silent(m)]
     if not audible:
         return None
     check(cancelled)
     tmp = files.temporary_name(folder, ".m4a")
     try:
-        _run(mix_arguments(str(ffmpeg.need("ffmpeg")), [t for t, _m in audible], [m for _t, m in audible], str(tmp)),
-             _("The mix to listen to could not be made."), cancelled)
+        argv = mix_arguments(str(ffmpeg.need("ffmpeg")), [t for t, _m in audible], [m for _t, m in audible], str(tmp))
+        duration = max(durations, default=0.0)
+
+        def mixing(line: str) -> None:
+            reached = ffmpeg.progress_seconds(line)
+            if reached is not None:
+                progress(0, total, reached, duration)
+
+        if progress is not None:
+            progress(0, total, 0.0, duration)
+            argv[1:1] = ["-progress", "pipe:1"]
+        _run(argv, _("The mix to listen to could not be made."), cancelled,
+             on_stdout=mixing if progress is not None else None)
         if ffmpeg.probe(tmp, cancelled).duration <= 0:
             raise Failure(_("The mix to listen to could not be made."), "the mix has no length")
     except BaseException:
@@ -362,22 +393,13 @@ def rebalance(source: str | os.PathLike, folder: Path, stem: str, balance: float
 PREVIEW_RATE = 48000        # the mix's own (aresample=48000 in mix_arguments)
 
 
-def balance_preview(source: str | os.PathLike, start: float, length: float, balance: float, folder: Path,
-                    cancelled: threading.Event | None = None) -> Path:
-    """A few seconds of the listening copy that rebalance() would make with
-    this balance, as a WAV in `folder` (a temporary folder of the caller's;
-    the recording is only read): each track's stretch cut at the mix's
-    rate, then the same road (the microphone without the computer's sound
-    where it heard it, each track levelled, the balance, the limiter).
+def balance_preview(source: str | os.PathLike, start: float, length: float, folder: Path,
+                    cancelled: threading.Event | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """Prepare the two roles independently in a temporary folder. Measure
+    loudness on this excerpt and remove its echo just as for the saved
+    copy. The player applies the balance to the resulting mono PCM."""
+    import numpy as np
 
-    One difference, chosen: the tracks are levelled on the stretch, not on
-    the whole recording. Measuring the whole of a meeting of almost two
-    hours, the microphone cleaned first, takes minutes (the stop's mix:
-    171 s for 108 minutes), too long for a preview asked for again at every
-    move of the slider; on a stretch where both sides speak the measure of
-    speech comes out close to the whole one's (EBU R128 leaves silence
-    out of its measure)."""
-    loudness.balance_gain("me", balance)
     source = Path(source)
     tracks = _balance_tracks(source, cancelled)
     cut = [Take(str(t.index), t.role, t.title,
@@ -385,15 +407,24 @@ def balance_preview(source: str | os.PathLike, start: float, length: float, bala
                               length=length, stream=t.index, rate=PREVIEW_RATE))
            for t in tracks]
     work = folder / "work"
-    work.mkdir(exist_ok=True)
-    dest = folder / "preview.wav"
-    try:
-        _balanced_mix(cut, None, work, dest, balance, cancelled, wav=True)
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
-        for take in cut:
-            take.path.unlink(missing_ok=True)
-    return dest
+    work.mkdir()
+    audible = _audible_tracks(cut, None, work, cancelled)
+    cut_paths = {take.path for take in cut}
+    max_frames = round(length * PREVIEW_RATE)
+    me, others = np.zeros((2, max_frames), dtype=np.float32)
+    frames = 0
+    for take, measure, _index in audible:
+        check(cancelled)
+        path = take.path
+        if path not in cut_paths:   # the cleaned microphone is at the echo canceller's rate
+            path = ffmpeg.decode(path, folder / f"cleaned-{take.key}.wav", cancelled=cancelled, rate=PREVIEW_RATE)
+        with wave.open(os.fspath(path), "rb") as wav:
+            pcm = np.frombuffer(wav.readframes(max_frames), dtype="<i2")
+        gain = 10 ** (round(loudness.mix_gain(measure), 2) / 20) / 32768
+        role = me if take.role == "me" else others
+        role[:len(pcm)] += pcm.astype(np.float32) * gain
+        frames = max(frames, len(pcm))
+    return me[:frames], others[:frames]
 
 
 def _balance_tracks(source: Path, cancelled: threading.Event | None) -> tuple[ffmpeg.Track, ...]:
@@ -406,10 +437,18 @@ def _balance_tracks(source: Path, cancelled: threading.Event | None) -> tuple[ff
 
 
 def _balanced_mix(takes: list[Take], streams: list[int] | None, work: Path, dest: Path, balance: float,
-                  cancelled: threading.Event | None, wav: bool = False) -> None:
+                  cancelled: threading.Event | None) -> None:
     """The listening copy's road after the stop and at a new balance: the
     microphone without the computer's sound where it heard it, as in the
     first copy (finish), every audible track levelled, the balance."""
+    audible = _audible_tracks(takes, streams, work, cancelled)
+    _run(mix_arguments(str(ffmpeg.need("ffmpeg")), [t for t, _m, _i in audible], [m for _t, m, _i in audible],
+                       str(dest), balance, [i for _t, _m, i in audible] if streams is not None else None),
+         _("The mix to listen to could not be made."), cancelled)
+
+
+def _audible_tracks(takes: list[Take], streams: list[int] | None, work: Path,
+                    cancelled: threading.Event | None) -> list[tuple[Take, loudness.Loudness, int]]:
     takes, streams, _notes = without_echo(takes, work, streams, cancelled)
     indexes = streams if streams is not None else [0] * len(takes)
     audible = []
@@ -420,40 +459,59 @@ def _balanced_mix(takes: list[Take], streams: list[int] | None, work: Path, dest
             audible.append((take, measure, index))
     if not audible:
         raise Failure(_("Nothing was heard on any track: a new listening copy cannot be made."), "silent tracks")
-    _run(mix_arguments(str(ffmpeg.need("ffmpeg")), [t for t, _m, _i in audible], [m for _t, m, _i in audible],
-                       str(dest), balance, [i for _t, _m, i in audible] if streams is not None else None, wav=wav),
-         _("The mix to listen to could not be made."), cancelled)
+    return audible
+
+
+def _interval_words(intervals: tuple) -> str:
+    return ", ".join(
+        (_("from {start} to the end").format(start=clock(start)) if end is None else
+         _("from {start} to {end}").format(start=clock(start), end=clock(end)))
+        for start, end in intervals
+    )
 
 
 def off_notes(takes: list[Take]) -> list[str]:
     """Where Scriba's switch had a track off, in words: there is silence
     there on purpose, and nothing to transcribe."""
-    out = []
-    for take in takes:
-        for start, end in take.off:
-            text = _("{track}: switched off in Scriba from {start} to {end}, silence on its track.") \
-                if end is not None else _("{track}: switched off in Scriba from {start} to the end, silence on its "
-                                          "track.")
-            out.append(text.format(track=title(take), start=clock(start), end=clock(end or 0.0)))
-    return out
+    return [
+        _("{track}: switched off in Scriba {intervals}. There is silence on its track during these intervals.").format(
+            track=title(take), intervals=_interval_words(take.off))
+        for take in takes if take.off
+    ]
 
 
 def muted_notes(takes: list[Take]) -> list[str]:
     """Where the user was muted in the call, in words: the sound is there,
     the transcript leaves the microphone's speech out."""
-    out = []
-    for take in takes:
-        for start, end in take.muted:
-            text = _("{track}: muted in the call from {start} to {end}; what the microphone heard there stays in the "
-                     "recording but not in the transcript.") if end is not None else \
-                _("{track}: muted in the call from {start} to the end; what the microphone heard there stays in the "
-                  "recording but not in the transcript.")
-            out.append(text.format(track=title(take), start=clock(start), end=clock(end or 0.0)))
-    return out
+    return [
+        _("{track}: muted in the call {intervals}. What the microphone heard there stays in the recording but "
+          "not in the transcript.").format(track=title(take), intervals=_interval_words(take.muted))
+        for take in takes if take.muted
+    ]
+
+
+def _bounded_tracks(takes: list[Take], work: Path, elapsed: float, cancelled, notes: list[str]) -> list[Take]:
+    """Keep an overlong source and use a bounded, lossless copy for both outputs."""
+    if elapsed <= 0:
+        return takes
+    bounded = []
+    for n, take in enumerate(takes):
+        duration = ffmpeg.probe(take.path, cancelled).duration
+        if duration > elapsed + CAPTURE_CLOCK_SLACK:
+            dest = work / f"bounded-{n}.mka"
+            _run([str(ffmpeg.need("ffmpeg")), "-nostdin", "-loglevel", "error", "-i", str(take.path),
+                  "-map", "0:a:0", "-t", f"{elapsed:.6f}", "-c", "copy", "-f", "matroska", str(dest)],
+                 _("The unusually long track could not be shortened."), cancelled)
+            notes.append(_("{track}: longer than the recording. The copy was shortened and the original track was kept.")
+                         .format(track=title(take)))
+            take = replace(take, path=dest)
+        bounded.append(take)
+    return bounded
 
 
 def finish(takes: list[Take], folder: Path, stem: str, cancelled: threading.Event | None = None,
-           progress: Callable[[str], None] | None = None) -> Finished:
+           progress: Callable[[str], None] | None = None, *, elapsed: float = 0.0,
+           mix_progress: MixProgress | None = None) -> Finished:
     """The recording made whole (see the module's docstring). Never raises
     for a failure of ffmpeg's: the FLAC files then stay, and the note says
     why; Cancelled stops it with the FLAC files untouched. `progress` is
@@ -469,22 +527,25 @@ def finish(takes: list[Take], folder: Path, stem: str, cancelled: threading.Even
         raise Failure(_("Nothing was recorded."), "no track")
     first = next((t for t in kept if t.role == "me"), kept[0])
     said(JOINING)
-    try:
-        joined = join(kept, folder, stem, cancelled)
-    except Failure as e:
-        notes.append(_("{reason} The tracks are kept as separate files.").format(reason=e))
-        return Finished(first.path, None, kept, dropped, notes + off_notes(kept) + muted_notes(kept))
     together = None
     work = Path(tempfile.mkdtemp(prefix="scriba-echo-"))
     try:
-        heard = kept
+        try:
+            bounded_notes: list[str] = []
+            bounded = _bounded_tracks(kept, work, elapsed, cancelled, bounded_notes)
+            joined = join(bounded, folder, stem, cancelled)
+        except Failure as e:
+            notes.append(_("{reason} The tracks are kept as separate files.").format(reason=e))
+            return Finished(first.path, None, kept, dropped, notes + off_notes(kept) + muted_notes(kept))
+        notes += bounded_notes
+        heard = bounded
         if hears_and_plays(kept):
             said(CLEANING)
-            heard, _streams, cleaned = without_echo(kept, work, cancelled=cancelled)
+            heard, _streams, cleaned = without_echo(bounded, work, cancelled=cancelled)
             notes += cleaned
         said(MIXING)
         try:
-            together = mix(heard, folder, stem, cancelled)
+            together = mix(heard, folder, stem, cancelled, progress=mix_progress)
         except Failure as e:
             notes.append(str(e))
     finally:
@@ -492,7 +553,10 @@ def finish(takes: list[Take], folder: Path, stem: str, cancelled: threading.Even
     for take in dropped:
         notes.append(_("{device}: silent from start to end, not kept.").format(device=take.device))
     notes += off_notes(kept) + muted_notes(kept)
+    retained = {take.path for take, copy in zip(kept, bounded, strict=True) if take.path != copy.path}
     for take in kept + dropped:
+        if take.path in retained:
+            continue
         try:
             take.path.unlink()
         except FileNotFoundError:

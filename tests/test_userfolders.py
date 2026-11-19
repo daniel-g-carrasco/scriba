@@ -97,7 +97,7 @@ class TheSnapshot(unittest.TestCase):
 
 class TheFoldersWatched(unittest.TestCase):
     def test_they_are_the_users_of_this_app(self):
-        base = Path(r"C:\U\me") if os.name == "nt" else Path("/home/me")
+        base = Path(r"C:\U\me") if os.name == "nt" else Path("/sandbox/me")
         roots = _userfolders.roots("my-app", "MyApp", fake_environ(base, XDG_CONFIG_HOME=str(base / "tmp-config")))
         if os.name == "nt":
             # the XDG variables are not those of the tests: the Windows folders, and the XDG ones under the home
@@ -118,7 +118,7 @@ class TheFoldersWatched(unittest.TestCase):
 
 class TheTestsOwnFolders(unittest.TestCase):
     def test_all_four_go_in_one_temporary_folder_whatever_the_user_had_set(self):
-        base = Path(r"C:\U\me") if os.name == "nt" else Path("/home/me")
+        base = Path(r"C:\U\me") if os.name == "nt" else Path("/sandbox/me")
         environ = fake_environ(base, XDG_STATE_HOME=str(base / "my-state"))
         folder = _userfolders.isolate(environ)
         self.assertIn(Path(tempfile.gettempdir()).resolve(), folder.resolve().parents)

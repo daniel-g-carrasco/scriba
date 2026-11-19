@@ -114,8 +114,7 @@ def load_style(display, folder: Path | None = None) -> list[str]:
 
 
 def escape(text: str) -> str:
-    """For every libadwaita title and subtitle: they read Pango markup, and
-    a file named "<b>" or "a & b" would break them."""
+    """Quote literal text for properties that parse Pango markup."""
     return GLib.markup_escape_text(text)
 
 

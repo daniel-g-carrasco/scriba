@@ -52,7 +52,7 @@ def language_names() -> list[str]:
 def property_row(title: str) -> Adw.ActionRow:
     """A «what: value» row (libadwaita's `property` class): the value is
     the subtitle, shown as the main text."""
-    row = Adw.ActionRow(title=escape(title), css_classes=["property"])
+    row = Adw.ActionRow(use_markup=False, title=title, css_classes=["property"])
     return row
 
 
@@ -118,8 +118,8 @@ class TranscribePage(Adw.Bin):
     def _update_model_gate(self):
         missing = self._missing_models()
         self.models_needed.set_visible(bool(missing))
-        self.models_needed.set_subtitle(escape(_(
-            "Download the missing models, or choose Fast if only the Precise model is missing.")))
+        self.models_needed.set_subtitle(_(
+            "Download the missing models, or choose Fast if only the Precise model is missing."))
         self.start_button.set_sensitive(self.media is not None and not missing and not self.busy)
 
     def _models_changed(self, _state):
@@ -186,7 +186,7 @@ class TranscribePage(Adw.Bin):
         page = Adw.PreferencesPage()
 
         group = Adw.PreferencesGroup()
-        self.file_row = Adw.ActionRow(title_lines=2, subtitle_lines=2)
+        self.file_row = Adw.ActionRow(use_markup=False, title_lines=2, subtitle_lines=2)
         self.file_icon = Gtk.Image(icon_name="audio-x-generic-symbolic")
         self.file_row.add_prefix(self.file_icon)
         change = Gtk.Button(icon_name="document-open-symbolic", tooltip_text=_("Open Another Recording…"),
@@ -194,7 +194,7 @@ class TranscribePage(Adw.Bin):
         change.connect("clicked", lambda *_: self.window.choose_file())
         self.file_row.add_suffix(change)
         group.add(self.file_row)
-        self.device_row = Adw.ActionRow(title=_("Graphics Card"), subtitle_lines=5)
+        self.device_row = Adw.ActionRow(use_markup=False, title=_("Graphics Card"), subtitle_lines=5)
         self.device_icon = Gtk.Image(icon_name="video-display-symbolic")
         self.device_row.add_prefix(self.device_icon)
         self.device_spinner = Adw.Spinner(visible=False)
@@ -204,52 +204,52 @@ class TranscribePage(Adw.Bin):
         group.add(self.estimate_row)
         page.add(group)
 
-        group = Adw.PreferencesGroup(title=_("Transcription"))
-        self.language_row = Adw.ComboRow(title=_("Language"), model=Gtk.StringList.new(language_names()))
+        group = Adw.PreferencesGroup(title=escape(_("Transcription")))
+        self.language_row = Adw.ComboRow(use_markup=False, title=_("Language"), model=Gtk.StringList.new(language_names()))
         self.language_row.connect("notify::selected", lambda r, _p: self._chose(
             "speech_language", LANGUAGES[r.get_selected()]))
         group.add(self.language_row)
-        self.quality_row = Adw.ComboRow(title=_("Quality"),
+        self.quality_row = Adw.ComboRow(use_markup=False, title=_("Quality"),
                                         model=Gtk.StringList.new([_("Fast"), _("Precise, slower")]))
         self.quality_row.connect("notify::selected", lambda r, _p: self._chose("quality", QUALITIES[r.get_selected()]))
         group.add(self.quality_row)
-        self.video_row = Adw.SwitchRow(title=_("Video with Subtitles"), visible=False,
-                                       subtitle=escape(_("A copy of the video with the subtitles inside (mkv)")))
+        self.video_row = Adw.SwitchRow(use_markup=False, title=_("Video with Subtitles"), visible=False,
+                                       subtitle=_("A copy of the video with the subtitles inside (mkv)"))
         self.video_row.connect("notify::active", lambda r, _p: self._chose("subtitled_video", r.get_active()))
         group.add(self.video_row)
         page.add(group)
 
         # how many people: the engine's speaker_count (app/jobs.py), 0 for automatic
-        group = Adw.PreferencesGroup(title=_("People Speaking"), description=escape(_(
+        group = Adw.PreferencesGroup(title=escape(_("People Speaking")), description=escape(_(
             "Count the people who can really be heard in the recording, you included: not everyone connected to "
             "the call.")))
-        self.voices_row = Adw.SwitchRow(title=_("Tell the Voices Apart"),
-                                        subtitle=escape(_("Speaker 1, 2, 3…: the names are given afterwards")))
+        self.voices_row = Adw.SwitchRow(use_markup=False, title=_("Tell the Voices Apart"),
+                                        subtitle=_("Speaker 1, 2, 3…: the names are given afterwards"))
         self.voices_row.connect("notify::active", lambda r, _p: self._chose("speakers", r.get_active()))
         group.add(self.voices_row)
-        self.automatic_row = Adw.SwitchRow(title=_("Automatic Count"),
-                                           subtitle=escape(_("The app counts the voices it hears")))
+        self.automatic_row = Adw.SwitchRow(use_markup=False, title=_("Automatic Count"),
+                                           subtitle=_("The app counts the voices it hears"))
         self.automatic_row.connect("notify::active", lambda r, _p: self._chose(
             "speaker_count", 0 if r.get_active() else int(self.count_row.get_value())))
         group.add(self.automatic_row)
         self.count_row = Adw.SpinRow.new_with_range(1, MAX_SPEAKERS, 1)
         self.count_row.set_title(_("How Many People"))
-        self.count_row.set_subtitle(escape(_("If you know how many, the voices come out better")))
+        self.count_row.set_subtitle(_("If you know how many, the voices come out better"))
         self.count_row.connect("notify::value", lambda r, _p: self._counted(int(r.get_value())))
         group.add(self.count_row)
         page.add(group)
 
-        group = Adw.PreferencesGroup(title=_("Terms and Names"),
+        group = Adw.PreferencesGroup(title=escape(_("Terms and Names")),
                                      description=escape(_("Names, acronyms and words of the trade to be written "
                                                           "right, separated by commas: the client, the project's "
                                                           "code, the surnames of those in the call. They are not "
                                                           "used to count the voices.")))
-        self.terms_row = Adw.EntryRow(title=_("Terms, separated by commas"))
+        self.terms_row = Adw.EntryRow(use_markup=False, title=_("Terms, separated by commas"))
         group.add(self.terms_row)
         page.add(group)
 
-        group = Adw.PreferencesGroup(title=_("Files"))
-        self.folder_row = Adw.ActionRow(title=_("Folder for the Files"), subtitle_lines=2)
+        group = Adw.PreferencesGroup(title=escape(_("Files")))
+        self.folder_row = Adw.ActionRow(use_markup=False, title=_("Folder for the Files"), subtitle_lines=2)
         self.folder_row.add_prefix(Gtk.Image(icon_name="folder-symbolic"))
         self.folder_reset = Gtk.Button(icon_name="edit-undo-symbolic", tooltip_text=_("Back to the Usual Folder"),
                                        valign=Gtk.Align.CENTER, css_classes=["flat"], visible=False)
@@ -264,7 +264,7 @@ class TranscribePage(Adw.Bin):
         page.add(group)
 
         group = Adw.PreferencesGroup()
-        self.models_needed = Adw.ActionRow(title=_("Models Needed for This Transcription"), subtitle_lines=0)
+        self.models_needed = Adw.ActionRow(use_markup=False, title=_("Models Needed for This Transcription"), subtitle_lines=0)
         manage = Gtk.Button(label=_("Models"), valign=Gtk.Align.CENTER)
         manage.connect("clicked", lambda *_: self.window.show_models())
         self.models_needed.add_suffix(manage)
@@ -347,7 +347,7 @@ class TranscribePage(Adw.Bin):
         self._show_out()
 
     def _show_out(self) -> None:
-        self.folder_row.set_subtitle(escape(jobs.full_path(self.out_folder())))
+        self.folder_row.set_subtitle(jobs.full_path(self.out_folder()))
         self.folder_reset.set_visible(self.out_override is not None)
 
     # -- a recording ---------------------------------------------------------------
@@ -367,13 +367,13 @@ class TranscribePage(Adw.Bin):
         self.source, self.media, self.out_override = source, None, None
         self.cfg.last_folder = str(source.parent)
         self._load_choices()
-        self.file_row.set_title(escape(source.name))
-        self.file_row.set_subtitle(escape(_("Reading the recording…")))
+        self.file_row.set_title(source.name)
+        self.file_row.set_subtitle(_("Reading the recording…"))
         self.file_row.remove_css_class("error")
         self.file_icon.set_from_icon_name("audio-x-generic-symbolic")
         self.video_row.set_visible(False)
         self.start_button.set_sensitive(False)
-        self.estimate_row.set_subtitle(escape(_("Reading the recording…")))
+        self.estimate_row.set_subtitle(_("Reading the recording…"))
         self._show_out()
         self._show_device()
         self.show_start()
@@ -393,8 +393,8 @@ class TranscribePage(Adw.Bin):
             return
         if error is not None:
             report("reading the recording", error)
-            self.file_row.set_subtitle(escape(str(error) if isinstance(error, Failure) else
-                                              _("The recording cannot be read: {error}").format(error=error)))
+            self.file_row.set_subtitle(str(error) if isinstance(error, Failure) else
+                                       _("The recording cannot be read: {error}").format(error=error))
             self.file_row.add_css_class("error")
             self.estimate_row.set_subtitle("")
             return
@@ -407,7 +407,7 @@ class TranscribePage(Adw.Bin):
             facts.append(_("{n} tracks: your microphone and the computer's sound").format(n=len(media.roles))
                          if mine else _("{n} tracks").format(n=len(media.roles)))
         facts.append(jobs.full_path(self.source.parent))
-        self.file_row.set_subtitle(escape(" · ".join(facts)))
+        self.file_row.set_subtitle(" · ".join(facts))
         self.video_row.set_visible(media.video)
         self._update_model_gate()
         self.refresh_estimate()
@@ -416,13 +416,15 @@ class TranscribePage(Adw.Bin):
         home = self._home()
         request = self.backend.request(self.cfg, self.source, None if home else self.out_folder(),
                                        bool(self.media and self.media.video))
-        return replace(request, home=home) if home else request
+        own_recording = bool(getattr(self.media, "roles", ()))
+        titled_folder = own_recording and self.out_override is None and not self.cfg.output_folder
+        return replace(request, home=home, titled_folder=titled_folder)
 
     def refresh_estimate(self) -> None:
         if self.source is None or self.media is None:
             return
         if self._missing_models():
-            self.estimate_row.set_subtitle(escape(_("Waiting for the models selected above.")))
+            self.estimate_row.set_subtitle(_("Waiting for the models selected above."))
             return
         request = self.request()
         seconds = self.backend.estimate(self.media.duration, request)
@@ -430,7 +432,7 @@ class TranscribePage(Adw.Bin):
                                                            duration=clock(self.media.duration))
         if self.backend.first_estimate(request):
             text += " · " + _("a first estimate: not yet timed on this device")
-        self.estimate_row.set_subtitle(escape(text))
+        self.estimate_row.set_subtitle(text)
         self._show_device()
 
     # -- where whisper works: the test of the cards ---------------------------------
@@ -464,16 +466,16 @@ class TranscribePage(Adw.Bin):
         self.device_spinner.set_visible(testing)
         self.device_row.remove_css_class("warning")
         if testing and not cfg.device:
-            self.device_row.set_subtitle(escape(_("Testing the graphics cards on a sample of speech, to choose "
-                                                  "the fastest that writes it right…")))
+            self.device_row.set_subtitle(_("Testing the graphics cards on a sample of speech, to choose "
+                                           "the fastest that writes it right…"))
             return
         if self.cards.failed and not chosen:
             self.device_row.add_css_class("warning")
-            self.device_row.set_subtitle(escape(_("The test of the graphics cards failed: {reason}").format(
-                reason=self.cards.failed)))
+            self.device_row.set_subtitle(_("The test of the graphics cards failed: {reason}").format(
+                reason=self.cards.failed))
             return
         if not chosen:
-            self.device_row.set_subtitle(escape(_("Not tested yet: the test runs once the models are there.")))
+            self.device_row.set_subtitle(_("Not tested yet: the test runs once the models are there."))
             return
         # an hour as most meetings are done: with the voices
         request = replace(self.backend.request(cfg, self.source or Path("meeting"), None, False), speakers=True)
@@ -487,7 +489,7 @@ class TranscribePage(Adw.Bin):
             text += " " + _("(chosen in the preferences)")
         else:
             text = " ".join([text, *self.cards.notes])
-        self.device_row.set_subtitle(escape(text))
+        self.device_row.set_subtitle(text)
 
     # -- the work ------------------------------------------------------------------
 
@@ -520,7 +522,7 @@ class TranscribePage(Adw.Bin):
             # The cancel Event is a request, not proof the GPU process exited.
             # Reserve one user intention before stop emits its changed signal.
             self._pending_start = (self.source, self._reading)
-            self.work_page.set_title(escape(_("Transcribing {name}").format(name=self.source.name)))
+            self.work_page.set_title(_("Transcribing {name}").format(name=self.source.name))
             self.work_page.set_description(escape(_("Waiting for the Graphics Card Test to Stop…")))
             self.work_bar.set_fraction(0.0)
             self.cancel_button.set_sensitive(True)
@@ -536,7 +538,7 @@ class TranscribePage(Adw.Bin):
         cancel = threading.Event()
         estimated = self.backend.estimate(self.media.duration, request)
         self.job = (progress, cancel, time.monotonic(), estimated, request)
-        self.work_page.set_title(escape(_("Transcribing {name}").format(name=self.source.name)))
+        self.work_page.set_title(_("Transcribing {name}").format(name=self.source.name))
         self.work_page.set_description(escape(_("Starting…")))
         self.work_bar.set_fraction(0.0)
         self.cancel_button.set_sensitive(True)
@@ -557,7 +559,7 @@ class TranscribePage(Adw.Bin):
         self._step_rows = {}
         names = jobs.stage_names()
         for stage in stages:
-            row = Adw.ActionRow(title=escape(names.get(stage, stage)))
+            row = Adw.ActionRow(use_markup=False, title=names.get(stage, stage))
             spinner = Adw.Spinner(visible=False)
             done = Gtk.Image(icon_name="object-select-symbolic", css_classes=["success"], visible=False)
             row.add_suffix(spinner)
@@ -586,11 +588,11 @@ class TranscribePage(Adw.Bin):
             if finished or current:
                 row.remove_css_class("dim-label")
             if stage in now["skipped"]:
-                row.set_subtitle(escape(_("Not needed")))
+                row.set_subtitle(_("Not needed"))
             elif finished:
-                row.set_subtitle(escape(estimate.span(now["finished"][stage])))
+                row.set_subtitle(estimate.span(now["finished"][stage]))
             elif current and now["state"] == "loading":
-                row.set_subtitle(escape(_("Loading the model")))
+                row.set_subtitle(_("Loading the model"))
             elif current:
                 row.set_subtitle(f"{now['fraction']:.0%}")
         if cancel.is_set():

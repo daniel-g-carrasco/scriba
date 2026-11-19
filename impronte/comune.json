@@ -1,7 +1,7 @@
 {
   "format": 1,
   "group": "comune",
-  "upstream_version": "7640bd1",
+  "upstream_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee",
   "mappings": [
     [
       "comune/src/app/win32.py",
@@ -146,6 +146,58 @@
     [
       "comune/tools/run_tests.py",
       "tools/run_tests.py"
+    ],
+    [
+      "comune/src/app/settings.py",
+      "src/scriba/app/settings.py"
+    ],
+    [
+      "comune/tests/test_settings.py",
+      "tests/test_settings.py"
+    ],
+    [
+      "comune/tests/test_tool_release_notes.py",
+      "tests/test_tool_release_notes.py"
+    ],
+    [
+      "comune/tests/test_tool_flatpak_repo_files.py",
+      "tests/test_tool_flatpak_repo_files.py"
+    ],
+    [
+      "comune/tests/test_tool_compile_po.py",
+      "tests/test_tool_compile_po.py"
+    ],
+    [
+      "comune/tests/test_tool_make_ico.py",
+      "tests/test_tool_make_ico.py"
+    ],
+    [
+      "comune/tests/test_tool_make_icons.py",
+      "tests/test_tool_make_icons.py"
+    ],
+    [
+      "comune/tools/ruff.toml",
+      "tools/ruff.toml"
+    ],
+    [
+      "comune/tools/release_notes.py",
+      "tools/release_notes.py"
+    ],
+    [
+      "comune/tools/flatpak_repo_files.py",
+      "tools/flatpak_repo_files.py"
+    ],
+    [
+      "comune/tools/compile_po.py",
+      "tools/compile_po.py"
+    ],
+    [
+      "comune/tools/make_ico.py",
+      "tools/make_ico.py"
+    ],
+    [
+      "comune/tools/make_icons.py",
+      "tools/make_icons.py"
     ]
   ],
   "replacements": [],
@@ -153,218 +205,296 @@
     {
       "source": "comune/src/app/diagnostics.py",
       "target": "src/scriba/app/diagnostics.py",
-      "sha256": "acc4d968fe443db423b4460316d1613b39d55ae6d52f248644d8c95f7d2928ca",
-      "baseline_version": "7640bd1"
+      "sha256": "24d2bd7ebaf90ebb243e32841e42e22a1f7e58117043b002f01e88abb1357149",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/src/app/errorlog.py",
       "target": "src/scriba/app/errorlog.py",
       "sha256": "b4cb25ef43d13b43b7efe4c39c4bbd049aa176cea311d0376ce674b0ea2cc8fa",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/src/app/log.py",
       "target": "src/scriba/app/log.py",
       "sha256": "7011ab26a317036014401bc483768226ba2c49c326c589b76eef9d47033f8475",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/src/app/minisign.py",
       "target": "src/scriba/app/minisign.py",
       "sha256": "c28cea775dabd1b9c6a7b019f9078fd0a3c045426151e870fb25840ffd1763bb",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/src/app/paths.py",
       "target": "src/scriba/app/paths.py",
-      "sha256": "72bcde6896effa78425cf9a41599ca100cf60b42da082f928785507b0e751b2e",
-      "baseline_version": "7640bd1"
+      "sha256": "7b509de8748897c46eb34bae27ec36c632eb626dfa37d20136cabfd54ff4801b",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/src/app/process.py",
       "target": "src/scriba/app/process.py",
       "sha256": "6bc49dbd7c3201f03a3d313c16987dd2b421899baff6d773ae3a1e1f72fbe2a2",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
+    },
+    {
+      "source": "comune/src/app/settings.py",
+      "target": "src/scriba/app/settings.py",
+      "sha256": "f98028c556d05c786ece546e72f7638704e20239b9e5b5d4bf48ec31eb05a50f",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/src/app/task.py",
       "target": "src/scriba/app/task.py",
       "sha256": "a6ed643f90f857f8d45b6fc8e613fd398604e3994f7b515cef50e42480ecd72e",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/src/app/updates.py",
       "target": "src/scriba/app/updates.py",
-      "sha256": "4fbeef789c0cd357114976329048de8f4a394bbcd512e7dbdb6c78701521e458",
-      "baseline_version": "7640bd1"
+      "sha256": "f2a6a4df97f0b93ddc6c78f79a7f01dce5c7d329613bc0825e0a983a3a7868ea",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/src/app/win32.py",
       "target": "src/scriba/app/win32.py",
       "sha256": "bab7b6cb37d1be1e7b59972598a6ff1d5eba908a6bb97805a1fd549d310ecd08",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/src/app/wintoast.py",
       "target": "src/scriba/app/wintoast.py",
       "sha256": "a7e3c41ae49f989db66b031fde371aebc0245d8f7f4b8df1b3ce074487d640b3",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/src/core/activity.py",
       "target": "src/scriba/core/activity.py",
       "sha256": "4e0a8115cbb502986f64ccdbd0a02c9fb253e13e9289334ab74224709ffb0d46",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/src/data/atomic.py",
       "target": "src/scriba/data/atomic.py",
       "sha256": "3d35a3f14a1402e0b0028cdaba26adb1b1e77b59a0d8f6b3d92a04c8fdc95340",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/src/data/files.py",
       "target": "src/scriba/data/files.py",
       "sha256": "6d174e4b2ab7a54e5725fa2577300a85fbac91ef76f13c6a899a69cf2151d6c8",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/src/i18n.py",
       "target": "src/scriba/i18n.py",
-      "sha256": "c36fab10baae8d21d886e0f07a42bff4de66a7113c804797fd63a200ed4aaea4",
-      "baseline_version": "7640bd1"
+      "sha256": "8e3bb68628c210e40f0a76a6e59d16d54467a3775987a477186a4c1500bd92b8",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tests/_ceilings.py",
       "target": "tests/_ceilings.py",
       "sha256": "99cc7cdecf1c1c4865240c338f35e604b5e3b0fda572d3ddb41dd89b7de11dde",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tests/_userfolders.py",
       "target": "tests/_userfolders.py",
       "sha256": "3216ed2c8196d46c8befb6a27fed0f49be2d545dd16f48ec2d37919b3e76b263",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tests/test_activity.py",
       "target": "tests/test_activity.py",
       "sha256": "5ae8fa834c92c8a652f8de4dd33fd75a1a100afe2e44f702020959a246b138cc",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tests/test_atomic.py",
       "target": "tests/test_atomic.py",
       "sha256": "dae88b3523d246e4b7ebda27b2ea41d06d1d1884b80fedb0d688acc8c24ea2c5",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tests/test_ceilings.py",
       "target": "tests/test_ceilings.py",
       "sha256": "51eedacbcc8feb2f86b5d5916fc2496ca8837f28e29d682d5130084cfc90b16c",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tests/test_diagnostics.py",
       "target": "tests/test_diagnostics.py",
-      "sha256": "83084c4063f1128b62f5308960cce82574b23d24d391c90deeecb20067627c62",
-      "baseline_version": "7640bd1"
+      "sha256": "89f73e6746397b840651d897e5d60bac8a36bfdfc592df35bd090134decb0ba5",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tests/test_errorlog.py",
       "target": "tests/test_errorlog.py",
       "sha256": "cef22a77d469a3ca98621f4b9e71b22b17bfe744fa625f78dea6217778cb3a45",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tests/test_files.py",
       "target": "tests/test_files.py",
       "sha256": "b89d0bff3ce93b2363eefcb11e9d78ddcaae92756184d36bafb6ba5ebea7d14f",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tests/test_i18n.py",
       "target": "tests/test_i18n.py",
-      "sha256": "cb3d57da964dc87ba7f5a10cb4775632a8b2c81990f5dce1770b17616d1211ad",
-      "baseline_version": "7640bd1"
+      "sha256": "45acd92dcd6873c11551041adecd9519590cb80c433e0679df9a20e66d30a077",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tests/test_impronte.py",
       "target": "tests/test_impronte.py",
       "sha256": "271d05d9b09709f69bd148b8ac4c307d2b9b77d5b5e6ed32dd0ba3f0e82fd6d1",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tests/test_log.py",
       "target": "tests/test_log.py",
-      "sha256": "21cee2168fa28c09dcda6c7a0252ea1d76b3488c03819ddc40a41e0294dc2eff",
-      "baseline_version": "7640bd1"
+      "sha256": "b0c7d1e50a31767a6e8753e0cc937655e6c6c0102c5ae16258666503a998e2dd",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tests/test_minisign.py",
       "target": "tests/test_minisign.py",
       "sha256": "f0603b234348ed64084ea9db9ad8f875a45acf362f54a43c20741d5652a723be",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tests/test_paths.py",
       "target": "tests/test_paths.py",
-      "sha256": "d935b8ebb7a2f94037502d9e28073a783f4d4c456ced77969e54f57d52066b1b",
-      "baseline_version": "7640bd1"
+      "sha256": "cb0552e62bce974f9efa6d3aac8d980878d3b8faecc1b492731af45afa80cbbf",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tests/test_process.py",
       "target": "tests/test_process.py",
       "sha256": "ac6f3763fbf42a12c9da9f1036dbc01fa07ace8a15ac42586dcdf0a1e5ba4576",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
+    },
+    {
+      "source": "comune/tests/test_settings.py",
+      "target": "tests/test_settings.py",
+      "sha256": "5271aab54d391b2019042ecdf64563d25271228d6591d4204e23f8def4bffa4e",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tests/test_strati.py",
       "target": "tests/test_strati.py",
       "sha256": "620c40b9f825472da497828f4d3c2bd074c768d81b49669056a7a2a456c8cf5a",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tests/test_task.py",
       "target": "tests/test_task.py",
       "sha256": "e7c540f53f03d0189c28bb4efe32cdd663064b102c466d1cac57793dea8709e2",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
+    },
+    {
+      "source": "comune/tests/test_tool_compile_po.py",
+      "target": "tests/test_tool_compile_po.py",
+      "sha256": "175838f3e441e4b07ab6cf4dd4f292ff3722912b9e55de37fbf8a77ea51cec69",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
+    },
+    {
+      "source": "comune/tests/test_tool_flatpak_repo_files.py",
+      "target": "tests/test_tool_flatpak_repo_files.py",
+      "sha256": "abd2066c87038489a318a2af78194ace99da0a1e44f1c674e025fee5cf4854f4",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
+    },
+    {
+      "source": "comune/tests/test_tool_make_ico.py",
+      "target": "tests/test_tool_make_ico.py",
+      "sha256": "80b65868e9d560cb48ac749f7a033bafff7dabeafa431328f8f8965c42a6f048",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
+    },
+    {
+      "source": "comune/tests/test_tool_make_icons.py",
+      "target": "tests/test_tool_make_icons.py",
+      "sha256": "135afe7ec8737f8141e97cc91bb080b4c00a18fe4d253768f5d57a1db400d743",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
+    },
+    {
+      "source": "comune/tests/test_tool_release_notes.py",
+      "target": "tests/test_tool_release_notes.py",
+      "sha256": "68d2d910eee0ce6fc508f9b5f0652cc5ad837935e4726becb60ac9807fc7845e",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tests/test_tool_run_tests.py",
       "target": "tests/test_tool_run_tests.py",
       "sha256": "1dee09549f7478a6f229cba1f7c0deca5c03d38a788f3d81c172f04de60cafc0",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tests/test_updates.py",
       "target": "tests/test_updates.py",
-      "sha256": "91e81b68ac7f48ae14f1ad8f009700ac2485ba68d1ea0f0543c2461515c5a912",
-      "baseline_version": "7640bd1"
+      "sha256": "f296562bf63d23989a5eac9925acae1480d65edf9d21bcfcb3249caeac097b60",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tests/test_userfolders.py",
       "target": "tests/test_userfolders.py",
-      "sha256": "c1aed7fcf92dcc6cd12dc4fed3265f14c27f75ea90b3dfdc9f38638b6a85c660",
-      "baseline_version": "7640bd1"
+      "sha256": "e0c292b6185537e2b1d6fd00b5644a23acf4c3d0a2462d516bca170be1692a74",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tests/test_win32.py",
       "target": "tests/test_win32.py",
       "sha256": "d7d112b90d7e5c79d1fd8c9cc345482aeb7f0e38ad95c79ff0af37b001c36394",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tests/test_wintoast.py",
       "target": "tests/test_wintoast.py",
-      "sha256": "43bdf6fb068fe83c2c8e6a68c34cb9ab01c0eb3a7154887cc7b04dc0485a95ff",
-      "baseline_version": "7640bd1"
+      "sha256": "c3f7a337537f1f9a20f5ba6a492f2e18ed56179158afc52d1f3fc95560700631",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
+    },
+    {
+      "source": "comune/tools/compile_po.py",
+      "target": "tools/compile_po.py",
+      "sha256": "80470ac15f94301eb20af2d7555c54863831a2969d8bef1f6c8b01c02760e834",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
+    },
+    {
+      "source": "comune/tools/flatpak_repo_files.py",
+      "target": "tools/flatpak_repo_files.py",
+      "sha256": "d9f499c15d0455787661582042cdf8b60bcd814c6840c6b9c10cd6dfa4c0ac96",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
+    },
+    {
+      "source": "comune/tools/make_ico.py",
+      "target": "tools/make_ico.py",
+      "sha256": "0cf55f9bf0dcfcf2fbedc8d0d72cbfb2f5805be405b8485e8629157d774c9c9b",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
+    },
+    {
+      "source": "comune/tools/make_icons.py",
+      "target": "tools/make_icons.py",
+      "sha256": "993ad1dbf533e70c57b392b547dbbc7e0088c34e2628be5ea7c770f41ee731af",
+      "baseline_version": "794de8133ee49599170a66a51d8a18b36e4c7261"
+    },
+    {
+      "source": "comune/tools/release_notes.py",
+      "target": "tools/release_notes.py",
+      "sha256": "a519bc43a64e793f3accb1eff0cd795ef9fca0488022c1fedd19c0c4d003ccf8",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
+    },
+    {
+      "source": "comune/tools/ruff.toml",
+      "target": "tools/ruff.toml",
+      "sha256": "fba65352bf9b0556e43b782e36848d3b2b14044876e68448474c44dc8f431e98",
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     },
     {
       "source": "comune/tools/run_tests.py",
       "target": "tools/run_tests.py",
       "sha256": "1497654ea569f3b6aad1b4fff73ec2852b887eee1b3316268d998bf4b4c5fa8f",
-      "baseline_version": "7640bd1"
+      "baseline_version": "acdd9c633c210b328f0fa5cd4058f38b0f7317ee"
     }
   ]
 }

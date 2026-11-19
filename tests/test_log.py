@@ -12,17 +12,22 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import _setup
 
 log = _setup.shared("app.log")
 
 
-class StderrOnly(unittest.TestCase):
-    """setup(name) alone, as an app with errorlog.py calls it."""
-
+class LoggingTestCase(unittest.TestCase):
     def setUp(self):
-        self.addCleanup(log.setup, "app")
+        self.enterContext(mock.patch.multiple(log, _name=log._name, _file=log._file, _tell=log._tell))
+        self.enterContext(mock.patch.object(sys, "excepthook", sys.excepthook))
+        self.enterContext(mock.patch.object(threading, "excepthook", threading.excepthook))
+
+
+class StderrOnly(LoggingTestCase):
+    """setup(name) alone, as an app with errorlog.py calls it."""
 
     def test_a_complaint_says_the_name_where_and_what_then_its_traceback(self):
         log.setup("my-app")
@@ -52,19 +57,13 @@ class StderrOnly(unittest.TestCase):
             self.assertEqual(os.listdir(tmp), [])
 
 
-class File(unittest.TestCase):
+class File(LoggingTestCase):
     def setUp(self):
-        self.hook = sys.excepthook
-        self.thread_hook = threading.excepthook
+        super().setUp()
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.file = Path(tmp.name) / "state" / "my-app.log"
         self.enterContext(contextlib.redirect_stderr(io.StringIO()))    # stderr is not this test's output
-
-    def tearDown(self):
-        sys.excepthook, threading.excepthook = self.hook, self.thread_hook
-        log.setup("app")
-        log.tell_with(None)
 
     def test_a_complaint_goes_to_the_file_with_its_traceback(self):
         log.setup("my-app", self.file)
@@ -115,6 +114,31 @@ class File(unittest.TestCase):
         log.setup("my-app", None)
         log.complain("quiet", ValueError("x"))           # no exception, no file
         self.assertIsNone(log.file())
+
+
+class Isolation(unittest.TestCase):
+    def test_the_suite_preserves_the_callers_logging_in_both_orders(self):
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stderr(io.StringIO()), \
+                mock.patch.multiple(log, _name=log._name, _file=log._file, _tell=log._tell), \
+                mock.patch.object(sys, "excepthook", sys.excepthook), \
+                mock.patch.object(threading, "excepthook", threading.excepthook):
+            path = Path(tmp) / "product.log"
+            messages = []
+            for order in ((StderrOnly, File), (File, StderrOnly)):
+                log.setup("product", path)
+                log.install_excepthook(messages.append)
+                hooks = sys.excepthook, threading.excepthook
+                log.note("before")
+                suite = unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(cls) for cls in order)
+                result = unittest.TestResult()
+                suite.run(result)
+                self.assertTrue(result.wasSuccessful(), (result.errors, result.failures))
+                self.assertEqual((sys.excepthook, threading.excepthook), hooks)
+                self.assertEqual(log.file(), path)
+                sys.excepthook(ValueError, ValueError("after suites"), None)
+                log.note("after")
+            self.assertEqual(messages, ["ValueError: after suites"] * 2)
+            self.assertEqual(path.read_text(encoding="utf-8").count("product: after"), 2)
 
 
 if __name__ == "__main__":

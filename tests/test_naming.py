@@ -7,6 +7,12 @@ from scriba.core.segments import Segment
 
 
 class NamingTest(unittest.TestCase):
+    def test_automatic_names_require_strong_overlap_and_no_competing_voice(self):
+        lines = [Segment(0, 20, "hello", "A"), Segment(20, 26, "yes", "B")]
+        self.assertEqual(naming.automatic(lines, [("Ada", 0, 19)]), {"A": "Ada"})
+        self.assertEqual(naming.automatic(lines, [("Ada", 0, 16)]), {})
+        self.assertEqual(naming.automatic(lines, [("Ada", 0, 26)]), {})
+
     def test_names_follow_overlap_and_exclude_the_microphone(self):
         lines = [Segment(0, 10, "hello", "Speaker 1"), Segment(12, 22, "yes", "Speaker 2"),
                  Segment(24, 34, "me", "Speaker 3")]

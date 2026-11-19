@@ -252,7 +252,7 @@ def install_recorder(backend, devices=DEVICES, levels=None, closed=(), failed=No
         backend.recorders.append(made)
         return made
 
-    def finish(takes, folder, stem, cancelled=None, progress=None):
+    def finish(takes, folder, stem, cancelled=None, progress=None, *, elapsed=0.0, mix_progress=None):
         joined = Path(folder) / f"{stem}.mka"
         joined.write_bytes(b"made up")
         for take in takes:

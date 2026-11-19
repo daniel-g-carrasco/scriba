@@ -5,6 +5,32 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 are `0.x` while the app evolves. Stable Windows and Linux packages are
 available from GitHub Releases. Linux Flatpak builds and runtime checks use GNOME Platform 50. The app's metainfo carries a shorter description.
 
+## [Unreleased]
+
+### Added
+- While making the listening copy, Scriba shows the current track and how
+  much audio it has processed.
+- When Teams observations are enabled, Scriba can show a notice when a
+  previously detected meeting appears to end.
+- Strong, unambiguous Teams matches can name voices in the first transcript.
+- Scriba proposes an editable meeting title from Teams or the transcript.
+  New exports use the date and title, including their folder when Scriba
+  chooses the destination automatically.
+
+### Changed
+- The balance slider changes the listening preview during playback. The
+  play and stop button keeps the same width.
+
+### Fixed
+- At the end of a recording, intervals muted in the call or switched off in Scriba
+  are grouped in one notice per track and reason.
+- Recording banners and other interface text display apostrophes, ampersands and
+  angle brackets correctly, including in device names and paths.
+- Tracks that run far past the recording clock are shortened in the joined
+  recording and its listening copy. Scriba keeps the original tracks separately.
+- Choosing My Voice can save your name in Preferences from the result page.
+- The Windows installer uses the Scriba icon in its header.
+
 ## [0.1.7] - 2026-11-18
 
 ### Changed

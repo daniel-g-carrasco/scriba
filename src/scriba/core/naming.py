@@ -57,6 +57,22 @@ def propose(lines, named, microphone: str = "", minimum_share: float = MIN_SHARE
     return out
 
 
+def automatic(lines, named, microphone: str = "") -> dict[str, str]:
+    """Assign only well-observed names without a competing voice."""
+    voices = {}
+    for line in lines:
+        if line.speaker and line.speaker != microphone:
+            voices.setdefault(line.speaker, []).append(line)
+    candidates = {}
+    competing = {}
+    for key, own in voices.items():
+        for proposal in propose(own, named, microphone).values():
+            competing.setdefault(proposal.name.casefold(), set()).add(key)
+            if proposal.seconds >= 12 and proposal.share >= 0.85:
+                candidates[key] = proposal.name
+    return {key: name for key, name in candidates.items() if len(competing[name.casefold()]) == 1}
+
+
 # Conservative proposal thresholds, not automatic identity decisions.
 # A cosine distance <= .15 suggests a split voice; >= .35 suggests distinct
 # voices. The undecided band deliberately leaves names blank. AMI validation

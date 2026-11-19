@@ -38,6 +38,16 @@ from scriba.gui.window import MainWindow  # noqa: E402
 VIDEO = ffmpeg.Media(3725.0, 1, True, 0)
 
 
+def label_texts(widget):
+    """GTK's displayed text, after any Pango parsing."""
+    if isinstance(widget, Gtk.Label):
+        yield widget.get_text()
+    child = widget.get_first_child()
+    while child is not None:
+        yield from label_texts(child)
+        child = child.get_next_sibling()
+
+
 class TestApp(app_mod.App):
     """The application, never run: its folders in a temporary place, its
     saves counted, the engines made up, so that the window has the
@@ -646,6 +656,48 @@ class WindowTest(unittest.TestCase):
         self.assertEqual(len(named), 1)
         self.assertEqual(len(window.result._shown_outputs & set(named)), 1)
 
+    def test_choosing_my_voice_asks_for_a_name_and_saves_it_in_preferences(self):
+        from scriba.app import config
+
+        window = self.result_window()
+        page = window.result
+        presented = []
+        with mock.patch.object(Adw.AlertDialog, "present", lambda dialog, parent: presented.append((dialog, parent))):
+            page.my_voice.set_selected(1)
+        (dialog, parent), = presented
+        self.assertIs(parent, window)
+        self.assertEqual(page.result.me, "")
+        entry = dialog.get_extra_child().get_row_at_index(0)
+        self.assertIsInstance(entry, Adw.EntryRow)
+        entry.set_text("  ")
+        self.assertFalse(dialog.get_response_enabled("save"))
+        entry.set_text("  Anna   Rossi  ")
+        self.assertTrue(dialog.get_response_enabled("save"))
+        with mock.patch.object(self.app, "save_config", lambda: app_mod.App.save_config(self.app)):
+            dialog.emit("response::save", "save")
+        self.assertEqual(page.result.me, "Speaker 1")
+        self.assertEqual(page.entries["Speaker 1"].get_text(), "Anna Rossi")
+        self.assertEqual(config.load(self.app.paths.config_file).my_name, "Anna Rossi")
+
+    def test_cancelling_the_my_name_prompt_restores_the_previous_voice(self):
+        self.app.cfg.my_name = ""
+        made = fake_engines.made_result(self.out, self.recording, fake_engines.lines(2, 4, 0))
+        made.me, made.names = "Speaker 1", {"Speaker 1": "Io", "Speaker 2": "Anna"}
+        window = self.window()
+        window.show_result(made, jobs.Request(self.recording))
+        page = window.result
+        presented = []
+        with mock.patch.object(Adw.AlertDialog, "present", lambda dialog, _parent: presented.append(dialog)):
+            page.my_voice.set_selected(2)
+            dialog, = presented
+            dialog.emit("response::cancel", "cancel")
+            self.assertEqual(len(presented), 1)
+        self.assertEqual(page.my_voice.get_selected(), 1)
+        self.assertEqual(made.me, "Speaker 1")
+        self.assertEqual(page.names(), made.names)
+        self.assertEqual(self.app.cfg.my_name, "")
+        self.assertEqual(self.app.saved, 0)
+
     def test_a_saved_anonymous_microphone_stays_anonymous_when_reopened(self):
         from scriba.app import jobs
         made = fake_engines.made_result(self.out, self.recording, fake_engines.lines(2, 4, 0))
@@ -750,48 +802,69 @@ class WindowTest(unittest.TestCase):
         self.assertIn("original recording is missing", said[0])
         self.assertTrue(page.balance_button.get_sensitive())
 
-    def test_the_balance_preview_plays_the_sliders_balance_and_the_same_button_stops_it(self):
+    def test_moving_the_balance_during_preview_preparation_does_not_cancel_it(self):
+        made = fake_engines.made_result(self.out, self.recording, fake_engines.lines(2, 4, 0))
+        window = self.window()
+        window.show_result(made, jobs.Request(self.recording))
+        page = window.result
+        with mock.patch.object(page, "_preview_worker") as prepare:
+            page.preview_button.emit("clicked")
+            cancelled = page._listen_cancel
+            page.balance_scale.set_value(0.5)
+            self.assertFalse(cancelled.is_set())
+            prepare.assert_called_once()
+            page.stop()
+            self.assertTrue(cancelled.is_set())
+
+    def test_the_balance_preview_keeps_playing_as_the_slider_changes_and_keeps_its_button_width(self):
         import numpy as np
-        from scriba.app.engines import audio
-        from scriba.app.preview import Clip
+
+        from scriba.app.preview import BalanceClip
+        from scriba.app.recording import PREVIEW_RATE
         from scriba.i18n import _
         made = fake_engines.made_result(self.out, self.recording, fake_engines.lines(2, 4, 0))
         self.engines.balanceable = True
         window = self.window()
         window.show_result(made, jobs.Request(self.recording))
         page = window.result
+        self.addCleanup(page.stop)
         self.assertTrue(_setup.spin(lambda: page.balance_group.get_visible()))
         before = sorted(p.name for p in self.out.iterdir())
         asked = []
 
-        def balance_preview(result, balance, cancelled):        # the player's file, never the user's
-            asked.append((result, balance))
-            folder = Path(tempfile.mkdtemp(prefix="scriba-preview-", dir=self.tmp))
-            audio.write(folder / "preview.wav", np.zeros(audio.RATE, np.int16))
-            return Clip(folder / "preview.wav", 1.0)
+        def balance_preview(result, cancelled):
+            asked.append(result)
+            silence = np.zeros(PREVIEW_RATE, dtype=np.float32)
+            return BalanceClip(silence, silence)
 
         def playing():
-            return page.media is not None and page.media.is_prepared()
+            return page._balance_player is not None and page._balance_player._position > 0
 
+        def button_label():
+            return page.preview_content.get_visible_child().get_label()
+
+        width = page.preview_button.measure(Gtk.Orientation.HORIZONTAL, -1)[:2]
         with mock.patch.object(self.engines, "balance_preview", balance_preview):
             page.balance_scale.set_value(-0.5)
             page.preview_button.emit("clicked")
             self.assertTrue(_setup.spin(playing))
-            self.assertEqual(asked, [(made, -0.5)])
-            self.assertEqual(page.preview_content.get_label(), _("Stop the Preview"))
-            clip = Path(page.media.get_file().get_path())
-            page.preview_button.emit("clicked")                 # the same button stops it
-            self.assertIsNone(page.media)
-            self.assertEqual(page.preview_content.get_label(), _("Listen to a Preview"))
-            self.assertTrue(_setup.spin(lambda: not clip.parent.exists()))
+            self.assertEqual(asked, [made])
+            self.assertEqual(button_label(), _("Stop the Preview"))
+            player = page._balance_player
+            self.assertEqual(player._previous, -0.5)
+            at = player._position
+            page.balance_scale.set_value(0.25)
+            self.assertTrue(_setup.spin(lambda: player._previous == 0.25 and player._position > at))
+            self.assertIs(page._balance_player, player)
+            self.assertEqual(page.preview_button.measure(Gtk.Orientation.HORIZONTAL, -1)[:2], width)
+            self.assertEqual(asked, [made])
+            page.preview_button.emit("clicked")
+            self.assertIsNone(page._balance_player)
+            self.assertEqual(button_label(), _("Listen to a Preview"))
             page.preview_button.emit("clicked")
             self.assertTrue(_setup.spin(playing))
-            page.balance_scale.set_value(0.25)                  # a new balance: the old preview stops
-            self.assertIsNone(page.media)
-            page.preview_button.emit("clicked")                 # and the next one is made with it
-            self.assertTrue(_setup.spin(playing))
-            self.assertEqual(asked[-1], (made, 0.25))
-            page.stop()
+            self.assertTrue(_setup.spin(lambda: page._balance_player is None))
+            self.assertEqual(button_label(), _("Listen to a Preview"))
         self.assertEqual(sorted(p.name for p in self.out.iterdir()), before)
 
     def test_my_name_preference_reaches_new_transcriptions(self):
@@ -901,6 +974,30 @@ class WindowTest(unittest.TestCase):
             window.present()
             _setup.spin(lambda: False, 0.3)
         check.assert_not_called()                   # not started: no request to GitHub from the tests
+
+    def test_punctuation_is_displayed_literally_in_english_and_italian(self):
+        window = self.window()
+        window.present()
+        italian = gettext.translation(TEXTDOMAIN, _setup.ROOT / "locale", languages=["it"])
+        samples = [(gettext.NullTranslations(), """Computer's "sound" & <b>voice</b>"""),
+                   (italian, """L'audio "del computer" & <b>voce</b>""")]
+        for catalogue, sample in samples:
+            with self.subTest(language=catalogue.info().get("language", "en")), \
+                    mock.patch.object(i18n, "_translation", catalogue):
+                window.record._banner(sample)
+                self.assertIn(sample, label_texts(window.record.banner))
+
+                toast_text = f"Scriba · {sample}"
+                with mock.patch.object(window.toasts, "add_toast", wraps=window.toasts.add_toast) as add_toast:
+                    window.toast(toast_text)
+                self.assertTrue(_setup.spin(lambda expected=toast_text: expected in label_texts(window.toasts), 3))
+                add_toast.call_args.args[0].dismiss()
+                self.assertTrue(_setup.spin(lambda expected=toast_text: expected not in label_texts(window.toasts), 3))
+
+                notes = f"### {sample}\n- {sample}\n"
+                dialog = UpdateDialog(updates.Release("99.0.0", "https://example/release", notes, []))
+                self.assertIn(sample, label_texts(dialog.note_groups[0]))
+                self.assertIn(sample, label_texts(dialog.note_rows[0]))
 
     def test_the_update_dialog(self):
         notes = ("### Fixed\n- One thing that goes on\n  for two lines.\n\n### Added\n- Another.\n\n"
@@ -1137,13 +1234,24 @@ class RecordPageTest(unittest.TestCase):
 
     def test_the_banner_says_the_microphone_hears_the_computer_while_it_does(self):
         from scriba.core import echo, levels
+        from scriba.gui.record import alert_words
+
         window = self.window()
         page, recorder = self.recording(window)
-        recorder.alerts = (levels.Alert(echo.ECHO, "", 0.0),)
+        alert = levels.Alert(echo.ECHO, "", 0.0)
+        recorder.alerts = (alert,)
         self.assertTrue(_setup.spin(lambda: page.banner.get_revealed(), 5))
         self.assertIn("sound: with earphones the transcript comes out better", page.banner.get_title())
+        self.assertIn(alert_words(alert, {}), list(label_texts(page.banner)))
         recorder.alerts = ()
         self.assertTrue(_setup.spin(lambda: not page.banner.get_revealed(), 5))
+        italian = gettext.translation(TEXTDOMAIN, _setup.ROOT / "locale", languages=["it"])
+        with mock.patch.object(i18n, "_translation", italian):
+            recorder.alerts = (alert,)
+            self.assertTrue(_setup.spin(lambda: page.banner.get_revealed(), 5))
+            expected = alert_words(alert, {})
+            self.assertIn("l'audio del computer", expected)
+            self.assertIn(expected, label_texts(page.banner))
         page.stop_button.emit("clicked")
         self.assertTrue(_setup.spin(lambda: not page.busy, 5))
 

@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+required-version = ">=0.17.0,<0.18"
+target-version = "py311"
+
+[lint]
+select = ["F", "E9", "B"]

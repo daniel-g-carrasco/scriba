@@ -4,6 +4,7 @@
 paths, settings), the slow part (the room the files take), the sizes said
 for a person."""
 
+import configparser
 import tempfile
 import unittest
 from pathlib import Path
@@ -50,6 +51,20 @@ class DiagnosticsTest(unittest.TestCase):
         line = [x for x in diagnostics.summary("My App", "0", settings(), self.paths, "").splitlines()
                 if x.startswith("errors:")]
         self.assertEqual(line, [f"errors: {path}"])
+
+    def test_ini_settings_show_the_effective_path_and_do_not_require_notices(self):
+        paths = Paths(self.paths.config, self.paths.state, self.paths.data, config_name="settings.ini")
+        paths.config.mkdir()
+        paths.config_file.write_text("[Preferences]\ntheme=light\nlanguage=it\nupdates=yes\n", encoding="utf-8")
+        ini = configparser.ConfigParser()
+        ini.read(paths.config_file, encoding="utf-8")
+        config = ini["Preferences"]
+        prefs = diagnostics.Preferences(config["theme"], config["language"], config.getboolean("updates"))
+        text = diagnostics.summary("My App", "0", prefs, paths, "")
+        self.assertIn(f"settings: {paths.config / 'settings.ini'}", text)
+        self.assertIn("preferences: theme 'light', language 'it', check updates True", text)
+        self.assertFalse((paths.config / "config.json").exists())
+        self.assertIn("check updates None", diagnostics.summary("My App", "0", diagnostics.Preferences(), paths, ""))
 
     def test_what_the_settings_file_said_when_it_was_read(self):
         notice = SimpleNamespace(kind="recovered", detail="config.json.broken-1", reason="JSONDecodeError")

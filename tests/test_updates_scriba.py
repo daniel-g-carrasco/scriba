@@ -18,7 +18,7 @@ import _setup
 from test_minisign import PAYLOAD, SIGNED_V9, digest_of
 
 from scriba import PUBLIC_KEY as PROJECT_KEY, SLUG     # the real key: the tests sign with a key of their own
-from scriba.app import minisign, services, updates
+from scriba.app import minisign, services, update_release, updates
 
 DOWNLOADS = f"https://github.com/daniel-g-carrasco/{SLUG}/releases/download/v0.4.0/"
 SETUP_NAME = f"{SLUG}-setup-v0.4.0-windows-x64.exe"
@@ -51,7 +51,7 @@ class ProjectTest(unittest.TestCase):
 
 
 class ReleaseWebFallbackTest(unittest.TestCase):
-    def check(self, status, *, checksum=None, signature=True, redirect=None):
+    def check(self, status, *, checksum=None, signature=True, redirect=None, italian=None):
         latest = PROJECT.releases_url + "/latest"
         assets = PROJECT.releases_url + "/expanded_assets/v0.4.0"
         installer = DOWNLOADS + SETUP_NAME
@@ -60,12 +60,20 @@ class ReleaseWebFallbackTest(unittest.TestCase):
         listing = f'<li><a href="{path}">{SETUP_NAME}</a><span>sha256:{checksum}</span></li>'
         if signature:
             listing += f'<li><a href="{path}.minisig">{SETUP_NAME}.minisig</a></li>'
+        if italian is not None:
+            notes_url = DOWNLOADS + updates.ITALIAN_NOTES
+            notes_path = notes_url.removeprefix("https://github.com")
+            digest = hashlib.sha256(italian).hexdigest()
+            listing += f'<li><a href="{notes_path}">Italian</a><span>sha256:{digest}</span></li>'
         responses = {
             latest: (redirect or RELEASE["html_url"], b""),
             assets: (assets, listing.encode()),
             installer: (installer, PAYLOAD),
             installer + ".minisig": (installer + ".minisig", SIGNED_V9.encode()),
         }
+
+        if italian is not None:
+            responses[notes_url] = (notes_url, italian)
 
         def get(request, **_kwargs):
             if request.full_url == PROJECT.latest_release_api:
@@ -78,7 +86,7 @@ class ReleaseWebFallbackTest(unittest.TestCase):
     def test_api_limits_fall_back_to_the_latest_page_and_its_signed_installer(self):
         for status in (403, 429):
             with self.subTest(status=status), self.check(status):
-                release = updates.latest_release(PROJECT)
+                release = update_release.latest_release(PROJECT)
                 self.assertEqual((release.version, release.url), ("0.4.0", RELEASE["html_url"]))
                 installer = updates.installer_of(PROJECT, release)
                 self.assertIsNotNone(installer)
@@ -86,24 +94,32 @@ class ReleaseWebFallbackTest(unittest.TestCase):
                 self.assertEqual(installer.signature_url, DOWNLOADS + SETUP_NAME + ".minisig")
                 self.assertEqual(installer.sha256, hashlib.sha256(PAYLOAD).hexdigest())
 
+    def test_the_web_fallback_discovers_notes_for_the_same_tag(self):
+        italian = b"<!-- release-notes: it v0.4.0 -->\n\n### Correzioni\n- Il lavoro rimane salvato."
+        with self.check(403, italian=italian):
+            release = update_release.latest_release(PROJECT)
+            local = updates.with_localized_notes(PROJECT, release, "it")
+        self.assertEqual(local.tag, "v0.4.0")
+        self.assertEqual(updates.notes_sections(local.notes), [("Correzioni", ["Il lavoro rimane salvato."])])
+
     def test_another_status_or_a_foreign_redirect_does_not_produce_a_release(self):
         with self.check(500), self.assertRaisesRegex(updates.UpdateError, "500"):
-            updates.latest_release(PROJECT)
+            update_release.latest_release(PROJECT)
         with self.check(403, redirect="https://example.com/releases/tag/v0.4.0"), \
                 self.assertRaises(updates.UpdateError):
-            updates.latest_release(PROJECT)
+            update_release.latest_release(PROJECT)
 
     def test_without_both_metadata_items_only_the_release_page_is_offered(self):
         for metadata in ({"checksum": ""}, {"signature": False}):
             with self.subTest(**metadata), self.check(403, **metadata):
-                release = updates.latest_release(PROJECT)
+                release = update_release.latest_release(PROJECT)
                 self.assertEqual(release.url, RELEASE["html_url"])
                 self.assertIsNone(updates.installer_of(PROJECT, release))
 
     def test_fallback_downloads_are_rejected_on_checksum_or_signature_mismatch(self):
         for checksum, error in (("0" * 64, "does not match"), (None, "not signed")):
             with self.subTest(error=error), self.check(403, checksum=checksum), tempfile.TemporaryDirectory() as tmp:
-                installer = updates.installer_of(PROJECT, updates.latest_release(PROJECT))
+                installer = updates.installer_of(PROJECT, update_release.latest_release(PROJECT))
                 dest = Path(tmp) / SETUP_NAME
                 with self.assertRaisesRegex(updates.UpdateError, error):
                     updates.download(PROJECT, installer, dest)

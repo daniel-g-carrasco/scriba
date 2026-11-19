@@ -18,16 +18,17 @@ and on a developer's computer (under MSYS2 UCRT64, after pyinstaller):
    (GnuTLS and its five libraries: the app's HTTPS is Python's own). Not
    cairo's script interpreter, which brings LZO (GPL-2.0-or-later): GTK
    itself imports it (found by the check below, 11/11/2026).
-3. The licences in `_internal/licenses`: the app's own, LICENSES/, and
+3. Test data from numerical libraries and PostScript fonts are omitted.
+4. The licences in `_internal/licenses`: the app's own, LICENSES/, and
    package-owned licence texts identified through the local pacman database.
    PACKAGES.json accounts for the actual TOC inputs, Python modules and GTK
    assets. THIRD-PARTY.md lists the installed metadata and missing texts.
-4. The files that must be there checked one by one: the app, its
+5. The files that must be there checked one by one: the app, its
    engines, GStreamer's plugins, the sample, the licences; and every DLL
    any program or library of the bundle imports, found in the bundle or in
    Windows' own System32 (what `ntldd -R` would say, read with pefile).
    Anything missing fails the step.
-5. The weight: the whole folder and the ten heaviest files.
+6. The weight: the whole folder and the ten heaviest files.
 """
 
 from __future__ import annotations
@@ -80,7 +81,7 @@ REQUIRED = (
     "_internal/licenses/ffmpeg/BUILD.txt", "_internal/licenses/ffmpeg/COPYING.LGPLv2.1",
     *(f"_internal/gst_plugins/libgst{p}.dll" for p in (
         "coreelements", "wasapi2", "audioconvert", "audioresample", "audiorate", "level", "flac", "playback",
-        "typefindfunctions", "isomp4", "matroska", "audioparsers", "mediafoundation", "gio", "d3d12", "audiofx",
+        "typefindfunctions", "isomp4", "matroska", "audioparsers", "mediafoundation", "gio", "d3d12", "audiofx", "app",
         # the echo canceller (app/engines/echo.py): WebRTC's, its library and its licence (BSD-3-Clause)
         "webrtcdsp", "interleave", "wavenc", "wavparse")),
     "_internal/libwebrtc-audio-processing-1-3.dll", "_internal/libgstbadaudio-1.0-0.dll",
@@ -145,6 +146,23 @@ def loaders(internal: Path) -> list[str]:
         for path in unused:
             path.unlink()
             gone.append(path.name)
+
+
+def trim_unused_data(internal: Path) -> tuple[int, int]:
+    """Drop numerical test fixtures and PostScript fonts from the staged bundle."""
+    folders = (internal / "share" / "fonts" / "gsfonts",)
+    fixtures = (path for name in ("numpy", "scipy", "sklearn", "joblib")
+                for path in (internal / name).rglob("*")
+                if "tests" in path.relative_to(internal / name).parts[:-1])
+    candidates = [*fixtures, *(path for folder in folders for path in folder.rglob("*"))]
+    root = internal.resolve()
+    count = size = 0
+    for path in candidates:
+        if path.is_file() and path.resolve().is_relative_to(root):
+            count += 1
+            size += path.stat().st_size
+            path.unlink()
+    return count, size
 
 
 def imports(internal: Path) -> dict[Path, list[str]]:
@@ -658,14 +676,22 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("bundle", nargs="?", type=Path, default=ROOT / "dist" / "Scriba")
     parser.add_argument("--toc-dir", type=Path)
+    parser.add_argument("--inventory-revision", help="seal the final bundle for this application commit")
     args = parser.parse_args(argv)
     bundle = args.bundle
     internal = bundle / "_internal"
     themes(internal)
     languages(internal)
     print("taken out:", ", ".join(loaders(internal)))
+    count, size = trim_unused_data(internal)
+    print(f"Removed unused data: {count} files, {size} bytes")
     licences(internal, toc_dir=args.toc_dir)
     missing = check(bundle) + unresolved(internal)
+    if not missing and args.inventory_revision:
+        from scriba_inventory import seal
+
+        manifest = seal(bundle, args.inventory_revision)
+        print(f"Inventory: {len(manifest['files'])} inputs, {len(manifest['issues'])} unresolved records")
     weight(bundle)
     for name in missing:
         print(f"MISSING {name}", file=sys.stderr)

@@ -107,7 +107,7 @@ jobs:
           # MSYS2's Python takes "/" as the separator when MSYSTEM is set; the
           # installed app never has it, so the tests and the window run without
           env -u MSYSTEM python -c "import os, tempfile; print(os.name, repr(os.sep), tempfile.gettempdir())"
-      - run: ruff check --select F,E9,B .
+      - run: ruff check --config tools/ruff.toml .
       - run: python tools/compile_po.py
       - name: Tests
         # blocking: nothing is packaged, let alone released, from a build
@@ -254,7 +254,7 @@ jobs:
         # tools/finish_bundle.py: the same step as a build made by hand;
         # it fails on any file missing (the app, the engines, GStreamer's
         # plugins, the sample, the licences) and says the weight
-        run: python tools/finish_bundle.py dist/Scriba
+        run: python tools/finish_bundle.py dist/Scriba --inventory-revision "$GITHUB_SHA"
       - name: Audit the runtime payload
         run: python tools/pyannote_benchmark.py audit-bundle --bundle dist/Scriba --out runtime-bundle-audit.json
       - name: The command line of the build (engines found in the build, not in MSYS2)
@@ -293,6 +293,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME}"
           case "$VERSION" in v*) ;; *) VERSION=dev ;; esac
           cd dist && zip -qr "scriba-${VERSION}-windows-x64-portable.zip" Scriba
+          python ../tools/package_inventory.py --portable "scriba-${VERSION}-windows-x64-portable.zip"
       - name: Installer (Inno Setup)
         shell: pwsh
         run: |
@@ -435,6 +436,13 @@ jobs:
             --ffmpeg-build "$(cygpath -w "$PWD/build/ffmpeg-lgpl/BUILD.txt")" \
             --ffmpeg-source "$(cygpath -w "$PWD/build/ffmpeg-src/ffmpeg-9.0.2.tar.xz")" \
             --ffmpeg-script "$(cygpath -w "$PWD/tools/build_ffmpeg.sh")"
+          # Seal the association with the binaries from the same Windows job.
+          VERSION="${GITHUB_REF_NAME}"
+          case "$VERSION" in v*) ;; *) VERSION=dev ;; esac
+          setup_version="${VERSION#v}"
+          python tools/scriba_sources_pair.py --bundle dist/Scriba --sources "$sources" \
+            --portable "dist/scriba-${VERSION}-windows-x64-portable.zip" \
+            --installer "dist/scriba-setup-v${setup_version}-windows-x64.exe" --commit "$GITHUB_SHA"
           # Only this public checkout is archived, never local work history.
           git archive --format=tar --prefix=scriba/ --output="$sources/app-source.tar" HEAD
           git rev-parse HEAD > "$sources/SOURCE_COMMIT"
@@ -525,7 +533,7 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           names="$(gh release view "$tag" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')"
           missing=""
-          for wanted in "scriba.flatpak" "scriba.flatpak.minisig" \
+          for wanted in "scriba.flatpak" "scriba.flatpak.minisig" "release-notes.it.md" \
                         "scriba-setup-${tag}-windows-x64.exe" "scriba-setup-${tag}-windows-x64.exe.minisig" \
                         "scriba-${tag}-windows-x64-portable.zip" "scriba-${tag}-windows-x64-portable.zip.minisig" \
                         "scriba-${tag}-windows-x64-sources.tar.xz" "scriba-${tag}-windows-x64-sources.tar.xz.minisig" \

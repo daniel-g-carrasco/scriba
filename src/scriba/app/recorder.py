@@ -95,7 +95,7 @@ from scriba.i18n import _  # noqa: E402
 
 from .log import complain  # noqa: E402
 from .recording import (ADDED, CALL_ELSEWHERE, DISK_FULL, DISK_LOW, FAILED, FOLLOWED, GONE, OFF, ON,  # noqa: E402
-                        SWITCHED, Event, Meters, Status, Take, file_words)
+                        SWITCHED, TEAMS_ENDED, Event, Meters, Status, Take, file_words)
 from .task import Failure  # noqa: E402
 
 SOURCE = "wasapi2src" if WINDOWS else "pulsesrc"
@@ -409,6 +409,7 @@ class Recorder:
         self.teams_names = False                # enabled by the Windows preference before start
         self.teams_reader = None                # replaceable opener, as for the call indicator
         self._named = spans.Builder()
+        self._meeting_title = ""
         self._teams_state, self._teams_people = "", 0
 
     # -- the tracks ----------------------------------------------------------------
@@ -612,7 +613,11 @@ class Recorder:
             if self._state not in ("recording", "paused"):
                 return
             self._teams_state, self._teams_people = reading.state, reading.people
+            if reading.title:
+                self._meeting_title = reading.title
             at = self.elapsed()
+            if reading.state == "ended":
+                self._events.append(Event(at, TEAMS_ENDED))
             if reading.state == "ready" and self._state == "recording" and "others" not in self._off:
                 self._named.read(at, reading.active)
             else:
@@ -638,6 +643,7 @@ class Recorder:
             named = self._named.finish(self.elapsed())
             for take in self._takes.values():
                 take.named_spans = named
+                take.meeting_title = self._meeting_title
         self._state = "failed" if self._error and self._state == "failed" else "stopped"
 
     def takes(self) -> list[Take]:

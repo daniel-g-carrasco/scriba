@@ -55,6 +55,7 @@ from string import Formatter
 from scriba import PACKAGE_DIR, WINDOWS, __version__
 from scriba.core import callmute, estimate, loudness, naming, segments as seg, speakers, terms as term_lists, timeline, words
 from scriba.core.paragraphs import paragraphs
+from scriba.core.recording import safe
 from scriba.core.subtitles import subtitles as cut_subtitles
 from scriba.data import files, markdown, session as sessions, srt, termfiles, txt
 from scriba.data.timing import clock
@@ -135,6 +136,7 @@ class Request:
     # video): with `out` None the files go in a folder of its own there,
     # with a link to the file (home_folder, link_to); None: output_folder
     home: Path | None = None
+    titled_folder: bool = False         # a new export folder beside Scriba's original recording
 
 
 class Progress:
@@ -227,6 +229,7 @@ class Result:
     proposals: dict[str, naming.Proposal] = field(default_factory=dict)
     diarization: dict = field(default_factory=dict)
     voice_centroids: dict = field(default_factory=dict)
+    meeting_title: str = ""
 
 
 def full_path(path: str | os.PathLike) -> str:
@@ -268,20 +271,21 @@ def elsewhere(source: str | os.PathLike, recordings: str | os.PathLike) -> bool:
     return False
 
 
-def home_folder(source: str | os.PathLike, recordings: str | os.PathLike) -> Path:
+def home_folder(source: str | os.PathLike, recordings: str | os.PathLike, title_stem: str = "") -> Path:
     """The folder in `recordings` for the transcripts of a file kept
     elsewhere: named as the file, the one whose meeting files are of this
     very file when there is one (a new transcription goes with the ones
     before), else the first free name (`name_R01`...)."""
     source, recordings = Path(source), Path(recordings)
+    stem = title_stem or source.stem
     wanted = full_path(source)
     for n in range(files.MAX_REVISIONS + 1):
-        folder = recordings / (source.stem if n == 0 else f"{source.stem}_R{n:02d}")
+        folder = recordings / (stem if n == 0 else f"{stem}_R{n:02d}")
         if not os.path.lexists(folder):
             return folder
         if folder.is_dir() and any(_meeting_of(path) == wanted for path in folder.glob("*.json")):
             return folder
-    raise FileExistsError(f"{recordings / source.stem}: {files.MAX_REVISIONS} folders already there")
+    raise FileExistsError(f"{recordings / stem}: {files.MAX_REVISIONS} folders already there")
 
 
 def _meeting_of(path: Path) -> str:
@@ -318,6 +322,29 @@ def link_to(source: Path, folder: Path) -> list[str]:
 def transcript_stem(source: str | os.PathLike) -> str:
     """The name the files of a transcript share: "<recording>_trascrizione"."""
     return f"{Path(source).stem}_{_('transcript')}"
+
+
+def suggest_meeting_title(teams_title: str, lines, terms) -> str:
+    if teams_title := " ".join(teams_title.split())[:72].rstrip():
+        return teams_title
+    reliable = [" ".join(line.text.split()) for line in lines if not line.doubts]
+    for term in sorted(terms, key=len, reverse=True):
+        term = " ".join(term.split())
+        if term and any(re.search(r"(?<!\w)" + re.escape(term) + r"(?!\w)", text, re.IGNORECASE)
+                        for text in reliable):
+            return term[:72].rstrip()
+    for text in reliable:
+        words = text.split()
+        if len(words) >= 7 and words[0].strip(".,!:").casefold() not in ("ciao", "buongiorno", "hello", "hi"):
+            candidate = " ".join(words[:9])
+            return candidate[:72].rstrip(" .,;:")
+    return ""
+
+
+def titled_stem(title: str, source: Path, when: datetime.datetime) -> str:
+    prefix = re.match(r"^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}[-:]\d{2}[-:]\d{2})?", source.stem)
+    date = prefix.group().replace(":", "-").replace("T", " ") if prefix else when.strftime("%Y-%m-%d %H-%M-%S")
+    return f"{date} {safe(title, limit=72)}"
 
 
 def revisions_folder() -> str:
@@ -508,11 +535,8 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
         raise Failure(_("Models to download first: {names}.").format(names=", ".join(m.filename for m in lacking)),
                       str(models.folder() if models_dir is None else models_dir))
     chosen, notes = given_terms(request)
-    if request.home is not None and request.out is None:
-        folder = home_folder(source, request.home)
-        folder.mkdir(parents=True, exist_ok=True)
-        notes += link_to(source, folder)
-    else:
+    managed = request.home is not None and request.out is None
+    if not managed:
         folder = output_folder(source, request.out)
         folder.mkdir(parents=True, exist_ok=True)
     stages = stages_for(request)
@@ -589,17 +613,31 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
 
         check(cancelled)
         progress.begin("write")
+        named_spans = tuple(dict.fromkeys(s for track in media.tracks for s in track.named_spans))
+        meeting_title = suggest_meeting_title(media.meeting_title, lines, chosen.terms)
+        written_at = datetime.datetime.now()
+        title_stem = titled_stem(meeting_title, source, written_at) if meeting_title else ""
+        if managed:
+            folder = home_folder(source, request.home, title_stem)
+            folder.mkdir(parents=True, exist_ok=True)
+            notes += link_to(source, folder)
+        elif request.titled_folder and title_stem:
+            folder = home_folder(source, folder, title_stem)
+            folder.mkdir(parents=True, exist_ok=True)
+            notes += link_to(source, folder)
         notes += _previous_to_revisions(folder, source)
-        names = {me: " ".join(request.my_name.split()) or "Io"} if me else {}
+        names = naming.automatic(lines, named_spans, me)
+        if me:
+            names[me] = " ".join(request.my_name.split()) or "Io"
         outputs, stem, header = _write(request, source, folder, duration, language, language_probability, used,
-                                       lines, voices, names, chosen.terms)
+                                       lines, voices, names, chosen.terms, written_at=written_at, title_stem=title_stem)
         timings["write"] = progress.finish()
 
         if request.video:
             progress.begin("video")
             if media.video:
                 subtitles = next(o.path for o in outputs if o.kind == "srt")
-                copy = ffmpeg.subtitled_copy(source, subtitles, folder, f"{source.stem}_{_('subtitles')}", language,
+                copy = ffmpeg.subtitled_copy(source, subtitles, folder, f"{title_stem or source.stem}_{_('subtitles')}", language,
                                              media, cancelled)
                 outputs.append(sessions.Output("video", full_path(copy)))
             else:
@@ -610,7 +648,8 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
         timings["total"] = time.perf_counter() - began
         result = Result(outputs, folder / f"{stem}.json", lines, voices, duration, used, timings, notes,
                         source, folder, stem, header, me, listening_copy(source), names)
-        result.named_spans = tuple(dict.fromkeys(s for track in media.tracks for s in track.named_spans))
+        result.named_spans = named_spans
+        result.meeting_title = meeting_title
         from . import voices as voice_service
         result.diarization = voice_details.get("provenance", {"requested":request.diarization_backend,"used":"legacy"})
         result.diarization["normal_turns"] = voice_details.get("normal_turns", [])
@@ -843,15 +882,17 @@ def listening_copy(source: str | os.PathLike) -> Path:
 def _write(request: Request, source: Path, folder: Path, duration: float, language: str,
            language_probability: float | None, device: str, lines: list[seg.Segment],
            voices: int, names: dict[str, str] | None = None,
-           terms: tuple[str, ...] | None = None) -> tuple[list[sessions.Output], str, markdown.Header]:
+           terms: tuple[str, ...] | None = None, *, written_at: datetime.datetime,
+           title_stem: str = "") -> tuple[list[sessions.Output], str, markdown.Header]:
     """The md, txt and srt under one free name (the meeting's own file
     takes it too, at the end); the outputs, the name and the header."""
-    stem = files.free_stem(folder, transcript_stem(source), (".md", ".txt", ".srt", ".json"))
+    base = f"{title_stem}_{_('transcript')}" if title_stem else transcript_stem(source)
+    stem = files.free_stem(folder, base, (".md", ".txt", ".srt", ".json"))
     model = models.WHISPER[request.model]
     header = markdown.Header(source=full_path(source), duration=duration, language=language,
                              language_probability=language_probability,
                              model=model.key.removeprefix("whisper-"), device=device,
-                             when=datetime.datetime.now(),
+                             when=written_at,
                              terms=tuple(request.terms) if terms is None else terms,
                              speakers_engine="diarize" if request.speakers else "",
                              doubtful_share=seg.doubt_warning(lines))
@@ -888,7 +929,8 @@ def _save_session(result: Result, request: Request) -> Path:
                                created=datetime.datetime.now().isoformat(timespec="seconds"), options=options,
                                outputs=list(result.outputs), names=dict(result.names),
                                timings={k: round(v, 3) for k, v in result.timings.items()},
-                               extra={"transcript": _snapshot(result)}, named_spans=result.named_spans)
+                               extra={"transcript": _snapshot(result), "meeting_title": result.meeting_title},
+                               named_spans=result.named_spans)
     return files.write_new(result.folder, result.stem, ".json", sessions.dumps(meeting))
 
 
@@ -975,6 +1017,8 @@ def open_session(path: str | os.PathLike) -> tuple[Result, Request]:
                     options.get("device", "cpu"), dict(meeting.timings), notes, source, path.parent,
                     stem, header, me, Path(listen) if listen else None, dict(meeting.names))
     result.named_spans = meeting.named_spans
+    title = meeting.extra.get("meeting_title", "")
+    result.meeting_title = title if isinstance(title, str) else ""
     from . import voices as voice_service
     result.diarization = options.get("diarization", {"used":"legacy"})
     result.voice_centroids = options.get("voice_centroids", {})
@@ -1002,6 +1046,15 @@ class Named:
 NAMED = ("md-named", "txt-named", "srt-named")
 
 
+def save_meeting_title(result: Result, title: str) -> str:
+    title = " ".join(title.split())[:72].rstrip()
+    meeting = sessions.load(result.session)
+    meeting.extra["meeting_title"] = title
+    sessions.save(meeting, result.session)
+    result.meeting_title = title
+    return title
+
+
 def save_names(result: Result, names: dict[str, str]) -> Named:
     """The files with the names the user gave the voices (Markdown, plain
     text, subtitles), `<transcript>_nomi`, next to the automatic ones, which
@@ -1017,6 +1070,11 @@ def save_names(result: Result, names: dict[str, str]) -> Named:
         raise Failure(_("This transcript cannot be saved again."), "no folder or header in the result")
     folder = Path(result.folder)
     stem = f"{result.stem}_{_('names')}"
+    if result.meeting_title and result.header.when is not None:
+        base = titled_stem(result.meeting_title, result.source or result.session, result.header.when)
+        titled = f"{base}_{_('transcript')}"
+        if not (result.stem == titled or result.stem.startswith(titled + "_R")):
+            stem = files.free_stem(folder, f"{titled}_{_('names')}", (".md", ".txt", ".srt"))
     header = replace(result.header, named=True, doubtful_share=seg.doubt_warning(result.segments))
     shown = speakers.display_names(seg.speakers_of(result.segments), names)
     renamed = speakers.rename(result.segments, names)
@@ -1058,7 +1116,9 @@ def save_balance(result: Result, balance: float) -> Named:
 
     if result.source is None or result.folder is None:
         raise Failure(_("The original recording is missing: a new listening copy cannot be made."), "no source")
-    path = recording.rebalance(result.source, result.folder, result.source.stem, balance)
+    stem = (titled_stem(result.meeting_title, result.source, result.header.when)
+            if result.meeting_title and result.header and result.header.when else result.source.stem)
+    path = recording.rebalance(result.source, result.folder, stem, balance)
     output = sessions.Output("audio-balanced", full_path(path), {"balance": balance})
     result.listen = path
     notes = []

@@ -35,28 +35,33 @@ class Paths:
     state: Path    # what the app remembers between runs (the window's size, logs)
     data: Path     # what the user would miss (documents the app keeps, backups)
     cache: Path | None = None   # what can be made again (downloads); None: next to state
+    config_name: str = "config.json"
 
     @classmethod
-    def from_env(cls, slug: str, exe_name: str, environ=None) -> "Paths":
+    def from_env(cls, slug: str, exe_name: str, environ=None, *,
+                 windows_local_config: bool = False, config_name: str = "config.json") -> "Paths":
         """`slug` names the folders on Linux (~/.config/<slug>), `exe_name`
-        the ones on Windows (%APPDATA%\\<ExeName>)."""
+        the ones on Windows (%APPDATA%\\<ExeName>). Existing local settings
+        can opt into LocalAppData and supply their historical file name."""
         environ = os.environ if environ is None else environ
         if os.name == "nt" and not environ.get("XDG_CONFIG_HOME"):
             # (the XDG variables still win on Windows, for the tests)
             roaming = Path(environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
             local = Path(environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
-            return cls(config=roaming / exe_name, state=local / exe_name / "state", data=local / exe_name / "data",
-                       cache=local / exe_name / "cache")
+            config_base = local if windows_local_config else roaming
+            return cls(config=config_base / exe_name, state=local / exe_name / "state",
+                       data=local / exe_name / "data", cache=local / exe_name / "cache", config_name=config_name)
         return cls(
             config=_xdg("XDG_CONFIG_HOME", ".config", environ) / slug,
             state=_xdg("XDG_STATE_HOME", ".local/state", environ) / slug,
             data=_xdg("XDG_DATA_HOME", ".local/share", environ) / slug,
             cache=_xdg("XDG_CACHE_HOME", ".cache", environ) / slug,
+            config_name=config_name,
         )
 
     @property
     def config_file(self) -> Path:
-        return self.config / "config.json"
+        return self.config / self.config_name
 
     @property
     def window_state_file(self) -> Path:

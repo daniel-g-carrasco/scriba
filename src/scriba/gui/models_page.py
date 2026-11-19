@@ -46,9 +46,9 @@ class ModelsPage(Adw.NavigationPage):
         header.pack_end(window.menu_button())
         view.add_top_bar(header)
         page = Adw.PreferencesPage()
-        group = Adw.PreferencesGroup(title=_("Preparing Transcription"), description=_(
+        group = Adw.PreferencesGroup(title=escape(_("Preparing Transcription")), description=escape(_(
             "These models are needed to transcribe speech. You can record immediately while they download. "
-            "Files are checked before use and stay on this computer."))
+            "Files are checked before use and stay on this computer.")))
         # A group's own box puts no space between widgets that are not rows:
         # the bar, the error and the buttons get it from a box of their own
         # (the button touched the bar: 13/11/2026)
@@ -68,12 +68,12 @@ class ModelsPage(Adw.NavigationPage):
         status.append(buttons)
         page.add(group)
         self.rows = {}
-        base = Adw.PreferencesGroup(title=_("Required for Transcription"))
+        base = Adw.PreferencesGroup(title=escape(_("Required for Transcription")))
         for model in self.downloads.required:
             base.add(self._row(model))
         page.add(base)
-        optional = Adw.PreferencesGroup(title=_("Precise Quality, Optional"), description=_(
-            "A larger, slower model. Download it only if you want to choose Precise for a transcription."))
+        optional = Adw.PreferencesGroup(title=escape(_("Precise Quality, Optional")), description=escape(_(
+            "A larger, slower model. Download it only if you want to choose Precise for a transcription.")))
         row = self._row(models.WHISPER_LARGE)
         self.precise_button = Gtk.Button(label=_("Download"), valign=Gtk.Align.CENTER)
         self.precise_button.connect("clicked", lambda *_: self.download_precise())
@@ -86,11 +86,10 @@ class ModelsPage(Adw.NavigationPage):
         self.refresh(self.downloads.state)
 
     def _row(self, model):
-        row = Adw.ExpanderRow(title=escape(models.purpose(model)))
-        details = Adw.ActionRow(title=_("Source and Licence"), subtitle=escape(
-            f"{site_of(model)} · {model.licence}\n{model.publisher}\n{model.page}"), subtitle_lines=0)
+        row = Adw.ExpanderRow(use_markup=False, title=models.purpose(model))
+        details = Adw.ActionRow(use_markup=False, title=_("Source and Licence"), subtitle=f"{site_of(model)} · {model.licence}\n{model.publisher}\n{model.page}", subtitle_lines=0)
         row.add_row(details)
-        row.add_row(Adw.ActionRow(title=_("File"), subtitle=escape(str(self.backend.models_dir / model.filename)),
+        row.add_row(Adw.ActionRow(use_markup=False, title=_("File"), subtitle=str(self.backend.models_dir / model.filename),
                                   subtitle_lines=0))
         self.rows[model.key] = row
         return row
@@ -103,7 +102,7 @@ class ModelsPage(Adw.NavigationPage):
             status = _("Downloaded") if present else (_("Queued") if model.key in queued else _("Not Downloaded"))
             if state.model_key == model.key and self.downloads.busy:
                 status = progress_text(state)
-            self.rows[model.key].set_subtitle(escape(models.megabytes(model.size) + " · " + status))
+            self.rows[model.key].set_subtitle(models.megabytes(model.size) + " · " + status)
         self.progress.set_text(progress_text(state))
         self.progress.set_fraction(min(1.0, state.done / state.total) if state.total else 0)
         self.progress.set_visible(self.downloads.busy or state.phase in ("paused", "error", "ready"))

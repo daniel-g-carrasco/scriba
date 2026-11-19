@@ -11,13 +11,16 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, Gtk  # noqa: E402
+from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
 from scriba import APP_ID, APP_NAME, WEBSITE, WINDOWS, __version__  # noqa: E402
-from scriba.app import config, credits, diagnostics, jobs, models, recording  # noqa: E402
+from scriba.app import config, credits, jobs, models, recording  # noqa: E402
 from scriba.core import terms  # noqa: E402
 from scriba.i18n import _, ngettext  # noqa: E402
 
+from . import about_widgets  # noqa: E402
+from .secondaries import fit_preferences, header_bars_below, present_secondary  # noqa: E402
+from .sizing import available_size  # noqa: E402
 from .style_values import SPACE_XL  # noqa: E402
 from .ui import (choose_folder, escape, file_dialog_done, recordings_folder, report, run_in_thread,  # noqa: E402
                  toolkit_versions)
@@ -33,45 +36,6 @@ CUSTOM_LICENCES = {"CC-BY-4.0": ("Creative Commons Attribution 4.0 International
 PUBLIC_DOMAIN = ("CC-PDDC",)        # nobody's: no © before the name
 
 
-def preference_size(width, height, available_width, available_height):
-    """Bound the initial content to the actual work area, without a size floor."""
-    return min(width, max(1, available_width)), min(height, max(1, available_height))
-
-
-def _win32_workarea(monitor):
-    # GTK exports this API, but its Windows typelib omits the binding.
-    # Use GTK's own application-pixel work area, including fractional DPI.
-    import ctypes
-
-    class Rectangle(ctypes.Structure):
-        _fields_ = [("x", ctypes.c_int), ("y", ctypes.c_int),
-                    ("width", ctypes.c_int), ("height", ctypes.c_int)]
-    unpack = ctypes.pythonapi.PyCapsule_GetPointer
-    unpack.argtypes = [ctypes.py_object, ctypes.c_char_p]
-    unpack.restype = ctypes.c_void_p
-    gtk = ctypes.CDLL("libgtk-4-1.dll")
-    workarea = gtk.gdk_win32_monitor_get_workarea
-    workarea.argtypes = [ctypes.c_void_p, ctypes.POINTER(Rectangle)]
-    workarea.restype = None
-    area = Rectangle()
-    workarea(unpack(monitor.__gpointer__, None), ctypes.byref(area))
-    return area
-
-
-def _available_size(window):
-    display = window.get_display()
-    surface = window.get_surface()
-    monitor = display.get_monitor_at_surface(surface) if surface is not None else display.get_monitors().get_item(0)
-    if monitor is None:
-        return 600, 640
-    if WINDOWS:
-        area = _win32_workarea(monitor)
-    else:
-        area = monitor.get_geometry()
-    # Space for the native frame, in the same application pixels as GTK.
-    return area.width - 2 * SPACE_XL, area.height - 2 * SPACE_XL
-
-
 class PreferencesDialog(Adw.PreferencesDialog):
     def __init__(self, window, app):
         super().__init__(title=_("Preferences"))
@@ -79,37 +43,35 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self.backend = app.backend
         cfg = app.cfg
         if WINDOWS:
-            width, height = preference_size(600, 640, *_available_size(window))
-            self.set_content_width(width)
-            self.set_content_height(height)
-            self.connect("realize", self._prepare_window)
+            fit_preferences(self, window, lambda parent: available_size(parent, SPACE_XL))
+            self.connect("realize", lambda *_: GLib.idle_add(self._use_native_title))
         page = Adw.PreferencesPage()
 
-        group = Adw.PreferencesGroup(title=_("Appearance"))
+        group = Adw.PreferencesGroup(title=escape(_("Appearance")))
         themes = [("system", _("Follow the System")), ("light", _("Light")), ("dark", _("Dark"))]
-        theme = Adw.ComboRow(title=_("Theme"))
+        theme = Adw.ComboRow(use_markup=False, title=_("Theme"))
         theme.set_model(Gtk.StringList.new([label for _code, label in themes]))
         theme.set_selected(next((i for i, (code, _l) in enumerate(themes) if code == cfg.theme), 0))
         theme.connect("notify::selected", lambda r, _p: self._set_theme(themes[r.get_selected()][0]))
         group.add(theme)
         languages = [("", _("Desktop language")), ("en", "English"), ("it", "Italiano")]
-        language = Adw.ComboRow(title=_("Language"), subtitle=_("Applied at the next start"))
+        language = Adw.ComboRow(use_markup=False, title=_("Language"), subtitle=_("Applied at the next start"))
         language.set_model(Gtk.StringList.new([label for _code, label in languages]))
         language.set_selected(next((i for i, (code, _l) in enumerate(languages) if code == cfg.language), 0))
         language.connect("notify::selected", lambda r, _p: self._set("language", languages[r.get_selected()][0]))
         group.add(language)
         page.add(group)
 
-        group = Adw.PreferencesGroup(title=_("Transcription"))
-        self.my_name = Adw.EntryRow(title=_("My Name"), text=cfg.my_name)
+        group = Adw.PreferencesGroup(title=escape(_("Transcription")))
+        self.my_name = Adw.EntryRow(use_markup=False, title=_("My Name"), text=cfg.my_name)
         self.my_name.connect("changed", lambda row: self._set("my_name", row.get_text()))
         group.add(self.my_name)
-        self.device_row = Adw.ComboRow(title=_("Graphics Card"), subtitle_lines=2)
+        self.device_row = Adw.ComboRow(use_markup=False, title=_("Graphics Card"), subtitle_lines=2)
         self._devices: list[str] = []           # the choices behind the rows: "", names, "cpu"
         self._fill_devices([])
         self.device_row.connect("notify::selected", lambda r, _p: self._chose_device())
         group.add(self.device_row)
-        self.test_row = Adw.ActionRow(title=_("Test of the Graphics Cards"), subtitle_lines=5)
+        self.test_row = Adw.ActionRow(use_markup=False, title=_("Test of the Graphics Cards"), subtitle_lines=5)
         self.test_spinner = Adw.Spinner(visible=False)
         self.test_row.add_suffix(self.test_spinner)
         self.test_button = Gtk.Button(label=_("Test Again"), valign=Gtk.Align.CENTER)
@@ -119,20 +81,20 @@ class PreferencesDialog(Adw.PreferencesDialog):
         handler = window.cards.connect("changed", lambda _test: self._show_test())
         self.connect("closed", lambda *_: window.cards.disconnect(handler))
         self._show_test()
-        self.quality_row = Adw.ComboRow(title=_("Usual Quality"),
+        self.quality_row = Adw.ComboRow(use_markup=False, title=_("Usual Quality"),
                                         model=Gtk.StringList.new([_("Fast"), _("Precise, slower")]))
         self.quality_row.set_selected(QUALITIES.index(cfg.quality) if cfg.quality in QUALITIES else 0)
         self.quality_row.connect("notify::selected", lambda r, _p: self._set("quality", QUALITIES[r.get_selected()]))
         group.add(self.quality_row)
         backends = ("auto", "community", "legacy")
-        self.voice_backend_row = Adw.ComboRow(title=_("Voice Method"), subtitle_lines=2,
+        self.voice_backend_row = Adw.ComboRow(use_markup=False, title=_("Voice Method"), subtitle_lines=2,
             subtitle=_("Automatic uses verified community models when available. The previous method remains available."),
             model=Gtk.StringList.new([_("Automatic"), _("Community"), _("Previous method")]))
         self.voice_backend_row.set_selected(backends.index(cfg.diarization_backend))
         self.voice_backend_row.connect("notify::selected",lambda row,_param:
             self._set("diarization_backend", backends[row.get_selected()]))
         group.add(self.voice_backend_row)
-        self.models_row = Adw.ActionRow(title=_("Speech Models"),
+        self.models_row = Adw.ActionRow(use_markup=False, title=_("Speech Models"),
                                         subtitle=_("Downloads, progress and the optional Precise model"))
         manage = Gtk.Button(label=_("Manage Models"), valign=Gtk.Align.CENTER)
         manage.connect("clicked", lambda *_: self._open_models())
@@ -140,7 +102,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
         group.add(self.models_row)
         unsubscribe = app.downloads.subscribe(lambda _state: self._show_test())
         self.connect("closed", lambda *_: unsubscribe())
-        self.folder_row = Adw.ActionRow(title=_("Usual Folder for the Files"), subtitle_lines=2)
+        self.folder_row = Adw.ActionRow(use_markup=False, title=_("Usual Folder for the Files"), subtitle_lines=2)
         self.folder_reset = Gtk.Button(icon_name="edit-undo-symbolic", tooltip_text=_("Next to the Recording"),
                                        valign=Gtk.Align.CENTER, css_classes=["flat"])
         self.folder_reset.connect("clicked", lambda *_: self._set_folder(""))
@@ -153,7 +115,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
         group.add(self.folder_row)
         self._show_folder()
         self.elsewhere_row = Adw.ComboRow(
-            title=_("Files Kept Elsewhere"), subtitle_lines=3,
+            use_markup=False, title=_("Files Kept Elsewhere"), subtitle_lines=3,
             subtitle=_("The transcripts of a file outside the folder for the recordings, when no usual folder is "
                        "chosen: in a folder of their own there, with a link to the file, or next to it"),
             model=Gtk.StringList.new([_("In Scriba’s Folder"), _("Next to the Original File")]))
@@ -163,16 +125,16 @@ class PreferencesDialog(Adw.PreferencesDialog):
         group.add(self.elsewhere_row)
         page.add(group)
 
-        self.terms_group = Adw.PreferencesGroup(title=_("Terms"))
+        self.terms_group = Adw.PreferencesGroup(title=escape(_("Terms")))
         self.term_rows: list[Adw.ActionRow] = []
-        self.add_terms_row = Adw.ButtonRow(title=_("Add a File of Terms…"), start_icon_name="list-add-symbolic")
+        self.add_terms_row = Adw.ButtonRow(use_markup=False, title=_("Add a File of Terms…"), start_icon_name="list-add-symbolic")
         self.add_terms_row.connect("activated", lambda *_: self._choose_terms_file())
         self.terms_group.add(self.add_terms_row)
         page.add(self.terms_group)
         self._show_term_files()
 
-        group = Adw.PreferencesGroup(title=_("Recording"))
-        self.recordings_row = Adw.ActionRow(title=_("Folder for the Recordings"), subtitle_lines=2)
+        group = Adw.PreferencesGroup(title=escape(_("Recording")))
+        self.recordings_row = Adw.ActionRow(use_markup=False, title=_("Folder for the Recordings"), subtitle_lines=2)
         self.recordings_reset = Gtk.Button(icon_name="edit-undo-symbolic", tooltip_text=_("Back to the Usual Folder"),
                                            valign=Gtk.Align.CENTER, css_classes=["flat"])
         self.recordings_reset.connect("clicked", lambda *_: self._set_recordings(""))
@@ -187,7 +149,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self._show_recordings()
         if WINDOWS:
             self.call_mute_row = Adw.SwitchRow(
-                title=_("Follow the Call’s Mute"), subtitle_lines=3,
+                use_markup=False, title=_("Follow the Call’s Mute"), subtitle_lines=3,
                 subtitle=_("While you are muted in the call, what your microphone hears is recorded but not "
                            "transcribed as yours. Windows 11, for apps that tell Windows, such as Teams; it reads "
                            "Windows’ own words, so it depends on Windows’ language."),
@@ -195,16 +157,16 @@ class PreferencesDialog(Adw.PreferencesDialog):
             self.call_mute_row.connect("notify::active", lambda r, _p: self._set("follow_call_mute", r.get_active()))
             group.add(self.call_mute_row)
             self.teams_names_row = Adw.SwitchRow(
-                title=_("Names from Teams"), active=cfg.teams_names,
+                use_markup=False, title=_("Names from Teams"), active=cfg.teams_names,
                 subtitle=_("Propose voice names from Teams speaker borders during recording. "
                            "Unavailable when Teams is minimized or its picture cannot be read."), subtitle_lines=3)
             self.teams_names_row.connect("notify::active", lambda r, _p: self._set("teams_names", r.get_active()))
             group.add(self.teams_names_row)
         page.add(group)
 
-        group = Adw.PreferencesGroup(title=_("Background"))
+        group = Adw.PreferencesGroup(title=escape(_("Background")))
         background = Adw.SwitchRow(
-            title=_("Keep Running When Closing the Window"),
+            use_markup=False, title=_("Keep Running When Closing the Window"),
             subtitle=_("When a tray icon is available. Choose Quit to stop Scriba."),
             active=cfg.keep_running)
         background.connect("notify::active", lambda row, _prop: self._set("keep_running", row.get_active()))
@@ -212,8 +174,8 @@ class PreferencesDialog(Adw.PreferencesDialog):
         page.add(group)
 
         if WINDOWS:
-            group = Adw.PreferencesGroup(title=_("Updates"))
-            updates = Adw.SwitchRow(title=_("Check for updates automatically"),
+            group = Adw.PreferencesGroup(title=escape(_("Updates")))
+            updates = Adw.SwitchRow(use_markup=False, title=_("Check for updates automatically"),
                                     subtitle=_("When you open or restore the window, Scriba checks GitHub if the "
                                                "last successful check was at least {minutes} minutes ago."
                                                ).format(minutes=config.UPDATE_CHECK_INTERVAL_MINUTES),
@@ -226,6 +188,15 @@ class PreferencesDialog(Adw.PreferencesDialog):
         app._preferences_dialogs.add(self)
         self.connect("closed", self._closed)
         run_in_thread(lambda: self.backend.devices(cancelled=self._devices_cancel), self._devices_ready)
+
+    def _use_native_title(self) -> bool:
+        root = self.get_root()
+        if isinstance(root, Gtk.Window) and root is not self.window:
+            for header in header_bars_below(self, Adw):
+                header.set_title_widget(Gtk.Box())
+                header.set_show_start_title_buttons(False)
+                header.set_show_end_title_buttons(False)
+        return False
 
     def _closed(self, *_args) -> None:
         self.cancel_device_discovery()
@@ -275,7 +246,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
             now = _("the processor")
         else:
             now = measured or _("the card with memory of its own, until the test")
-        self.device_row.set_subtitle(escape(_("Automatic uses the fastest in the test: {now}").format(now=now)))
+        self.device_row.set_subtitle(_("Automatic uses the fastest in the test: {now}").format(now=now))
 
     def _show_test(self) -> None:
         """The test of the cards as it stands: running, failed, or what it
@@ -302,12 +273,12 @@ class PreferencesDialog(Adw.PreferencesDialog):
             text = _("The test runs once the models are downloaded.")
         else:
             text = _("Not tested yet.")
-        self.test_row.set_subtitle(escape(text))
+        self.test_row.set_subtitle(text)
         self._show_automatic()
 
     def _test_again(self) -> None:
         if self.window.record.busy or self.window.transcribe.busy or self.app.downloads.busy:
-            self.add_toast(Adw.Toast(title=escape(_("Work is in progress: test the graphics cards after it finishes.")),
+            self.add_toast(Adw.Toast(use_markup=False, title=_("Work is in progress: test the graphics cards after it finishes."),
                                      timeout=6))
             return
         self.window.cards.start()
@@ -318,13 +289,6 @@ class PreferencesDialog(Adw.PreferencesDialog):
         index = self.device_row.get_selected()
         if 0 <= index < len(self._devices):
             self._set("device", self._devices[index])
-
-    def _prepare_window(self, _dialog):
-        root = self.get_root()
-        if isinstance(root, Gtk.Window) and root is not self.window:
-            root.set_resizable(True)
-            size = preference_size(self.get_content_width(), self.get_content_height(), *_available_size(self.window))
-            root.set_default_size(*size)
 
     def _open_models(self):
         self.close()
@@ -373,7 +337,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
         paths = self.app.cfg.term_file_list()
         self._terms_token = token = object()
         for path in paths:
-            row = Adw.ActionRow(title=escape(os.path.basename(path) or path), subtitle=escape(jobs.full_path(path)),
+            row = Adw.ActionRow(use_markup=False, title=os.path.basename(path) or path, subtitle=jobs.full_path(path),
                                 subtitle_lines=2)
             icon = Gtk.Image(icon_name="text-x-generic-symbolic")
             row.add_prefix(icon)
@@ -399,12 +363,12 @@ class PreferencesDialog(Adw.PreferencesDialog):
             return
         for row, icon, read in zip(self.term_rows, self._term_icons, found, strict=True):
             if read.error:
-                row.set_subtitle(escape(read.error))
+                row.set_subtitle(read.error)
                 icon.set_from_icon_name("dialog-warning-symbolic")
                 icon.add_css_class("warning")
             else:
                 count = ngettext("{n} term", "{n} terms", len(read.terms)).format(n=len(read.terms))
-                row.set_subtitle(escape(f"{count} · {jobs.full_path(read.path)}"))
+                row.set_subtitle(f"{count} · {jobs.full_path(read.path)}")
         chosen = terms.joined((), [f.terms for f in found if not f.error])
         if chosen.left_out:
             self.terms_count = _("Only {used} of these {offered} terms fit in what the engine reads; the meeting’s "
@@ -429,48 +393,45 @@ class PreferencesDialog(Adw.PreferencesDialog):
     def _set_recordings(self, folder: str) -> None:
         refused = recording.unsuitable(folder, recording.own_folders(self.app.paths)) if folder else ""
         if refused:
-            self.add_toast(Adw.Toast(title=escape(refused), timeout=8))
+            self.add_toast(Adw.Toast(use_markup=False, title=refused, timeout=8))
             return
         self._set("recordings_folder", folder)
         self._show_recordings()
 
     def _show_recordings(self) -> None:
-        self.recordings_row.set_subtitle(escape(jobs.full_path(recordings_folder(self.app.cfg))))
+        self.recordings_row.set_subtitle(jobs.full_path(recordings_folder(self.app.cfg)))
         self.recordings_reset.set_visible(bool(self.app.cfg.recordings_folder))
 
     def _show_folder(self) -> None:
         folder = self.app.cfg.output_folder
         shown = jobs.full_path(folder) if folder else _("Next to the recording (the documents folder for a "
                                                         "recording on a server)")
-        self.folder_row.set_subtitle(escape(shown))
+        self.folder_row.set_subtitle(shown)
         self.folder_reset.set_visible(bool(folder))
 
 
-def about_dialog(parent, cfg, paths, present: bool = True) -> Adw.AboutDialog:
-    dialog = Adw.AboutDialog(
-        application_name=APP_NAME, application_icon=APP_ID, version=__version__,
-        developer_name="Daniel Grasso", license_type=Gtk.License.GPL_3_0, website=WEBSITE,
-        issue_url=WEBSITE + "/issues",
-        comments=_("Transcribes recordings of meetings on your own computer, with speakers and subtitles. "
-                   "Nothing leaves the computer: the models are downloaded once, and checked."))
-    # the engines and the models, each with its licence: what they ask to be
-    # said (app/credits.py)
+def _add_credits(dialog):
     for credit in credits.THIRD_PARTY:
         owner = credit.holder if credit.licence in PUBLIC_DOMAIN else f"© {credit.holder}"
         notice = f"{owner}\n{credit.role}: {credit.url}"
         if credit.licence in LICENCES:
-            dialog.add_legal_section(credit.name, notice, LICENCES[credit.licence], None)
+            dialog.add_legal_section(credit.name, escape(notice), LICENCES[credit.licence], None)
         else:
             name, url = CUSTOM_LICENCES.get(credit.licence, (credit.licence, credit.url))
-            dialog.add_legal_section(credit.name, notice, Gtk.License.CUSTOM,
+            dialog.add_legal_section(credit.name, escape(notice), Gtk.License.CUSTOM,
                                      f'{escape(name)}: <a href="{escape(url)}">{escape(url)}</a>')
-    # Troubleshooting: what a report needs, with its Save button; the slow
-    # part (the room the app's folders take) follows, from a thread
-    head = diagnostics.summary(APP_NAME, __version__, cfg, paths, toolkit_versions())
-    dialog.set_debug_info_filename(f"{APP_ID}-debug-info.txt")
-    dialog.set_debug_info(head + "\n" + _("Measuring the space taken by the app's files…"))
-    run_in_thread(lambda: diagnostics.storage(paths),
-                  lambda text, error: dialog.set_debug_info(head + "\n" + (text if error is None else str(error))))
+
+
+def about_dialog(parent, cfg, paths, present: bool = True) -> Adw.AboutDialog:
+    metadata = dict(
+        application_name=APP_NAME, application_icon=APP_ID, version=__version__,
+        developer_name="Daniel Grasso", license_type=Gtk.License.GPL_3_0, website=WEBSITE,
+        issue_url=WEBSITE + "/issues")
+    dialog = about_widgets.about_dialog(
+        metadata, cfg, paths, toolkit_versions(), run_in_thread,
+        debug_filename=f"{APP_ID}-debug-info.txt", add_credits=_add_credits)
+    dialog.set_comments(escape(_("Transcribes recordings of meetings on your own computer, with speakers and subtitles. "
+                                 "Nothing leaves the computer: the models are downloaded once, and checked.")))
     if present:
-        dialog.present(parent)
+        present_secondary(dialog, parent)
     return dialog

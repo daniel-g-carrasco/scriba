@@ -212,6 +212,86 @@ class NoReleaseTest(unittest.TestCase):
             self.assertNotIsInstance(caught.exception, updates.NoRelease)
 
 
+class ReleaseContactTest(unittest.TestCase):
+    def test_http_statuses_count_as_contact(self):
+        for status in (403, 404, 429, 500):
+            error = urllib.error.HTTPError(PROJECT.latest_release_api, status, "", {}, None)
+            with self.subTest(status=status), mock.patch.object(updates, "_get", side_effect=error):
+                with self.assertRaises(updates.NoRelease if status == 404 else updates.UpdateError) as caught:
+                    updates.latest_release(PROJECT)
+                self.assertTrue(caught.exception.http_response)
+
+    def test_transport_failures_have_no_response(self):
+        for error in (urllib.error.URLError("DNS"), urllib.error.URLError("TLS"), TimeoutError()):
+            with self.subTest(error=error), mock.patch.object(updates, "_get", side_effect=error):
+                with self.assertRaises(updates.UpdateError) as caught:
+                    updates.latest_release(PROJECT)
+                self.assertFalse(caught.exception.http_response)
+
+    def test_read_and_payload_failures_count_as_contact(self):
+        for payload in (TimeoutError(), b"{", b"[]", b"{}", b'{"tag_name":"v1","assets":[0]}'):
+            with self.subTest(payload=payload), mock.patch.object(updates, "_get") as get:
+                read = get.return_value.__enter__.return_value.read
+                if isinstance(payload, Exception):
+                    read.side_effect = payload
+                else:
+                    read.return_value = payload
+                with self.assertRaises(updates.UpdateError) as caught:
+                    updates.latest_release(PROJECT)
+                self.assertTrue(caught.exception.http_response)
+
+    def test_success_with_and_without_an_update(self):
+        for current, newer in (("0.3.10", True), ("0.4.0", False)):
+            project = dataclasses.replace(PROJECT, version=current)
+            with self.subTest(current=current), mock.patch.object(updates, "_get") as get:
+                get.return_value.__enter__.return_value.read.return_value = json.dumps(RELEASE).encode()
+                release = updates.latest_release(project)
+                self.assertEqual(updates.is_newer(release.version, current), newer)
+
+
+class LocalizedNotesTest(unittest.TestCase):
+    def setUp(self):
+        self.raw = "<!-- release-notes: it v0.4.0 -->\n\n### Correzioni\n- È risolto il problema."
+        self.raw = self.raw.encode()
+        self.asset = updates.Asset(updates.ITALIAN_NOTES, DOWNLOADS + updates.ITALIAN_NOTES,
+                                   len(self.raw), hashlib.sha256(self.raw).hexdigest())
+        self.release = updates.Release("0.4.0", RELEASE["html_url"], "### Fixed\n- Fixed an error.",
+                                       [self.asset], tag="v0.4.0")
+
+    def test_italian_regional_locale_reads_the_exact_asset(self):
+        with mock.patch.object(updates, "_get") as get:
+            get.return_value.__enter__.return_value.read.return_value = self.raw
+            found = updates.with_localized_notes(PROJECT, self.release, "it-IT")
+        self.assertEqual(found.notes, "### Correzioni\n- È risolto il problema.")
+        self.assertFalse(found.notes_in_english)
+        self.assertEqual(found.assets, self.release.assets)
+        get.assert_called_once_with(PROJECT, self.asset.url, 10.0)
+
+    def test_english_and_historical_release_make_no_request(self):
+        old = dataclasses.replace(self.release, assets=[])
+        with mock.patch.object(updates, "_get") as get:
+            self.assertIs(updates.with_localized_notes(PROJECT, self.release, "en"), self.release)
+            self.assertTrue(updates.with_localized_notes(PROJECT, old, "it").notes_in_english)
+            wrong = dataclasses.replace(self.asset, url=self.asset.url.replace("v0.4.0", "v0.3.0"))
+            self.assertTrue(updates.with_localized_notes(PROJECT, dataclasses.replace(old, assets=[wrong]), "it")
+                            .notes_in_english)
+        get.assert_not_called()
+
+    def test_bad_asset_content_or_transport_fall_back_to_the_english_body(self):
+        cases = (TimeoutError(), b"", self.raw.replace(b"0.4.0", b"0.3.0"), b"\xff", b"x" * (updates.NOTES_MAX_BYTES + 1))
+        release = dataclasses.replace(self.release, assets=[dataclasses.replace(self.asset, size=0, sha256="")])
+        for payload in cases:
+            with self.subTest(payload=type(payload)), mock.patch.object(updates, "_get") as get:
+                fetch = get.return_value.__enter__.return_value.read
+                if isinstance(payload, Exception):
+                    fetch.side_effect = payload
+                else:
+                    fetch.return_value = payload
+                found = updates.with_localized_notes(PROJECT, release, "it")
+                self.assertEqual(found.notes, release.notes)
+                self.assertTrue(found.notes_in_english)
+
+
 class ReleaseSourceTest(unittest.TestCase):
     """Where the latest release is asked, and where its files must come from."""
 

@@ -35,7 +35,7 @@ from scriba.data.timing import clock  # noqa: E402
 from scriba.i18n import _  # noqa: E402
 
 from .style_values import SPACE_L, SPACE_M, SPACE_S, SPACE_XS, SPACE_XXL  # noqa: E402
-from .ui import escape, header_bar  # noqa: E402
+from .ui import header_bar  # noqa: E402
 
 DIM = 0.55          # libadwaita's dim-label: the text's colour at this opacity
 TIME_SCALE = 0.85   # the times a little smaller, as a caption beside the text
@@ -51,7 +51,7 @@ class TranscriptPage(Adw.NavigationPage):
         view = Adw.ToolbarView()
         header = header_bar()
         title = Adw.WindowTitle(title=_("Full Transcript"))
-        title.set_subtitle(escape(Path(result.source or result.session).name))
+        title.set_subtitle(Path(result.source or result.session).name)
         header.set_title_widget(title)
         header.pack_end(window.menu_button())
         view.add_top_bar(header)

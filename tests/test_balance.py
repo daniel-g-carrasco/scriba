@@ -87,10 +87,9 @@ class BalanceFileTest(unittest.TestCase):
         for path, content in before.items():
             self.assertEqual(path.read_bytes(), content, path.name)
 
-    def test_the_preview_is_a_stretch_of_the_same_mix_in_a_temporary_wav(self):
-        import wave
-
+    def test_the_preview_keeps_the_roles_in_one_excerpt_and_changes_their_balance_at_the_current_position(self):
         import numpy as np
+
         from scriba.app import preview
         takes = [Take("0", "me", "Microphone", flac(self.folder / "mic.flac", 8, 0.05, 440)),
                  Take("1", "others", "Output", flac(self.folder / "out.flac", 8, 0.3, 660))]
@@ -100,17 +99,15 @@ class BalanceFileTest(unittest.TestCase):
         def spectrum(samples):
             return np.abs(np.fft.rfft(samples))           # one second: bins of 1 Hz
 
-        spectra = {}
-        for position in (-1, 0, 0.5, 1):
-            work = self.folder / f"preview{position}"
-            work.mkdir()
-            made = recording.balance_preview(joined, 2, 4, position, work)
-            self.assertEqual([p.name for p in work.iterdir()], ["preview.wav"])     # its own pieces cleared
-            with wave.open(str(made), "rb") as wav:
-                self.assertEqual(wav.getframerate(), recording.PREVIEW_RATE)
-                self.assertAlmostEqual(wav.getnframes() / wav.getframerate(), 4, delta=0.05)
-                samples = np.frombuffer(wav.readframes(wav.getnframes()), np.int16).astype(float)
-            spectra[position] = spectrum(samples[48000:96000])
+        mkdtemp = tempfile.mkdtemp
+        with mock.patch.object(preview.tempfile, "mkdtemp",
+                               lambda suffix, prefix, _dir: mkdtemp(suffix, prefix, self.folder)):
+            clip = preview.balanced(joined, 2, 6)
+        rate = recording.PREVIEW_RATE
+        self.assertAlmostEqual(clip.frames / rate, 4, delta=0.05)
+        self.assertEqual(set(self.folder.iterdir()), set(before))
+        spectra = {position: spectrum(clip.render(rate, 2 * rate, position, position))
+                   for position in (-1, 0, 0.5, 1)}
         for position in (-1, 1):
             for hz, role in ((440, "me"), (660, "others")):
                 change = 20 * math.log10(spectra[position][hz] / spectra[0][hz])
@@ -121,13 +118,21 @@ class BalanceFileTest(unittest.TestCase):
         saved = np.abs(np.fft.rfft(whole[3 * audio.RATE:4 * audio.RATE]))        # 16 kHz, also 1 Hz bins
         self.assertAlmostEqual(20 * math.log10(spectra[0.5][440] / spectra[0.5][660]),
                                20 * math.log10(saved[440] / saved[660]), delta=0.1)
-        clip = preview.balanced(joined, 2, 6, 0)
-        self.assertTrue(clip.path.parent.name.startswith("scriba-preview-"))
-        self.assertAlmostEqual(clip.duration, 4, delta=0.05)
-        clip.close()
-        self.assertFalse(clip.path.parent.exists())
         for path, content in before.items():
             self.assertEqual(path.read_bytes(), content, path.name)
+
+    def test_the_live_mix_ramps_the_gains_and_caps_the_combined_peak(self):
+        import numpy as np
+
+        from scriba.app.preview import BalanceClip
+
+        clip = BalanceClip(np.full(5, 0.8, dtype=np.float32), np.full(5, 0.8, dtype=np.float32))
+        self.assertLessEqual(np.max(np.abs(clip.render(0, 5, 0, 0))), recording.LIMIT + 1e-7)
+        clip = BalanceClip(np.full(5, 0.25, dtype=np.float32), np.zeros(5, dtype=np.float32))
+        faded = clip.render(0, 5, 0, -1)
+        self.assertAlmostEqual(faded[0], 0.25)
+        self.assertAlmostEqual(faded[-1], 0.25 * 10 ** (-12 / 20))
+        self.assertTrue(np.all(np.diff(faded) < 0))
 
     def test_the_limiter_still_holds_a_coherent_sum_and_every_copy_has_a_free_name(self):
         tone = flac(self.folder / "tone.flac", 3, 0.2)

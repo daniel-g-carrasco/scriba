@@ -11,6 +11,7 @@ source checkout is. It is the one module every layer may import.
 from __future__ import annotations
 
 import gettext
+import locale
 import os
 import sys
 from pathlib import Path
@@ -36,19 +37,32 @@ def _system_languages() -> list[str]:
         return []
     try:
         import ctypes
-        import locale
         name = locale.windows_locale.get(ctypes.windll.kernel32.GetUserDefaultUILanguage())
     except (AttributeError, OSError):
         return []
     return [name] if name else []
 
 
-def setup(domain: str, checkout: Path | None = None, language: str = "") -> None:
+def setup(domain: str, checkout: Path | None = None, language: str = "", *, toolkit: bool = False) -> None:
     """At start: the catalogue is named `domain`; `checkout` is the root of
     a run from the sources (its locale/ is looked at first). Then the
-    language, as use() takes it."""
+    language, as use() takes it. With toolkit=True, call before importing
+    GTK: libintl and child processes read the same LANGUAGE preference."""
     global _domain, _checkout
     _domain, _checkout = domain, checkout
+    language = language.replace("-", "_")
+    if toolkit:
+        if language:
+            os.environ["LANGUAGE"] = language
+            if os.name == "nt":
+                # GTK's UCRT build also needs the requested locale in LC_ALL
+                # for its own gettext domains. Start with an explicit UTF-8
+                # locale before GTK initialises the C runtime.
+                os.environ["LC_ALL"] = locale.normalize(language).partition(".")[0] + ".UTF-8"
+        elif not any(os.environ.get(name) for name in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG")):
+            desktop = _system_languages()
+            if desktop:
+                os.environ["LANGUAGE"] = ":".join(desktop)
     use(language)
 
 
@@ -135,10 +149,10 @@ def number(value: float, decimals: int | None = 2, sign: bool = False, grouping:
     return text.translate(str.maketrans(",.", ".,")) if language() == "it" else text
 
 
-def count(n: int) -> str:
+def count(n: object) -> str:
     """A number as the locale writes it (1.200 in Italian, 1,200 in
     English), for the texts that show counts."""
     try:
         return f"{n:n}"
-    except ValueError:
+    except (TypeError, ValueError):
         return str(n)

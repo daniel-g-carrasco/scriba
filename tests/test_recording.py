@@ -43,9 +43,11 @@ class FinishTest(unittest.TestCase):
 
     def test_the_tracks_go_into_one_file_with_their_roles_and_the_silent_output_is_left_out(self):
         takes = self.takes()
+        takes[0].meeting_title = "Verifica continuità"
         done = recording.finish(takes, self.folder, "r")
         self.assertEqual(done.recording, self.folder / "r.mka")
         media = ffmpeg.probe(done.recording)
+        self.assertEqual(media.meeting_title, "Verifica continuità")
         self.assertEqual([(t.role, t.title) for t in media.roles],
                          [("me", "Microphone: Cuffia auricolare (Headset BT)"), ("others", "Output: Cuffie (Headset BT)")])
         self.assertAlmostEqual(media.duration, 3.0, delta=0.1)
@@ -79,6 +81,21 @@ class FinishTest(unittest.TestCase):
         self.assertEqual(done.recording.name, "r_R01.mka")
         self.assertEqual((self.folder / "r.mka").read_bytes(), b"another meeting")
 
+    def test_an_overlong_track_is_bounded_in_both_outputs_and_the_source_is_retained(self):
+        takes = self.takes()[:2]
+        out = takes[1].path
+        flac(out, 30, 0.3)
+        original = out.read_bytes()
+        progress = []
+        done = recording.finish(takes, self.folder, "r", elapsed=3, mix_progress=lambda *p: progress.append(p))
+        self.assertEqual(out.read_bytes(), original)
+        media = ffmpeg.probe(done.recording)
+        self.assertEqual(media.sound_tracks, 2)
+        self.assertAlmostEqual(media.duration, 3, delta=0.15)
+        self.assertAlmostEqual(ffmpeg.probe(done.together).duration, 3, delta=0.15)
+        self.assertTrue(any(n == 2 and reached > 0 for n, _, reached, _ in progress))
+        self.assertTrue(any(n == 0 and reached > 0 for n, _, reached, _ in progress))
+
     def test_when_joining_fails_every_track_stays_and_the_reason_is_said(self):
         takes = self.takes()
         broken = self.folder / "r_out 3.flac"
@@ -97,8 +114,8 @@ class OffNotesTest(unittest.TestCase):
     def test_the_stretches_switched_off_in_scriba_are_said_for_each_track(self):
         mic = Take("me-1", "me", "Cuffia", Path("m.flac"), off=((65.0, 130.0), (3000.0, None)))
         self.assertEqual(recording.off_notes([mic, Take("others-2", "others", "Cuffie", Path("o.flac"))]), [
-            "Microphone: Cuffia: switched off in Scriba from 01:05 to 02:10, silence on its track.",
-            "Microphone: Cuffia: switched off in Scriba from 50:00 to the end, silence on its track."])
+            "Microphone: Cuffia: switched off in Scriba from 01:05 to 02:10, from 50:00 to the end. "
+            "There is silence on its track during these intervals."])
 
 
 class MeetingFolderTest(unittest.TestCase):
