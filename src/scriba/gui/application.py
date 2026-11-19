@@ -30,6 +30,7 @@ from scriba.i18n import _  # noqa: E402
 from .secondaries import present_secondary, watch_dialog  # noqa: E402
 from .ui import activities, load_style, run_in_thread  # noqa: E402
 from .preferences import PreferencesDialog, about_dialog  # noqa: E402
+from .update_widgets import announce_update  # noqa: E402
 from .window import MainWindow  # noqa: E402
 
 SOURCE_ICONS = PACKAGE_DIR.parent.parent / "data" / "icons"
@@ -242,7 +243,6 @@ class App(Adw.Application):
         self._pending_release = None
         self._available_release = None
         self._update_dialog = None
-        self._update_dialog_automatic = False
         self._verified_installer = None
         self.toasts = None          # Windows: wintoast.Toasts, when the Windows Runtime answers
         self.restyle_windows: Callable[[], None] = lambda: None     # Windows: native_windows()
@@ -695,9 +695,17 @@ class App(Adw.Application):
             self._pending_release = (release, manual or bool(self._pending_release and self._pending_release[1]))
             return
         window = self._window()
-        window.show_update(release.version, lambda: self._show_update(release))
-        if manual or self.cfg.last_update_offered != release.version:
-            self._show_update(release, automatic=not manual)
+        already_offered = self.cfg.last_update_offered == release.version
+
+        def show() -> None:
+            self._show_update(release)
+
+        announce_update(APP_NAME, release.version, requested=manual, active=already_offered,
+                        banner=window.show_update, show=show, notify=self.notify)
+        if not manual and not already_offered:
+            window.show_update_toast(release.version, show)
+            self.cfg.last_update_offered = release.version
+            self.save_config()
 
     def work_changed(self) -> None:
         """Suppress proposals for the whole job, including recording start and finish."""
@@ -715,9 +723,7 @@ class App(Adw.Application):
                 self._pending_release = (self._available_release, False)
             dialog = self._update_dialog
             if dialog is not None:
-                if not self._update_dialog_automatic and (
-                    self._pending_release is None or self._pending_release[0].version == dialog.release.version
-                ):
+                if self._pending_release is None or self._pending_release[0].version == dialog.release.version:
                     self._pending_release = (dialog.release, True)
                 self._update_dialog = None
                 dialog.close()             # cancels a download; its final callback still checks the gate
@@ -754,15 +760,13 @@ class App(Adw.Application):
         self.installing = False
         self.work_changed()
 
-    def _show_update(self, release, *, automatic: bool = False) -> None:
+    def _show_update(self, release) -> None:
         from .update_dialog import UpdateDialog
         if not self.update_allowed(release):
             return
         if self._update_dialog is not None:
             if self._update_dialog.release.version != release.version:
-                self._pending_release = (release, not automatic)
-            elif not automatic:
-                self._update_dialog_automatic = False
+                self._pending_release = (release, True)
             return
         window = self._window()
         window.present()
@@ -770,7 +774,6 @@ class App(Adw.Application):
         dialog = UpdateDialog(release, app=self,
                               ready_installer=ready[1] if ready and ready[0] == release.version else None)
         self._update_dialog = dialog
-        self._update_dialog_automatic = automatic
         dialog.connect("closed", lambda *_: self._update_closed(dialog))
         present_secondary(dialog, window)
         if self.cfg.last_update_offered != release.version:

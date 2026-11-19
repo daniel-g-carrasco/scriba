@@ -218,6 +218,12 @@ class MainWindow(_WindowBase):
     def toast(self, text: str) -> None:
         self.toasts.add_toast(Adw.Toast(use_markup=False, title=text, timeout=5))
 
+    def show_update_toast(self, version: str, asked) -> None:
+        toast = Adw.Toast(use_markup=False, title=update_widgets.update_title(APP_NAME, version),
+                          button_label=_("Update…"), timeout=5)
+        toast.connect("button-clicked", lambda *_: asked())
+        self.toasts.add_toast(toast)
+
     def settings_changed(self) -> None:
         """A preference changed: what the page shows from it, again."""
         self.transcribe.settings_changed()

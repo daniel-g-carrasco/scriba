@@ -7,6 +7,16 @@ available from GitHub Releases. Linux Flatpak builds and runtime checks use GNOM
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-11-19
+
+### Changed
+- Opening Scriba shows a notification inside the window and a Windows
+  notification when a new version is available. Click either notification
+  or the update banner to open the update dialog.
+
+### Fixed
+- Windows dialogs display a single border above their controls.
+
 ## [0.1.8] - 2026-11-19
 
 ### Added

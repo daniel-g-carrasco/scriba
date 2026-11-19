@@ -1,5 +1,13 @@
 # Novità di Scriba
 
+## [0.1.9] - 2026-11-19
+
+### Modifiche
+- Quando trova un aggiornamento, Scriba mostra un avviso in basso con «Aggiorna…» e una notifica di Windows. Puoi aprire la finestra di aggiornamento da uno dei due avvisi o cercare gli aggiornamenti dal menu.
+
+### Correzioni
+- Le finestre di dialogo su Windows mostrano una sola linea sopra i pulsanti.
+
 ## [0.1.8] - 2026-11-19
 
 ### Aggiunte

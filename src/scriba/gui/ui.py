@@ -204,7 +204,8 @@ def header_bar() -> Adw.HeaderBar:
     which has the window buttons."""
     from scriba import WINDOWS
     if WINDOWS:
-        return Adw.HeaderBar(show_start_title_buttons=False, show_end_title_buttons=False)
+        return Adw.HeaderBar(css_classes=["page-toolbar"], show_start_title_buttons=False,
+                             show_end_title_buttons=False)
     return Adw.HeaderBar()
 
 

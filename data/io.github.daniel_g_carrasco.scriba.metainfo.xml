@@ -50,6 +50,11 @@
   </requires>
 
   <releases>
+    <release version="0.1.9" date="2026-11-19" type="stable">
+      <description>
+        <p>Update checks show a notification that opens the update dialog on request. Windows dialogs have a single border above their controls.</p>
+      </description>
+    </release>
     <release version="0.1.8" date="2026-11-19" type="stable">
       <description>
         <p>Recording finalization shows its progress. Scriba can detect the end of a Teams meeting, match voices to names and suggest editable meeting titles. Change the listening balance during playback.</p>

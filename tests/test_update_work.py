@@ -37,7 +37,7 @@ class UpdateWorkTest(unittest.TestCase):
         self.presented, self.notices = [], []
         self.enterContext(mock.patch.object(UpdateDialog, "present", lambda dialog, _parent: self.presented.append(dialog)))
         self.enterContext(mock.patch.object(UpdateDialog, "close", lambda dialog: dialog.emit("closed")))
-        self.enterContext(mock.patch.object(self.app, "notify", lambda *args, **kwargs: self.notices.append(args[0])))
+        self.enterContext(mock.patch.object(self.app, "notify", lambda *args, **kwargs: self.notices.append(kwargs)))
         self.enterContext(mock.patch.object(updates, "latest_release", return_value=self.release))
 
     def immediate_check(self):
@@ -102,6 +102,24 @@ class UpdateWorkTest(unittest.TestCase):
         self.assertTrue(self.window.update_banner.get_revealed())
         self.assertEqual(len(self.presented), 1)
 
+    def test_the_first_window_shows_both_notifications_and_opens_the_dialog_only_on_click(self):
+        self.app._update_checks = True
+        with self.immediate_check(), mock.patch.object(self.window.toasts, "add_toast") as add_toast:
+            self.window.present()
+            self.assertTrue(_setup.spin(lambda: updates.latest_release.called))
+        self.assertTrue(self.window.update_banner.get_revealed())
+        self.assertEqual(self.presented, [])
+        self.assertEqual(len(self.notices), 1)
+        add_toast.assert_called_once()
+        toast = add_toast.call_args.args[0]
+        self.assertIn(self.release.version, toast.get_title())
+        self.assertEqual(toast.get_button_label(), _("Update…"))
+        toast.emit("button-clicked")
+        self.assertEqual(len(self.presented), 1)
+        self.presented[0].close()
+        self.notices[0]["on_click"]()
+        self.assertEqual(len(self.presented), 2)
+
     def test_manual_check_explains_recording_delay_and_reports_the_fresh_result(self):
         self.app.cfg.last_update_offered = self.release.version
         with self.immediate_check(), mock.patch.object(self.window, "toast") as toast:
@@ -152,7 +170,8 @@ class UpdateWorkTest(unittest.TestCase):
         self.window.transcribe.job = None
         self.window.page_changed()
         self.assertTrue(self.window.update_banner.get_revealed())
-        self.assertEqual(len(self.presented), 1)
+        self.assertEqual(self.presented, [])
+        self.assertEqual(len(self.notices), 1)
 
     def test_an_existing_banner_click_waits_until_the_work_is_over(self):
         self.app.cfg.last_update_offered = self.release.version
@@ -185,32 +204,38 @@ class UpdateWorkTest(unittest.TestCase):
             self.app.cfg, self.app.paths.config_file
         )):
             self.app.check_updates(manual=False)
-            self.assertEqual(len(self.presented), 1)
+            self.assertEqual(self.presented, [])
+            self.assertEqual(len(self.notices), 1)
+            self.window.update_banner.emit("button-clicked")
             self.presented[0].later.emit("clicked")
             self.assertTrue(self.window.update_banner.get_revealed())
             # Read back the saved setting as a new process would.
             self.app.cfg = config.load(self.app.paths.config_file)
             self.app.check_updates(manual=False)
             self.assertEqual(len(self.presented), 1)
+            self.assertEqual(len(self.notices), 1)
             updates.latest_release.return_value = updates.Release("99.1.0", "", "")
             self.app.check_updates(manual=False)
-            self.assertEqual(len(self.presented), 2)
+            self.assertEqual(len(self.presented), 1)
+            self.assertEqual(len(self.notices), 2)
             self.assertEqual(self.app.cfg.last_update_offered, "99.1.0")
 
     def test_the_first_proposal_waits_for_models_and_is_not_repeated_after_recording(self):
         with mock.patch.object(self.app, "_downloads", mock.Mock(busy=True)), self.immediate_check():
             self.app.check_updates(manual=False)
             self.assertEqual(self.presented, [])
+            self.assertEqual(self.notices, [])
             self.app._downloads.busy = False
             self.window.page_changed()
-        self.assertEqual(len(self.presented), 1)
+        self.assertEqual(self.presented, [])
+        self.assertEqual(len(self.notices), 1)
         self.window.record._starting = True
         self.window.page_changed()
-        self.assertTrue(self.presented[0]._cancel.is_set())
         self.window.record._starting = False
         self.window.page_changed()
         self.assertTrue(self.window.update_banner.get_revealed())
-        self.assertEqual(len(self.presented), 1)
+        self.assertEqual(self.presented, [])
+        self.assertEqual(len(self.notices), 1)
 
     def test_a_closed_dialogs_late_verified_callback_updates_the_dialog_reopened_after_work(self):
         # Set up the installed release, then open it through the real application path.

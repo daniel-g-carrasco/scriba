@@ -26,7 +26,7 @@ class Config(settings.Fields):
     # ISO date and time of the last successful check (updates.check_stamp;
     # a date alone, as 0.1.2 wrote it, is read as its midnight)
     last_update_check: str = ""
-    last_update_offered: str = ""        # version last shown in the update dialog
+    last_update_offered: str = ""        # version last announced or shown in the update dialog
     last_folder: str = ""                # the folder of the last recording opened, for the next file dialog
     # the transcription's choices, remembered from one to the next
     speech_language: str = "it"          # "it", "en", "auto"
