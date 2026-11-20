@@ -7,7 +7,7 @@ available from GitHub Releases. Linux Flatpak builds and runtime checks use GNOM
 
 ## [Unreleased]
 
-## [0.1.9] - 2026-11-19
+## [0.1.10] - 2026-11-20
 
 ### Changed
 - Opening Scriba shows a notification inside the window and a Windows
