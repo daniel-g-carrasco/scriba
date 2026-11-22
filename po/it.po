@@ -2453,3 +2453,15 @@ msgstr "Inserisci il tuo nome per assegnarlo a questa voce e salvarlo nelle pref
 
 msgid "Save Name"
 msgstr "Salva nome"
+
+#, python-brace-format
+msgid "track {number}"
+msgstr "traccia {number}"
+
+#, python-brace-format
+msgid "{left} carries the same sound as {kept} (one output passes into the other): it was not transcribed, and it stays in the recording."
+msgstr "{left} porta lo stesso suono di {kept} (un'uscita passa nell'altra): non è stata trascritta, e resta nella registrazione."
+
+#, python-brace-format
+msgid "{left} carries the same sound as {kept} (one output passes into the other): it is kept in the recording, left out of the copy to listen to and of the transcript."
+msgstr "{left} porta lo stesso suono di {kept} (un'uscita passa nell'altra): resta nella registrazione, fuori dalla copia da ascoltare e dalla trascrizione."

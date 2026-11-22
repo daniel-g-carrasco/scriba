@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "package": "mingw-w64-ucrt-x86_64-djvulibre",
+  "version": "3.5.30-2",
+  "base": "mingw-w64-djvulibre",
+  "source_url": "https://repo.msys2.org/mingw/sources/mingw-w64-djvulibre-3.5.30-2.src.tar.zst",
+  "source_archive_sha256": "526ab381aabb3f78c4ee49a9056eb85333c348c2a808d19711558e6e15ec9bd7",
+  "source_signature_fingerprint": "5F944B027F7FE2091985AA2EFA11531AA0AA7F57",
+  "recipe_sha256": "a7c0ce734e4a754046685504515bd8df84f21a222d28d73ca1e9297c3ee3a9a5",
+  "payloads": [
+    {
+      "source": "https://downloads.sourceforge.net/djvu/djvulibre-3.5.30.tar.gz",
+      "member": "mingw-w64-djvulibre/djvulibre-3.5.30.tar.gz",
+      "sha256": "ee5e457d4cfebe566f94b99e5e3d3cc7f5c79ddb741c2ac2ba2e456f00329644",
+      "status": "verified"
+    },
+    {
+      "source": "0001-fix-utf8-pointer-aliasing.patch",
+      "member": "mingw-w64-djvulibre/0001-fix-utf8-pointer-aliasing.patch",
+      "sha256": "ee085fc71967b1e0fddbe2e901b18a13c7a10d70bf4606c620f0f7b32e0d8da7",
+      "status": "verified"
+    }
+  ],
+  "files": [
+    {
+      "file": "AUTHORS",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source_member": "mingw-w64-djvulibre/djvulibre-3.5.30.tar.gz!/djvulibre-3.5.30/AUTHORS"
+    },
+    {
+      "file": "COPYING",
+      "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643",
+      "source_member": "mingw-w64-djvulibre/djvulibre-3.5.30.tar.gz!/djvulibre-3.5.30/COPYING"
+    },
+    {
+      "file": "COPYRIGHT",
+      "sha256": "aca12808fc2c0c9d67ac550bc52864863eff8c92d3fc505fdf16d3a5903dbdb6",
+      "source_member": "mingw-w64-djvulibre/djvulibre-3.5.30.tar.gz!/djvulibre-3.5.30/COPYRIGHT"
+    },
+    {
+      "file": "debian/copyright",
+      "sha256": "4d4f31af027e78fc17fe2a4250a5284e041608465141e64dec26551fa5092d8a",
+      "source_member": "mingw-w64-djvulibre/djvulibre-3.5.30.tar.gz!/djvulibre-3.5.30/debian/copyright"
+    }
+  ]
+}

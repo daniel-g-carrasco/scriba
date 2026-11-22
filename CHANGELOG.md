@@ -7,7 +7,10 @@ available from GitHub Releases. Linux Flatpak builds and runtime checks use GNOM
 
 ## [Unreleased]
 
-## [0.1.11] - 2026-11-22
+## [0.1.12] - 2026-11-22
+
+The 0.1.11 tag was never published as a release: its builds stopped on a
+missing translation. 0.1.12 carries the same changes.
 
 ### Fixed
 - When one output passes into another (on Linux an effects program such as

@@ -50,7 +50,7 @@
   </requires>
 
   <releases>
-    <release version="0.1.11" date="2026-11-22" type="stable">
+    <release version="0.1.12" date="2026-11-22" type="stable">
       <description>
         <p>Tracks that carry the same sound, as when an effects program passes its output on to the speakers, are transcribed once. Recording on Linux no longer makes other programs' audio crackle.</p>
       </description>
