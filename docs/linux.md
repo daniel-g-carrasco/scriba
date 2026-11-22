@@ -93,6 +93,6 @@ The dedicated Scriba Flatpak repository signing key has fingerprint:
 2A17 1ED4 30D6 082E DED4 73B5 DFA3 8180 5867 7201
 ```
 
-This identifies the key prepared for the first signed repository publication.
-No public Flatpak repository has been released yet. The minisign key for release
+The repository is published at <https://daniel-g-carrasco.github.io/scriba/>
+and signed with this key. The minisign key for release
 files is separate; see [CODE_SIGNING.md](../CODE_SIGNING.md).
