@@ -414,3 +414,17 @@ def _first_error(Gst, bus) -> str:
         return "GStreamer"
     error, debug = message.parse_error()
     return f"{error.message} ({debug or ''})"
+
+
+def same_sound(first: str | os.PathLike, second: str | os.PathLike, work: str | os.PathLike,
+               cancelled: threading.Event | None = None):
+    """Whether two mono WAV files of one rate (ffmpeg.decode's) carry the
+    same sound (core/duplicates.py): the echo's measure, the first track in
+    the microphone's place."""
+    from scriba.core import duplicates
+    pair = pair_files(first, [second], Path(work) / f"same-{Path(first).stem}-{Path(second).stem}.wav", cancelled)
+    try:
+        windows, _duration = measure(pair, cancelled=cancelled)
+    finally:
+        Path(pair).unlink(missing_ok=True)
+    return duplicates.verdict(windows)

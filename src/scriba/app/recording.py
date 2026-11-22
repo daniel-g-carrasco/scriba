@@ -249,6 +249,33 @@ def join(takes: list[Take], folder: Path, stem: str, cancelled: threading.Event 
     return files.claim(tmp, folder, stem, ".mka")
 
 
+def one_of_each(takes: list[Take], work: Path,
+                cancelled: threading.Event | None = None) -> tuple[list[Take], list[str]]:
+    """The takes to mix, the outputs with the same sound left out but one
+    (core/duplicates.py: an output that passes into another, EasyEffects
+    into the loudspeakers, is recorded twice), and what to tell the user.
+    The recording keeps every track; the transcript leaves the copy out on
+    its own (app/jobs.py). Never raises but Cancelled: when the measure
+    fails every take is mixed, as before."""
+    from scriba.app.engines import echo as canceller
+    from scriba.core import duplicates
+
+    outputs = [n for n, take in enumerate(takes) if take.role == "others"]
+    if len(outputs) < 2:
+        return list(takes), []
+    try:
+        check(cancelled)
+        mono = [ffmpeg.decode(takes[n].path, work / f"output{n}.wav", cancelled=cancelled) for n in outputs]
+        out = duplicates.left_out(len(outputs), lambda a, b: canceller.same_sound(mono[a], mono[b], work, cancelled))
+    except (Failure, OSError, EOFError, wave.Error):
+        return list(takes), []
+    gone = {outputs[k] for k in out}
+    notes = [_("{left} carries the same sound as {kept} (one output passes into the other): it is kept in the "
+               "recording, left out of the copy to listen to and of the transcript.").format(left=left, kept=kept)
+             for left, kept in duplicates.names(out, [title(takes[n]) for n in outputs])]
+    return [take for n, take in enumerate(takes) if n not in gone], notes
+
+
 def hears_and_plays(takes: list[Take]) -> bool:
     """A microphone and a computer's output: the microphone may have heard
     the computer (core/echo.py)."""
@@ -538,10 +565,11 @@ def finish(takes: list[Take], folder: Path, stem: str, cancelled: threading.Even
             notes.append(_("{reason} The tracks are kept as separate files.").format(reason=e))
             return Finished(first.path, None, kept, dropped, notes + off_notes(kept) + muted_notes(kept))
         notes += bounded_notes
-        heard = bounded
-        if hears_and_plays(kept):
+        heard, same_notes = one_of_each(bounded, work, cancelled)
+        notes += same_notes
+        if hears_and_plays(heard):
             said(CLEANING)
-            heard, _streams, cleaned = without_echo(bounded, work, cancelled=cancelled)
+            heard, _streams, cleaned = without_echo(heard, work, cancelled=cancelled)
             notes += cleaned
         said(MIXING)
         try:

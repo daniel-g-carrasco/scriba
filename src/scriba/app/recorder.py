@@ -102,6 +102,7 @@ SOURCE = "wasapi2src" if WINDOWS else "pulsesrc"
 NEEDED = (SOURCE, "queue", "audioconvert", "audioresample", "capsfilter", "audiorate", "volume", "level",
           "flacenc", "filesink", "fakesink")
 INTERVAL = 100 * Gst.MSECOND        # the meters' pace: ten levels a second
+LATENCY_TIME = 50_000               # pulsesrc's read size, in microseconds (see _source)
 WATCH_EVERY = 2.0                   # seconds between two looks at the devices
 SPACE_EVERY = 5.0                   # and at the disk
 PEAKS_FOR = 3.0                     # seconds of peaks an output's "sound now" looks at
@@ -186,7 +187,13 @@ def _pulse_devices() -> list[dev.Device]:
 def _source(device: dev.Device) -> Gst.Element:
     if WINDOWS:
         return _make("wasapi2src", device=device.id, loopback=device.kind == dev.OUTPUT, continue_on_error=True)
-    return _make("pulsesrc", device=device.id)
+    # 50 ms reads, not GStreamer's 10 ms: a recorder gains nothing from a
+    # shorter wait, and PipeWire runs the whole graph at the smallest latency
+    # a stream asks for, so 10 ms forced every other program's audio into
+    # 5 ms blocks, and effects that miss them crackle (EasyEffects while
+    # windows animate, 2026-11-22). Every track waits the same, so they stay
+    # in step; the meters' 100 ms pace is unchanged.
+    return _make("pulsesrc", device=device.id, latency_time=LATENCY_TIME)
 
 
 class _Branch:

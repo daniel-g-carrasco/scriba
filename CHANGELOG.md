@@ -7,6 +7,21 @@ available from GitHub Releases. Linux Flatpak builds and runtime checks use GNOM
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-11-22
+
+### Fixed
+- When one output passes into another (on Linux an effects program such as
+  EasyEffects sends its sound on to the speakers; elsewhere a loopback or a
+  virtual cable), Scriba recorded the same voices on two tracks: every line
+  was transcribed twice and the voices were split into too many speakers.
+  Scriba now recognises tracks that carry the same sound, transcribes one
+  of them and leaves the copy out of the listening copy, and says so. The
+  speaker count you choose applies again. Earlier recordings are corrected
+  when they are transcribed again.
+- On Linux, recording no longer forces the rest of the system's audio into
+  very short blocks: effects that could not keep up crackled while windows
+  moved.
+
 ## [0.1.10] - 2026-11-20
 
 ### Changed

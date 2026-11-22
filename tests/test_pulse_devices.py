@@ -85,3 +85,28 @@ class PulseDevicesTest(unittest.TestCase):
         self.assertEqual(done.returncode, 0, detail)
         self.assertIn(b"repeated discovery completed", done.stdout)
         self.assertNotIn("CRITICAL", detail)
+
+
+class PulseLatencyTest(unittest.TestCase):
+    """The capture asks PipeWire for 50 ms reads, not GStreamer's 10 ms: the
+    graph runs at the smallest latency a stream asks for, and 10 ms forced
+    every other program into 5 ms blocks."""
+
+    def setUp(self):
+        try:
+            from scriba.app import recorder
+        except (ImportError, ValueError):
+            self.skipTest("GStreamer")
+        self.recorder = recorder
+        recorder.init()
+        if recorder.WINDOWS or recorder.Gst.ElementFactory.find("pulsesrc") is None:
+            self.skipTest("pulsesrc")
+
+    def test_linux_source_reads_50_ms(self):
+        from scriba.core import devices as dev
+        device = dev.Device(id="test.output.monitor", name="Output", kind=dev.OUTPUT, default=True,
+                            communications=True, container="", bluetooth=False)
+        source = self.recorder._source(device)
+        self.assertEqual(source.get_factory().get_name(), "pulsesrc")
+        self.assertEqual(source.get_property("latency-time"), 50_000)
+        self.assertGreaterEqual(source.get_property("buffer-time"), 2 * source.get_property("latency-time"))

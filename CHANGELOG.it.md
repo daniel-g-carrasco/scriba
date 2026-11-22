@@ -1,5 +1,11 @@
 # Novità di Scriba
 
+## [0.1.11] - 2026-11-22
+
+### Correzioni
+- Quando un'uscita audio passa in un'altra (su Linux un programma di effetti come EasyEffects che manda il suono alle casse; altrove un loopback o un cavo virtuale), Scriba registrava le stesse voci su due tracce: ogni frase veniva trascritta due volte e le voci divise in troppi parlanti. Ora Scriba riconosce le tracce con lo stesso suono, ne trascrive una, lascia la copia fuori dall'audio da ascoltare e lo dice. Il numero di parlanti che scegli torna a valere. Le registrazioni già fatte si correggono trascrivendole di nuovo.
+- Su Linux la registrazione non costringe più il resto dell'audio del sistema a blocchi brevissimi: gli effetti che non tenevano il passo gracchiavano mentre si spostavano le finestre.
+
 ## [0.1.10] - 2026-11-20
 
 ### Modifiche

@@ -557,6 +557,10 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
         slots = len(parts) + echo_check
         wavs = [ffmpeg.decode(source, work / f"audio{n}.wav", media.duration, _within(progress, n, slots),
                               cancelled, stream=part.track.index) for n, part in enumerate(parts)]
+        parts, wavs, said = _one_of_each(parts, wavs, work, cancelled)
+        if said:
+            notes += said
+            request = replace(request, tracks=tuple(part.track for part in parts))
         if echo_check:
             wavs, said = _without_echo(parts, wavs, work, _within(progress, len(parts), slots), cancelled)
             notes += said
@@ -700,6 +704,36 @@ def _hears_and_plays(parts: list[_Part]) -> bool:
     """A microphone's track and a computer's: the microphone may have heard
     the computer (core/echo.py)."""
     return {part.track.role for part in parts} >= {"me", "others"}
+
+
+def _one_of_each(parts: list[_Part], wavs: list[Path], work: Path,
+                 cancelled: threading.Event | None) -> tuple[list[_Part], list[Path], list[str]]:
+    """The computer's tracks with the same sound left out but one
+    (core/duplicates.py): an output that passes into another, recorded
+    twice, would be written twice and split into speakers twice. The parts
+    and files to go on with, and what to tell the user. When the measure
+    fails every track is kept, as before."""
+    from scriba.app.engines import echo as canceller
+    from scriba.core import duplicates
+
+    computer = [n for n, part in enumerate(parts) if part.track.role == "others"]
+    if len(computer) < 2:
+        return parts, wavs, []
+    try:
+        out = duplicates.left_out(len(computer), lambda a, b: canceller.same_sound(
+            wavs[computer[a]], wavs[computer[b]], work, cancelled))
+    except (Failure, OSError, EOFError, wave.Error):
+        return parts, wavs, []
+    if not out:
+        return parts, wavs, []
+    titles = [parts[n].track.title or _("track {number}").format(number=parts[n].track.index + 1)
+              for n in computer]
+    gone = {computer[k] for k in out}
+    notes = [_("{left} carries the same sound as {kept} (one output passes into the other): it was not "
+               "transcribed, and it stays in the recording.").format(left=left, kept=kept)
+             for left, kept in duplicates.names(out, titles)]
+    return ([p for n, p in enumerate(parts) if n not in gone], [w for n, w in enumerate(wavs) if n not in gone],
+            notes)
 
 
 def _without_echo(parts: list[_Part], wavs: list[Path], work: Path, advance,
