@@ -2116,9 +2116,6 @@ msgid "levelling the voices for the copy to listen to…"
 msgstr "sto livellando le voci per la copia da ascoltare…"
 
 #, python-brace-format
-msgid "Recording stopped · step {n} of {total}: {what}"
-msgstr "Registrazione fermata · passo {n} di {total}: {what}"
-
 msgid "Switched off in Scriba · silence on its track"
 msgstr "Spento in Scriba · silenzio sulla sua traccia"
 
@@ -2433,12 +2430,6 @@ msgstr "Impossibile accorciare la traccia fuori durata."
 msgid "{track}: longer than the recording. The copy was shortened and the original track was kept."
 msgstr "{track}: più lunga della registrazione. La copia è stata accorciata e la traccia originale è stata conservata."
 
-msgid "Track {n} of {total}"
-msgstr "Traccia {n} di {total}"
-
-msgid "Writing the listening copy"
-msgstr "Scrittura della copia da ascoltare"
-
 msgid "The Teams meeting appears to have ended. Scriba is still recording."
 msgstr "La riunione di Teams sembra conclusa. Scriba sta ancora registrando."
 
@@ -2465,3 +2456,105 @@ msgstr "{left} porta lo stesso suono di {kept} (un'uscita passa nell'altra): non
 #, python-brace-format
 msgid "{left} carries the same sound as {kept} (one output passes into the other): it is kept in the recording, left out of the copy to listen to and of the transcript."
 msgstr "{left} porta lo stesso suono di {kept} (un'uscita passa nell'altra): resta nella registrazione, fuori dalla copia da ascoltare e dalla trascrizione."
+
+msgid "Slower than expected"
+msgstr "Più lento del previsto"
+
+msgid "About {minutes} min · finishes around {time}"
+msgstr "Circa {minutes} min · finisce verso le {time}"
+
+msgid "Wait"
+msgstr "Aspetta"
+
+msgid "The recording has no separate Scriba tracks."
+msgstr "La registrazione non contiene tracce separate di Scriba."
+
+msgid "Saving paused. The original tracks are still available."
+msgstr "Salvataggio interrotto. Le tracce originali sono ancora disponibili."
+
+msgid "Listening copy skipped. You can create it from the recording."
+msgstr "Copia d’ascolto saltata. Puoi crearla dalla registrazione."
+
+msgid "Skip Finishing"
+msgstr "Salta la rifinitura"
+
+msgid "Quitting when saving finishes"
+msgstr "Esco appena finito"
+
+msgid "Skip Finishing and Quit"
+msgstr "Salta la rifinitura ed esci"
+
+msgid "Create Listening Copy"
+msgstr "Crea la copia d’ascolto"
+
+msgid "Listening copy saved: {name}"
+msgstr "Copia d’ascolto salvata: {name}"
+
+msgid "This recording is open in another instance."
+msgstr "Questa registrazione è aperta in un’altra istanza."
+
+msgid "The saved recording could not be read."
+msgstr "Non è stato possibile leggere la registrazione salvata."
+
+msgid "Recovered tracks from their filenames and tags. Device changes and intervals without tags could not be restored."
+msgstr "Tracce recuperate dai nomi dei file e dai tag. I cambi di dispositivo e gli intervalli privi di tag non sono stati recuperati."
+
+msgid "Finish the recording from {date} at {time}?"
+msgstr "Completo la registrazione del {date} alle {time}?"
+
+msgid "Some track details may be missing."
+msgstr "Alcuni dettagli delle tracce potrebbero mancare."
+
+msgid "Finish Recording"
+msgstr "Completa"
+
+msgid "Stop After a Call (Minutes)"
+msgstr "Ferma dopo una call (minuti)"
+
+msgid "Set to 0 to keep recording until you press Stop."
+msgstr "Imposta 0 per fermare la registrazione solo a mano."
+
+msgid "The call seems to have ended. Stop recording?"
+msgstr "La call sembra finita. Fermo la registrazione?"
+
+msgid "Continue"
+msgstr "Continua"
+
+msgid "Choose an interval inside the recording."
+msgstr "Scegli un intervallo all’interno della registrazione."
+
+msgid "The recording could not be trimmed."
+msgstr "Non è stato possibile tagliare la registrazione."
+
+msgid "trimmed"
+msgstr "tagliata"
+
+msgid "Keep only from… to…"
+msgstr "Tieni solo da… a…"
+
+msgid "Start (mm:ss or h:mm:ss)"
+msgstr "Inizio (mm:ss o h:mm:ss)"
+
+msgid "End (mm:ss or h:mm:ss)"
+msgstr "Fine (mm:ss o h:mm:ss)"
+
+msgid "Trim"
+msgstr "Taglia"
+
+msgid "Trimming the recording…"
+msgstr "Taglio della registrazione…"
+
+msgid "Call from {start} to {end}"
+msgstr "La call va da {start} a {end}"
+
+msgid "Only the Call"
+msgstr "Solo la call"
+
+msgid "Whole Recording"
+msgstr "Tutta la registrazione"
+
+msgid "Only the call in {time}"
+msgstr "Solo la call tra {time}"
+
+msgid "The complete recording is saved. You can choose what to keep when Scriba opens again."
+msgstr "La registrazione completa è salvata. Potrai scegliere cosa tenere al prossimo avvio."

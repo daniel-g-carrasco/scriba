@@ -297,6 +297,8 @@ class MainWindow(_WindowBase):
         Transcribe, with what the user should know about it."""
         for note in finished.notes:
             self.toast(note)
+        if finished.pending:
+            return
         if self.transcribe.busy:
             self.toast(_("Recorded in {path}: open it once the transcription in progress is done.").format(
                 path=finished.recording))

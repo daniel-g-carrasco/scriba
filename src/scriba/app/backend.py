@@ -206,10 +206,30 @@ class Backend:
         return recorder.Recorder(plan, folder, stem)
 
     def finish(self, takes, folder: Path, stem: str, cancelled: threading.Event | None = None,
-               progress=None, *, elapsed=0.0, mix_progress=None):
+               progress=None, *, elapsed=0.0, mix_progress=None, fraction=None, journal=None, choose=None):
         """The tracks made one file and a mix (app/recording.py, finish)."""
+        from scriba.app import recording, recovery
+        if journal is not None:
+            return recovery.finalize(journal, takes, cancelled, progress,
+                                     elapsed=elapsed, mix_progress=mix_progress, fraction=fraction, choose=choose)
+        return recording.finish(takes, folder, stem, cancelled, progress, elapsed=elapsed,
+                                mix_progress=mix_progress, fraction=fraction)
+
+    def recover(self, journal, cancelled=None, progress=None, *, fraction=None, choose=None):
+        from scriba.app import recovery
+        return recovery.resume(journal, cancelled, progress, fraction=fraction, choose=choose)
+
+    def trim_tail(self, source, end, cancelled=None):
         from scriba.app import recording
-        return recording.finish(takes, folder, stem, cancelled, progress, elapsed=elapsed, mix_progress=mix_progress)
+        return recording.trim_tail(source, end, revisions=jobs.revisions_folder(), cancelled=cancelled)
+
+    def trim(self, source, start, end, cancelled=None):
+        from scriba.app import recording
+        return recording.trim(source, start, end, revisions=jobs.revisions_folder(), cancelled=cancelled)
+
+    def listening_mix(self, source, cancelled=None):
+        from scriba.app import recording
+        return recording.listening_mix(source, cancelled)
 
     def free_space(self, folder: Path) -> int:
         import shutil

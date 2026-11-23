@@ -30,6 +30,7 @@ class Reading:
     active: tuple[str, ...] = ()
     people: int = 0
     title: str = ""
+    meeting: bool = False
 
 
 class CapturePolicy:
@@ -57,7 +58,8 @@ class _BitmapInfo(ctypes.Structure):
 
 class Reader(com.Indicator):
     """COM ownership follows Indicator; no control is ever invoked or clicked."""
-    def __init__(self):
+    def __init__(self, *, names=True):
+        self.names = names
         super().__init__()
         self._true = ctypes.c_void_p()
         self._dpi = None
@@ -144,6 +146,10 @@ class Reader(com.Indicator):
                         found, index, ctypes.byref(element)), "GetElement")
                     if self._text(element, 29) == "hangup-button":
                         meeting = True
+                        if not self.names:
+                            break
+                    if not self.names:
+                        continue
                     kind = ctypes.c_int()
                     com._checked(com._method(element, 21, ctypes.POINTER(ctypes.c_int))(
                         element, ctypes.byref(kind)), "ControlType")
@@ -219,6 +225,8 @@ class Reader(com.Indicator):
             meeting, tiles = self._elements(hwnd)
             if not meeting:
                 continue
+            if not getattr(self, "names", True):
+                return Reading("present", meeting=True)
             title = self._meeting_title(hwnd)
             if self._window != hwnd:
                 self._policy, self._window = CapturePolicy(), hwnd
@@ -226,14 +234,14 @@ class Reader(com.Indicator):
                 self._policy = CapturePolicy()
                 return Reading("minimized", title=title)
             if not self._user32.IsWindowVisible(hwnd) or not tiles:
-                return Reading("unavailable", title=title)
+                return Reading("unavailable", title=title, meeting=True)
             rect = self._rect(hwnd)
             printed = self._capture(hwnd, rect)
             self.covered = not self._uncovered(hwnd, rect)
             screen = self._capture(hwnd, rect, screen=True) if not self.covered else None
             pixels = self._policy.choose(printed, screen)
             if pixels is None:
-                return Reading("unavailable", people=len(tiles), title=title)
+                return Reading("unavailable", people=len(tiles), title=title, meeting=True)
             self.capture_source = "print-window" if pixels is printed else "screen"
             left, top, right, bottom = rect
             active = []
@@ -299,7 +307,7 @@ def follow(told, stop: threading.Event, every=EVERY_S, opener=Reader):
             except OSError as error:
                 complain("reading Teams observations", error)
                 reading = Reading("unavailable")
-            if reading.state in ("ready", "minimized"):
+            if reading.meeting or reading.state in ("ready", "minimized", "present"):
                 saw_meeting = True
             absent = absent + 1 if saw_meeting and reading.state == "no-meeting" else 0
             if absent == END_OBSERVATIONS:

@@ -51,6 +51,10 @@ ROLES = ("me", "others")
 # (core/callmute.py, write_spans): its speech there is not transcribed
 MUTED_TAG = "SCRIBA_CALL_MUTED"
 NAMED_TAG = "SCRIBA_NAMED_SPANS"
+CUT_TAG = "SCRIBA_SUGGESTED_CUT"
+CALL_RANGE_TAG = "SCRIBA_CALL_RANGE"
+TRIMMED_TAG = "SCRIBA_TRIMMED"
+JOIN_ID_TAG = "SCRIBA_JOIN_ID"
 
 
 @dataclass(frozen=True)
@@ -70,6 +74,9 @@ class Media:
     subtitle_tracks: int
     tracks: tuple[Track, ...] = ()      # the sound tracks, in order
     meeting_title: str = ""
+    suggested_cut: tuple[str, float] | None = None
+    join_id: str = ""
+    suggested_range: tuple[float, float] | None = None
 
     @property
     def roles(self) -> tuple[Track, ...]:
@@ -99,7 +106,8 @@ def _need(program: str) -> Path:
 need = _need        # for the recorder's finishing (app/recording.py)
 
 
-def decoded_seconds(source: str | os.PathLike, stream: int = 0, cancelled: threading.Event | None = None) -> float:
+def decoded_seconds(source: str | os.PathLike, stream: int = 0, cancelled: threading.Event | None = None,
+                    *, on_seconds: Callable[[float], None] | None = None) -> float:
     """How long the sound track really is, decoding it all (fast for FLAC):
     a file cut short by a crash has no length in its header. Failure when
     it cannot be decoded."""
@@ -109,6 +117,8 @@ def decoded_seconds(source: str | os.PathLike, stream: int = 0, cancelled: threa
         seconds = progress_seconds(line)
         if seconds is not None:
             reached[0] = max(reached[0], seconds)
+            if on_seconds is not None:
+                on_seconds(reached[0])
 
     try:
         done = process.run([str(_need("ffmpeg")), "-nostdin", "-hide_banner", "-loglevel", "error", "-nostats",
@@ -142,11 +152,29 @@ def parse_probe(text: str) -> Media:
         tracks.append(Track(len(tracks), tags.get("TITLE", ""), role if role in ROLES else "",
                             callmute.read_spans(tags.get(MUTED_TAG)),
                             spans.read_spans(tags.get(NAMED_TAG))))
+    tags = {str(k).upper(): str(v) for k, v in (container.get("tags") or {}).items()}
+    reason, _, value = tags.get(CUT_TAG, "").partition(":")
+    cut = None
+    if reason in ("call", "silent") and tags.get(TRIMMED_TAG) != "1":
+        try:
+            seconds = float(value)
+            if 0 < seconds < duration:
+                cut = reason, seconds
+        except ValueError:
+            pass
+    interval = None
+    if tags.get(TRIMMED_TAG) != "1":
+        try:
+            start, end = map(float, tags.get(CALL_RANGE_TAG, "").split(":"))
+            if 0 <= start < end and start < duration:
+                interval = start, min(end, duration)
+        except ValueError:
+            pass
     return Media(duration=duration, sound_tracks=len(tracks),
                  video=any(k == "video" and not p for k, p in kinds),
                  subtitle_tracks=sum(1 for k, _p in kinds if k == "subtitle"), tracks=tuple(tracks),
-                 meeting_title=next((v for k, v in (container.get("tags") or {}).items()
-                                     if k.upper() == "SCRIBA_MEETING_TITLE" and isinstance(v, str)), ""))
+                 meeting_title=tags.get("SCRIBA_MEETING_TITLE", ""), suggested_cut=cut,
+                 join_id=tags.get(JOIN_ID_TAG, ""), suggested_range=interval)
 
 
 def probe(source: str | os.PathLike, cancelled: threading.Event | None = None) -> Media:
@@ -215,15 +243,18 @@ def decode(source: str | os.PathLike, dest: str | os.PathLike, duration: float =
     return Path(dest)
 
 
-def loudness_arguments(ffmpeg: str, source: str, stream: int = 0) -> list[str]:
+def loudness_arguments(ffmpeg: str, source: str, stream: int = 0, *, start: float = 0, length: float = 0) -> list[str]:
     """EBU R128's measure (ebur128, the true peak too): nothing written."""
-    return [ffmpeg, "-nostdin", "-hide_banner", "-nostats", "-progress", "pipe:1", "-i", source, "-map", f"0:a:{stream}", "-vn",
-            "-af", "ebur128=peak=true", "-f", "null", "-"]
+    seek = ["-ss", f"{start:.6f}"] if start > 0 else []
+    limit = ["-t", f"{length:.6f}"] if length > 0 else []
+    return [ffmpeg, "-nostdin", "-hide_banner", "-nostats", "-progress", "pipe:1", *seek, "-i", source,
+            "-map", f"0:a:{stream}", "-vn", *limit, "-af", "ebur128=peak=true", "-f", "null", "-"]
 
 
 def measure_loudness(source: str | os.PathLike, stream: int = 0,
                      cancelled: threading.Event | None = None,
-                     on_seconds: Callable[[float], None] | None = None) -> loudness.Loudness:
+                     on_seconds: Callable[[float], None] | None = None, *, start: float = 0,
+                     length: float = 0) -> loudness.Loudness:
     """How loud the sound track `stream` of `source` is (EBU R128, at the
     file's own rate). Failure when ffmpeg cannot measure it."""
     lines: deque[str] = deque(maxlen=40)
@@ -234,7 +265,7 @@ def measure_loudness(source: str | os.PathLike, stream: int = 0,
             on_seconds(reached)
 
     try:
-        done = process.run(loudness_arguments(str(_need("ffmpeg")), os.fspath(source), stream),
+        done = process.run(loudness_arguments(str(_need("ffmpeg")), os.fspath(source), stream, start=start, length=length),
                            on_stdout=heard if on_seconds is not None else None,
                            on_stderr=lines.append, cancelled=cancelled)
     except OSError as e:

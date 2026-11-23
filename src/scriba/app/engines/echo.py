@@ -17,8 +17,8 @@ by two sources run apart (the canceller saw the reference minutes ahead of
 the microphone, or behind) and took out 3 dB; one file of two channels
 (the microphone left, the computer's sound right) read by one source and
 split by deinterleave, with queues of two buffers, keeps them in step as
-a live call does, and gives the same 42 dB, at 0.8 s of work per minute of
-audio at 16 kHz. GStreamer streams the file: memory does not grow with
+a live call does, and gives the same 42 dB. GStreamer streams the file:
+memory does not grow with
 its length. The first seconds go through twice (WARM), so that the start
 is cleaned as well as the rest.
 
@@ -98,7 +98,9 @@ def correlate(mic, output, rate: int, reach: float = echo.REACH) -> tuple[float,
     b = np.asarray(output, dtype=np.float64)
     n = min(len(a), len(b))
     a, b = a[:n], b[:n]
-    norm = float(np.linalg.norm(a) * np.linalg.norm(b))
+    # A window is short enough that starting a BLAS thread team for two
+    # vector norms can cost more than the correlation itself.
+    norm = math.sqrt(float(np.einsum("i,i->", a, a) * np.einsum("i,i->", b, b)))
     if n == 0 or norm == 0:
         return 0.0, 0.0
     lag = min(int(reach * rate), n - 1)
@@ -120,7 +122,8 @@ def window(mic, output, rate: int, start: float) -> echo.Window:
     return echo.Window(start, end, value, delay, mic_db, out_db)
 
 
-def read_pair(path: str | os.PathLike, block: float = BLOCK):
+def read_pair(path: str | os.PathLike, block: float = BLOCK, *,
+              began: float = 0.0, ended: float | None = None):
     """(start in seconds, microphone, computer) blocks of a two-channel
     WAV, int16, read a block at a time; the rate first."""
     import numpy as np
@@ -131,9 +134,12 @@ def read_pair(path: str | os.PathLike, block: float = BLOCK):
         rate = w.getframerate()
         yield rate
         frames = int(block * rate)
-        start = 0
-        while True:
-            data = w.readframes(frames)
+        total = w.getnframes()
+        start = min(total, max(0, round(began * rate)))
+        end = total if ended is None else min(total, max(start, round(ended * rate)))
+        w.setpos(start)
+        while start < end:
+            data = w.readframes(min(frames, end - start))
             if not data:
                 return
             both = np.frombuffer(data, dtype="<i2").reshape(-1, 2)
@@ -142,20 +148,23 @@ def read_pair(path: str | os.PathLike, block: float = BLOCK):
 
 
 def measure(path: str | os.PathLike, progress: Progress | None = None,
-            cancelled: threading.Event | None = None) -> tuple[list[echo.Window], float]:
+            cancelled: threading.Event | None = None, *, began: float = 0.0,
+            ended: float | None = None) -> tuple[list[echo.Window], float]:
     """Every WINDOW of a two-channel WAV (write_pair) measured, and the
     file's length in seconds. A tail shorter than half a window is left
     out of the measure (core/echo.py, stretches, gives it the last state)."""
-    blocks = read_pair(path, echo.WINDOW)
+    blocks = read_pair(path, echo.WINDOW, began=began, ended=ended)
     rate = next(blocks)
     with wave.open(os.fspath(path), "rb") as w:
         duration = w.getnframes() / rate
     out = []
+    stop = min(duration, ended) if ended is not None else duration
+    total = max(0.0, stop - began)
     for start, mic, output in blocks:
         check(cancelled)
         if len(mic) >= rate * echo.WINDOW / 2:
             out.append(window(mic, output, rate, start))
-        tell(progress, min(start + echo.WINDOW, duration), duration)
+        tell(progress, min(start + len(mic) / rate - began, total), total)
     return out, duration
 
 
@@ -182,7 +191,7 @@ def write_pair(path: str | os.PathLike, mic, outputs, rate: int) -> Path:
 
 
 def pair_files(mic: str | os.PathLike, outputs: list[str | os.PathLike], dest: str | os.PathLike,
-               cancelled: threading.Event | None = None) -> Path:
+               cancelled: threading.Event | None = None, *, progress: Progress | None = None) -> Path:
     """write_pair from mono WAV files of one rate (ffmpeg.decode's), a
     block at a time: a recording of an hour is never all in memory."""
     import numpy as np
@@ -194,6 +203,7 @@ def pair_files(mic: str | os.PathLike, outputs: list[str | os.PathLike], dest: s
         if any((r.getnchannels(), r.getsampwidth(), r.getframerate()) != (1, 2, rate) for r in readers):
             raise Failure(_("The audio prepared for the echo check is not as expected."), f"{mic}, {outputs}")
         step = int(BLOCK * rate)
+        total, reached = readers[0].getnframes(), 0
         with wave.open(os.fspath(dest), "wb") as w:
             w.setnchannels(2)
             w.setsampwidth(2)
@@ -209,6 +219,8 @@ def pair_files(mic: str | os.PathLike, outputs: list[str | os.PathLike], dest: s
                     piece = np.frombuffer(reader.readframes(len(left)), dtype="<i2")
                     both[:len(piece), 1] += piece
                 w.writeframes(np.clip(both, -32768, 32767).astype("<i2").tobytes())
+                reached += len(left)
+                tell(progress, reached, total)
     finally:
         for reader in readers:
             reader.close()
@@ -216,7 +228,8 @@ def pair_files(mic: str | os.PathLike, outputs: list[str | os.PathLike], dest: s
 
 
 def splice(pair: str | os.PathLike, cleaned: str | os.PathLike, parts: list[echo.Stretch],
-           dest: str | os.PathLike, cancelled: threading.Event | None = None) -> Path:
+           dest: str | os.PathLike, cancelled: threading.Event | None = None, *,
+           progress: Progress | None = None) -> Path:
     """The microphone's track as it will be heard: the cleaned one in the
     stretches with echo, the raw one (the left channel of `pair`) in the
     others, the change a short ramp (core/echo.py, blend_points). As long
@@ -246,7 +259,72 @@ def splice(pair: str | os.PathLike, cleaned: str | os.PathLike, parts: list[echo
             weight = np.interp(t, xs, ys)
             mixed = weight * clean.astype(np.float64) + (1 - weight) * raw.astype(np.float64)
             out.writeframes(np.clip(np.round(mixed), -32768, 32767).astype("<i2").tobytes())
+            tell(progress, min(start + len(raw) / rate, frames / rate), frames / rate)
     return Path(dest)
+
+
+def refine(pair: Path, mic: Path, ranges: list[tuple[float, float]], dest: Path,
+           cancelled: threading.Event | None = None, *, progress: Progress | None = None) -> Path:
+    """Run the canceller on echo ranges and copy the rest directly."""
+    total = sum(end - start for start, end in ranges)
+    done = 0.0
+    with wave.open(os.fspath(mic), "rb") as raw, wave.open(os.fspath(pair), "rb") as combined, \
+            wave.open(os.fspath(dest), "wb") as output:
+        rate, frames = raw.getframerate(), raw.getnframes()
+        output.setparams(raw.getparams())
+        cursor = 0
+        for index, (start, end) in enumerate(ranges):
+            check(cancelled)
+            length = end - start
+            a = max(cursor, round(max(0.0, start - WARM) * rate))
+            b = min(frames, round((end + echo.CROSSFADE / 2) * rate))
+            if index + 1 < len(ranges):
+                b = min(b, round(ranges[index + 1][0] * rate))
+            clip = dest.with_name(f"{dest.stem}-part.wav")
+            clean = dest.with_name(f"{dest.stem}-clean.wav")
+            mixed = dest.with_name(f"{dest.stem}-mixed.wav")
+
+            def advance(start_fraction, span, base=done, length=length):
+                def update(reached, limit):
+                    if limit > 0:
+                        tell(progress, base + length * (start_fraction + span * reached / limit), total)
+                return update
+
+            try:
+                with wave.open(os.fspath(clip), "wb") as writer:
+                    writer.setparams(combined.getparams())
+                    combined.setpos(a)
+                    _copy_frames(combined, writer, b - a, cancelled)
+                cancel(clip, clean, advance(0, .85), cancelled)
+                low, high = start - a / rate, min(end, b / rate) - a / rate
+                parts = ([echo.Stretch(0, low, False)] if low > 0 else [])
+                parts.append(echo.Stretch(low, high, True))
+                if high < (b - a) / rate:
+                    parts.append(echo.Stretch(high, (b - a) / rate, False))
+                splice(clip, clean, parts, mixed, cancelled, progress=advance(.85, .15))
+                raw.setpos(cursor)
+                _copy_frames(raw, output, a - cursor, cancelled)
+                with wave.open(os.fspath(mixed), "rb") as reader:
+                    _copy_frames(reader, output, b - a, cancelled)
+            finally:
+                for path in clip, clean, mixed:
+                    path.unlink(missing_ok=True)
+            cursor = b
+            done += length
+        raw.setpos(cursor)
+        _copy_frames(raw, output, frames - cursor, cancelled)
+    return dest
+
+
+def _copy_frames(reader, writer, frames, cancelled):
+    while frames:
+        check(cancelled)
+        n = min(frames, 65536)
+        data = reader.readframes(n)
+        if len(data) != n * reader.getsampwidth() * reader.getnchannels():
+            raise EOFError("incomplete WAV")
+        writer.writeframesraw(data)
+        frames -= n
 
 
 class Live:

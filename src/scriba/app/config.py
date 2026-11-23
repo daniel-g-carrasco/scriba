@@ -52,6 +52,7 @@ class Config(settings.Fields):
     input_device: str = ""               # "": chosen by the app (core/devices.py); else the device's id
     output_device: str = ""              # the same for the output
     follow_call_mute: bool = True        # Windows 11: the microphone's speech not transcribed while muted in the call
+    call_stop_minutes: int = 5          # 0: give the prompt without automatic stopping
     teams_names: bool = True             # Windows: propose names from observed Teams speaker borders
 
     def term_file_list(self) -> list[str]:

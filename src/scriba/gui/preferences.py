@@ -162,6 +162,13 @@ class PreferencesDialog(Adw.PreferencesDialog):
                            "Unavailable when Teams is minimized or its picture cannot be read."), subtitle_lines=3)
             self.teams_names_row.connect("notify::active", lambda r, _p: self._set("teams_names", r.get_active()))
             group.add(self.teams_names_row)
+            self.call_stop_row = Adw.SpinRow.new_with_range(0, 60, 1)
+            self.call_stop_row.set_title(_("Stop After a Call (Minutes)"))
+            self.call_stop_row.set_subtitle(_("Set to 0 to keep recording until you press Stop."))
+            self.call_stop_row.set_value(cfg.call_stop_minutes)
+            self.call_stop_row.connect("notify::value",
+                                       lambda r, _p: self._set("call_stop_minutes", int(r.get_value())))
+            group.add(self.call_stop_row)
         page.add(group)
 
         group = Adw.PreferencesGroup(title=escape(_("Background")))

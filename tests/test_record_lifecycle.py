@@ -102,7 +102,8 @@ class Backend:
         self.recorders.append(recorder)
         return recorder
 
-    def finish(self, takes, folder, stem, progress=None, *, elapsed=0.0, mix_progress=None):
+    def finish(self, takes, folder, stem, cancelled=None, progress=None, *, elapsed=0.0, mix_progress=None,
+               fraction=None, journal=None, choose=None):
         self.finishes += 1
         if progress is not None:
             progress(recording.JOINING)
@@ -293,9 +294,10 @@ class RecordLifecycleTest(unittest.TestCase):
         self.page.stop()
         self.assertTrue(_setup.spin(self.backend.finish_entered.is_set))
         self.page._show_status(recorder.snapshot())
-        self.assertIn("step 2 of 4: joining the tracks", self.page.state_label.get_label())
+        self.assertIn("joining the tracks", self.page.finish_step.get_label())
         self.assertFalse(self.page.stop_button.get_sensitive())
         self.assertFalse(self.page.pause_button.get_sensitive())
+        self.assertTrue(self.page.skip_finish.get_visible())
         self.backend.finish_release.set()
         self.complete()
         self.assertEqual(recorder.stops, 1)

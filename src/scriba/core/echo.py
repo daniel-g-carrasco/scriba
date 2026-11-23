@@ -126,6 +126,21 @@ def stretches(windows: list[Window], duration: float) -> list[Stretch]:
     return out
 
 
+def clean_ranges(windows: list[Window]) -> list[tuple[float, float]]:
+    """Where the echo was heard and there is sound on both sides."""
+    follow = Follow()
+    ranges = []
+    for window in windows:
+        verdict = window.verdict
+        if not follow.feed(verdict) or verdict == UNKNOWN:
+            continue
+        if ranges and ranges[-1][1] == window.start:
+            ranges[-1] = ranges[-1][0], window.end
+        else:
+            ranges.append((window.start, window.end))
+    return ranges
+
+
 def echo_seconds(parts: list[Stretch]) -> float:
     return sum(s.end - s.start for s in parts if s.echo)
 

@@ -5,7 +5,35 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 are `0.x` while the app evolves. Stable Windows and Linux packages are
 available from GitHub Releases. Linux Flatpak builds and runtime checks use GNOME Platform 50. The app's metainfo carries a shorter description.
 
-## [Unreleased]
+## [0.1.13] - 2026-11-23
+
+### Added
+- When a call ends (a Teams meeting, or a call program that releases the
+  microphone), Scriba offers to stop recording, and stops by itself after
+  five minutes without an answer. The wait can be changed in Preferences;
+  0 turns the automatic stop off. A meeting in person never stops by
+  itself.
+- After stopping, choose **Only the Call** or **Whole Recording**
+  before echo removal and mixing. Without an answer, after two minutes
+  Scriba keeps the call; the complete recording is kept in Previous
+  revisions.
+- Trim either end of a recording without re-encoding, with the original
+  kept in Previous revisions.
+- Recordings interrupted by a crash, a power cut or a forced exit are
+  offered for completion when Scriba opens again, resuming from the step
+  they reached.
+- **Skip Finishing** leaves sooner without losing anything; the listening
+  copy can be created later from the Transcribe tab.
+
+### Changed
+- After stopping, one progress bar shows the estimated time left and the
+  finish time, also in the notification area and in the quit dialog.
+- Saving a recording is faster: echo is looked for and removed only where
+  the microphone and the outputs are active.
+
+### Fixed
+- After a call, a microphone opened by the call program (for example a
+  webcam's) no longer replaces the one that was recording.
 
 ## [0.1.12] - 2026-11-22
 

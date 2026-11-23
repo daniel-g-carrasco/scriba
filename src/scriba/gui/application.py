@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime
 import os
 import sys
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 
@@ -28,7 +29,7 @@ from scriba.app.paths import in_flatpak  # noqa: E402
 from scriba.i18n import _  # noqa: E402
 
 from .secondaries import present_secondary, watch_dialog  # noqa: E402
-from .ui import activities, load_style, run_in_thread  # noqa: E402
+from .ui import activities, load_style, recordings_folder, run_in_thread  # noqa: E402
 from .preferences import PreferencesDialog, about_dialog  # noqa: E402
 from .update_widgets import announce_update  # noqa: E402
 from .window import MainWindow  # noqa: E402
@@ -230,6 +231,9 @@ class App(Adw.Application):
         self._ignore_settings_error = False
         self._logout_cookie = 0
         self._quit_dialog = None
+        self._finish_quit_dialog = None
+        self._recovery_dialog = None
+        self._recoveries = []
         self._preferences_dialogs: set[PreferencesDialog] = set()
         self._drain_source = 0
         self._models_stopped_for_exit = False
@@ -339,10 +343,51 @@ class App(Adw.Application):
             shot = os.environ.get(f"{ENV_PREFIX}_SCREENSHOT")
             if not shot:
                 GLib.idle_add(self._start_models)
+                self._scan_recovery()
             if shot:   # developer aid (and the CI's smoke test): the window as PNG after a few seconds
                 GLib.timeout_add(int(float(os.environ.get(f"{ENV_PREFIX}_SCREENSHOT_DELAY", "3")) * 1000),
                                  lambda: self._screenshot(shot) and False)
         return self.window
+
+    def _scan_recovery(self):
+        from scriba.app import recovery
+        folder = recordings_folder(self.cfg)
+
+        def scanned(items, error):
+            if error is not None:
+                complain("looking for unfinished recordings", error)
+            elif not self.closing:
+                self._recoveries = items
+                self._offer_recovery()
+
+        run_in_thread(lambda: recovery.pending(folder), scanned)
+
+    def _offer_recovery(self):
+        if (self.closing or not self._recoveries or self._recovery_dialog is not None
+                or self.window is None or self.window.record.busy):
+            return
+        window = self.window
+        item = self._recoveries.pop(0)
+        heading = _("Finish the recording from {date} at {time}?").format(
+            date=item.when.strftime("%d/%m"), time=item.when.strftime("%H:%M"))
+        body = _("Some track details may be missing.") if item.orphan else ""
+        dialog = self._recovery_dialog = Adw.AlertDialog(heading=heading, body=body)
+        dialog.add_response("later", _("Later"))
+        dialog.add_response("complete", _("Finish Recording"))
+        dialog.set_response_appearance("complete", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("complete")
+        dialog.set_close_response("later")
+
+        def answered(_dialog, response):
+            self._recovery_dialog = None
+            if response == "complete" and not self.closing and not window.record.busy:
+                window.views.set_visible_child_name("record")
+                window.record.resume_saving(item)
+            else:
+                self._offer_recovery()
+
+        dialog.connect("response", answered)
+        dialog.present(window)
 
     @property
     def downloads(self):
@@ -390,7 +435,7 @@ class App(Adw.Application):
         if self._quit_dialog is not None:
             if system:
                 self._quit_dialog.close()
-                self._quit_dialog = None
+                self._quit_dialog = self._finish_quit_dialog = None
                 self._begin_quit()
             return
         window = self.window
@@ -402,20 +447,35 @@ class App(Adw.Application):
     def _confirm_quit(self):
         window = self.window
         parts = []
-        if window.record.busy:
+        finishing = window.record.finishing_progress is not None
+        if finishing:
+            parts.append(window.record.finishing_summary())
+        elif window.record.busy:
             parts.append(_("The recording will be stopped and saved."))
         if window.transcribe.busy:
             parts.append(_("The transcription in progress will be cancelled."))
-        dialog = self._quit_dialog = Adw.AlertDialog(heading=_("Quit Scriba?"), body="\n\n".join(parts))
-        dialog.add_response("keep", _("Keep Working"))
-        dialog.add_response("quit", _("Stop and Quit"))
-        dialog.set_response_appearance("quit", Adw.ResponseAppearance.DESTRUCTIVE)
-        dialog.set_default_response("keep")
-        dialog.set_close_response("keep")
+        heading = _("Quitting when saving finishes") if finishing else _("Quit Scriba?")
+        dialog = self._quit_dialog = Adw.AlertDialog(heading=heading, body="\n\n".join(parts))
+        if finishing:
+            self._finish_quit_dialog = dialog
+        if finishing:
+            dialog.add_response("quit", _("Wait"))
+            dialog.add_response("skip", _("Skip Finishing and Quit"))
+            dialog.set_response_appearance("skip", Adw.ResponseAppearance.DESTRUCTIVE)
+            dialog.set_default_response("quit")
+            dialog.set_close_response("keep")
+        else:
+            dialog.add_response("keep", _("Keep Working"))
+            dialog.add_response("quit", _("Stop and Quit"))
+            dialog.set_response_appearance("quit", Adw.ResponseAppearance.DESTRUCTIVE)
+            dialog.set_default_response("keep")
+            dialog.set_close_response("keep")
 
         def answered(_dialog, response):
-            self._quit_dialog = None
-            if response == "quit":
+            self._quit_dialog = self._finish_quit_dialog = None
+            if response == "skip":
+                window.record.skip_finishing()
+            if response in ("quit", "skip"):
                 self._begin_quit()
         dialog.connect("response", answered)
         if self.background is not None:
@@ -599,6 +659,64 @@ class App(Adw.Application):
         note = Gio.Notification.new(title)
         note.set_body(body)
         self.send_notification(tag or None, note)
+
+    def notify_call_ended(self, stop, go_on):
+        title = _("The call seems to have ended. Stop recording?")
+        if WINDOWS and self.toasts is not None:
+            def dispatch(callback):
+                return lambda: GLib.idle_add(lambda: callback() or False)
+            try:
+                from scriba.app import call_notifications
+                call_notifications.show(self.toasts, title, {"stop": (_("Stop"), dispatch(stop)),
+                                                             "continue": (_("Continue"), dispatch(go_on))})
+                return
+            except OSError as error:
+                complain("notifying about the end of the call", error)
+        if self.window is not None and self.window.get_visible():
+            dialog = Adw.AlertDialog(heading=title)
+            dialog.add_response("stop", _("Stop"))
+            dialog.add_response("continue", _("Continue"))
+            dialog.set_close_response("close")
+
+            def answered(_dialog, response):
+                if response == "stop":
+                    stop()
+                elif response == "continue":
+                    go_on()
+
+            dialog.connect("response", answered)
+            dialog.present(self.window)
+
+    def notify_recording_choice(self, title, answer):
+        labels = {"only-call": (_("Only the Call"), True), "whole-recording": (_("Whole Recording"), False)}
+        if WINDOWS and self.toasts is not None:
+            from scriba.app import call_notifications
+
+            try:
+                actions = {key: (label, lambda only=only: answer(only)) for key, (label, only) in labels.items()}
+                call_notifications.show(self.toasts, title, actions, tag="call-choice")
+                return None
+            except OSError as error:
+                complain("notifying about the recording choice", error)
+
+        tag = "call-choice-" + uuid.uuid4().hex
+        note = Gio.Notification.new(title)
+        actions = []
+        for key, (label, only_call) in labels.items():
+            name = f"{tag}-{key}"
+            action = Gio.SimpleAction.new(name, None)
+            action.connect("activate", lambda *_args, only=only_call: answer(only))
+            self.add_action(action)
+            note.add_button(label, f"app.{name}")
+            actions.append(name)
+        self.send_notification(tag, note)
+
+        def withdraw():
+            self.withdraw_notification(tag)
+            for name in actions:
+                self.remove_action(name)
+
+        return withdraw
 
     # -- a newer version (Windows: on Linux the Flatpak brings it) ----------------------
 

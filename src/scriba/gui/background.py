@@ -89,8 +89,11 @@ class Background:
             suffix = "paused" if paused else "recording"
             description = _("Recording Paused") if paused else _("Recording")
             if record._stopping:
-                description = _("Finishing the Recording…")
+                description = record.finishing_summary()
             elif snapshot is not None:
+                call_action = getattr(record, "call_action", None)
+                if call_action is not None:
+                    items.append(MenuItem(_("Continue"), lambda: call_action(False), name="continue-after-call"))
                 items.append(MenuItem(_("Resume Recording") if paused else _("Pause Recording"),
                                       record.pause, name="pause-recording"))
                 items.append(MenuItem(_("Stop Recording"), record.stop, name="stop-recording"))

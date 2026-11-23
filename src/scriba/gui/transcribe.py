@@ -32,6 +32,7 @@ from scriba import APP_NAME  # noqa: E402
 from scriba.app import jobs, models  # noqa: E402
 from scriba.app.task import Cancelled, Failure  # noqa: E402
 from scriba.core import estimate  # noqa: E402
+from scriba.core.recording import cut_seconds  # noqa: E402
 from scriba.data.timing import clock  # noqa: E402
 from scriba.i18n import _  # noqa: E402
 
@@ -120,7 +121,8 @@ class TranscribePage(Adw.Bin):
         self.models_needed.set_visible(bool(missing))
         self.models_needed.set_subtitle(_(
             "Download the missing models, or choose Fast if only the Precise model is missing."))
-        self.start_button.set_sensitive(self.media is not None and not missing and not self.busy)
+        self.start_button.set_sensitive(self.media is not None and not missing and not self.busy
+                                        and self._trim_cancel is None)
 
     def _models_changed(self, _state):
         missing = bool(self.backend.missing())
@@ -153,6 +155,10 @@ class TranscribePage(Adw.Bin):
     def stop_all(self) -> None:
         """The window closes: the test of the cards and the work stop (their
         programs are terminated, their temporary folders go)."""
+        if self._listening_cancel is not None:
+            self._listening_cancel.set()
+        if self._trim_cancel is not None:
+            self._trim_cancel.set()
         self._devices_cancel.set()
         self.cancel_inspection()
         self.cards.stop()
@@ -193,7 +199,27 @@ class TranscribePage(Adw.Bin):
                             valign=Gtk.Align.CENTER, css_classes=["flat"])
         change.connect("clicked", lambda *_: self.window.choose_file())
         self.file_row.add_suffix(change)
+        self.listening_button = Gtk.Button(icon_name="media-playback-start-symbolic",
+                                          tooltip_text=_("Create Listening Copy"), visible=False,
+                                          valign=Gtk.Align.CENTER, css_classes=["flat"])
+        self.listening_button.connect("clicked", lambda *_args: self._create_listening_copy())
+        self.file_row.add_suffix(self.listening_button)
+        self._listening_cancel = None
         group.add(self.file_row)
+        self.trim_row = Adw.ActionRow(title=_("Keep only from… to…"), use_markup=False, visible=False)
+        self.trim_times = []
+        self._trim_range = (0, 0)
+        for label in (_("Start (mm:ss or h:mm:ss)"), _("End (mm:ss or h:mm:ss)")):
+            entry = Gtk.Entry(width_chars=7, max_width_chars=11, valign=Gtk.Align.CENTER, tooltip_text=label)
+            entry.update_property([Gtk.AccessibleProperty.LABEL], [label])
+            entry.connect("activate", lambda *_args: self._trim())
+            self.trim_row.add_suffix(entry)
+            self.trim_times.append(entry)
+        self.trim_button = Gtk.Button(label=_("Trim"), valign=Gtk.Align.CENTER)
+        self.trim_button.connect("clicked", lambda *_args: self._trim())
+        self.trim_row.add_suffix(self.trim_button)
+        group.add(self.trim_row)
+        self._trim_cancel = None
         self.device_row = Adw.ActionRow(use_markup=False, title=_("Graphics Card"), subtitle_lines=5)
         self.device_icon = Gtk.Image(icon_name="video-display-symbolic")
         self.device_row.add_prefix(self.device_icon)
@@ -359,11 +385,19 @@ class TranscribePage(Adw.Bin):
         if self.job is not None:
             self.window.toast(_("A transcription is in progress: cancel it first."))
             return
+        if self._trim_cancel is not None:
+            self.window.toast(_("Trimming the recording…"))
+            return
         source = Path(path)
         if not source.is_file():
             self.window.toast(_("“{name}” is not a file that can be transcribed.").format(name=source.name or path))
             return
         self.cancel_inspection()
+        if self._listening_cancel is not None:
+            self._listening_cancel.set()
+            self._listening_cancel = None
+        self.listening_button.set_visible(False)
+        self.trim_row.set_visible(False)
         self.source, self.media, self.out_override = source, None, None
         self.cfg.last_folder = str(source.parent)
         self._load_choices()
@@ -399,6 +433,10 @@ class TranscribePage(Adw.Bin):
             self.estimate_row.set_subtitle("")
             return
         self.media = media
+        self.listening_button.set_sensitive(True)
+        self.listening_button.set_visible(bool(media.roles and self.source.suffix.lower() == ".mka"
+                                               and jobs.listening_copy(self.source) == self.source))
+        self._show_trim(media)
         kind = _("video") if media.video else _("audio")
         self.file_icon.set_from_icon_name("video-x-generic-symbolic" if media.video else "audio-x-generic-symbolic")
         facts = [clock(media.duration), kind]
@@ -411,6 +449,81 @@ class TranscribePage(Adw.Bin):
         self.video_row.set_visible(media.video)
         self._update_model_gate()
         self.refresh_estimate()
+
+    def _show_trim(self, media):
+        available = self.source.suffix.lower() == ".mka" and bool(media.roles) and media.duration > 0
+        self.trim_row.set_visible(available)
+        if available:
+            end = media.suggested_cut[1] if media.suggested_cut else media.duration
+            self._trim_range = media.suggested_range or (0, end)
+            for entry, point in zip(self.trim_times, self._trim_range, strict=True):
+                entry.set_text(clock(point))
+
+    def _trim(self):
+        if (self.source is None or self.media is None or self.busy or getattr(self.app, "closing", False)
+                or self._trim_cancel is not None or self._listening_cancel is not None):
+            return
+        try:
+            start, end = (point if entry.get_text() == clock(point) else cut_seconds(entry.get_text())
+                          for entry, point in zip(self.trim_times, self._trim_range, strict=True))
+        except ValueError:
+            start = end = -1
+        if not 0 <= start < end <= self.media.duration or (start == 0 and end == self.media.duration):
+            self.window.toast(_("Choose an interval inside the recording."))
+            return
+        source = self.source
+        cancel = self._trim_cancel = threading.Event()
+        self.trim_row.set_sensitive(False)
+        self.trim_button.set_label(_("Trimming the recording…"))
+        self.listening_button.set_sensitive(False)
+        self.start_button.set_sensitive(False)
+
+        def work():
+            cut = self.backend.trim(source, start, end, cancel)
+            try:
+                self.backend.listening_mix(cut, cancel)
+            except (Failure, OSError, Cancelled) as error:
+                return cut, error
+            return cut, None
+
+        def done(result, error):
+            self._trim_cancel = None
+            if getattr(self.app, "closing", False):
+                return
+            self.trim_row.set_sensitive(True)
+            self.trim_button.set_label(_("Trim"))
+            self.listening_button.set_sensitive(True)
+            if error is None:
+                cut, mix_error = result
+                self.open(str(cut))
+                if mix_error is not None and not isinstance(mix_error, Cancelled):
+                    self.window.toast(str(mix_error))
+            else:
+                self._update_model_gate()
+                if not isinstance(error, Cancelled):
+                    self.window.toast(str(error))
+
+        run_in_thread(work, done)
+
+    def _create_listening_copy(self):
+        source = self.source
+        if source is None or self._listening_cancel is not None or self._trim_cancel is not None:
+            return
+        self.listening_button.set_sensitive(False)
+        cancel = self._listening_cancel = threading.Event()
+
+        def done(path, error):
+            if cancel is not self._listening_cancel:
+                return
+            self._listening_cancel = None
+            self.listening_button.set_sensitive(True)
+            if error is None:
+                self.listening_button.set_visible(False)
+                self.window.toast(_("Listening copy saved: {name}").format(name=path.name))
+            elif not isinstance(error, Cancelled):
+                self.window.toast(str(error))
+
+        run_in_thread(lambda: self.backend.listening_mix(source, cancel), done)
 
     def request(self) -> jobs.Request:
         home = self._home()
@@ -513,7 +626,7 @@ class TranscribePage(Adw.Bin):
         if self.app.installing:
             self.window.toast(_("An update is starting: wait for {app} to open again.").format(app=APP_NAME))
             return
-        if self.busy or self.source is None or self.media is None:
+        if self.busy or self.source is None or self.media is None or self._trim_cancel is not None:
             return
         if self._missing_models():
             self.window.show_models()

@@ -29,6 +29,7 @@ MARGIN = 200 * 1024 * 1024                  # bytes the disk keeps whatever happ
 START_MINUTES = 10          # a recording does not start with less room than this
 WARN_MINUTES = 30           # said while recording when the room left falls under this
 STOP_MINUTES = 1            # the recording is stopped, its files closed properly, under this
+TAIL_SILENCE = 5 * 60       # seconds after the last sound from the computer
 NAME_LIMIT = 40             # characters of a device's name in a file's name
 
 
@@ -43,6 +44,29 @@ def stem(when: datetime.datetime, word: str) -> str:
     """"2026-11-11 10-54-08 <word>": the name the files of a recording
     share, its folder's name first."""
     return f"{folder_name(when)} {word}"
+
+
+def tail_cut(elapsed, call_ended, output_silent_since):
+    """The first candidate cut, in seconds on the recording timeline."""
+    if call_ended is not None and 0 < call_ended < elapsed - 1:
+        return "call", call_ended
+    if output_silent_since is not None and 0 < output_silent_since <= elapsed - TAIL_SILENCE:
+        return "silent", output_silent_since
+    return None
+
+
+def cut_seconds(value):
+    """Read the time shown by the trim field (mm:ss or h:mm:ss)."""
+    if re.fullmatch(r"(?:\d+:)?[0-5]?\d:[0-5]\d", value.strip()) is None:
+        raise ValueError(value)
+    return sum(int(part) * 60 ** n for n, part in enumerate(reversed(value.strip().split(":"))))
+
+
+def clip_interval(start, end, first, last):
+    """Move an interval onto the excerpt's timeline, or drop it if empty."""
+    left = round(max(first, start) - first, 6)
+    right = round((last if end is None else min(last, end)) - first, 6)
+    return (left, right) if left < right else None
 
 
 def safe(name: str, limit: int = NAME_LIMIT) -> str:

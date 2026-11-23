@@ -88,8 +88,9 @@ gi.require_version("Gst", "1.0")
 from gi.repository import Gst  # noqa: E402
 
 from scriba import WINDOWS  # noqa: E402
+from scriba.app import recovery  # noqa: E402
 from scriba.app.engines import echo as canceller  # noqa: E402
-from scriba.core import callmute, devices as dev, echo, levels, recording as rec, spans  # noqa: E402
+from scriba.core import callend, callmute, devices as dev, echo, levels, recording as rec, spans  # noqa: E402
 from scriba.data import files  # noqa: E402
 from scriba.i18n import _  # noqa: E402
 
@@ -389,6 +390,10 @@ class Recorder:
         self.stem = files.free_stem(self.folder, stem, (".mka", together, f"_{self._words['me']}.flac",
                                                         f"_{self._words['others']} 1.flac"))
         self._lock = threading.Lock()
+        self.journal = recovery.Journal(self.folder, self.stem)
+        self._journal_lock = None
+        self._last_save_error = ""
+        self._stop_lock = threading.Lock()
         self._pipeline: Gst.Pipeline | None = None
         self._branches: dict[str, _Branch] = {}
         self._takes: dict[str, Take] = {}
@@ -414,6 +419,11 @@ class Recorder:
         self.call_indicator = None              # the indicator's opener for app/callmute.follow (tests)
         self._call_muted = False                # the user is muted in the call now
         self.teams_names = False                # enabled by the Windows preference before start
+        self.call_stop_minutes = None     # set by the GUI on platforms with Teams observations
+        self._call_end = callend.CallEnd()
+        self._last_output_sample = None
+        self._last_output_sound = None
+        self._silence_from = 0.0
         self.teams_reader = None                # replaceable opener, as for the call indicator
         self._named = spans.Builder()
         self._meeting_title = ""
@@ -458,6 +468,8 @@ class Recorder:
             self._branches[key] = branch
             self._takes[key] = take
             self._watch.track(key, role == "me")
+            if self._state == "recording":
+                self._save_locked()
         return take
 
     # -- start, pause, stop ----------------------------------------------------------
@@ -478,6 +490,9 @@ class Recorder:
         # using it as the master shifts that track relative to the others.
         self._pipeline.use_clock(Gst.SystemClock.obtain())
         try:
+            lease = self.journal.lock()
+            lease.__enter__()
+            self._journal_lock = lease
             if self.plan.input is not None:
                 self._add(self.plan.input, "me", 0.0)
             for output in self.plan.outputs:
@@ -487,6 +502,7 @@ class Recorder:
                 raise Failure(_("The recording could not start: {reason}").format(reason=detail or "GStreamer"),
                               detail)
         except BaseException:
+            self._release_journal()
             self._pipeline.set_state(Gst.State.NULL)
             for take in self._takes.values():
                 take.path.unlink(missing_ok=True)
@@ -495,15 +511,40 @@ class Recorder:
         self._began = time.monotonic()
         self._state = "recording"
         self._left = rec.seconds_left(free, count)
+        with self._lock:
+            self._save_locked()
         watches = [(self._read_bus, "scriba-recorder-bus"), (self._watch_devices, "scriba-recorder-watch")]
         if self.follow_call and (WINDOWS or self.call_indicator is not None):
             watches.append((self._watch_call, "scriba-recorder-call"))
-        if self.teams_names and (WINDOWS or self.teams_reader is not None):
+        if (self.teams_names or self.call_stop_minutes is not None) and (WINDOWS or self.teams_reader is not None):
             watches.append((self._watch_teams, "scriba-recorder-teams"))
         for target, name in watches:
             thread = threading.Thread(target=target, name=name, daemon=True)
             thread.start()
             self._threads.append(thread)
+
+    def _save_locked(self, phase="recording"):
+        if self._journal_lock is None:
+            return
+        at = self.elapsed()
+        named = self._named.snapshot(at)
+        takes = [replace(take, named_spans=named, meeting_title=self._meeting_title,
+                         loudest=self._watch.loudest.get(key, -math.inf))
+                 for key, take in self._takes.items()]
+        try:
+            silent_since = self._output_silence(at) if self._last_output_sound is not None else None
+            cut = rec.tail_cut(at, self._call_end.ended, silent_since)
+            self.journal.save(phase, takes, at, cut=cut, call_range=self._call_end.interval(at))
+            self._last_save_error = ""
+        except OSError as error:
+            if str(error) != self._last_save_error:
+                self._last_save_error = str(error)
+                complain("saving recording recovery state", error)
+
+    def _release_journal(self):
+        lease, self._journal_lock = self._journal_lock, None
+        if lease is not None:
+            lease.__exit__(None, None, None)
 
     def _unmake_folder(self) -> None:
         """The folder made for this recording, gone again when it did not
@@ -536,6 +577,7 @@ class Recorder:
             self._state = "paused"
             with self._lock:
                 self._named.unavailable(self.elapsed())
+                self._save_locked()
 
     def resume(self) -> None:
         if self._state == "paused":
@@ -556,8 +598,11 @@ class Recorder:
             if (role not in self._off) == on:
                 return
             (self._off.discard if on else self._off.add)(role)
-            if role == "others" and not on:
-                self._named.unavailable(at)
+            if role == "others":
+                self._last_output_sample = self._last_output_sound = None
+                self._silence_from = at
+                if not on:
+                    self._named.unavailable(at)
             for key, take in self._takes.items():
                 if take.role != role or take.ended is not None:
                     continue
@@ -568,6 +613,7 @@ class Recorder:
                     take.off = take.off + ((at, None),)
             if on and role == "others":
                 self._watch.resume(time.monotonic())   # the silence while it was off is not the call's
+            self._save_locked()
         self._say(ON if on else OFF, detail=role)
 
     def call_state(self, state: str) -> None:
@@ -589,6 +635,8 @@ class Recorder:
                 elif take.muted and take.muted[-1][1] is None:
                     take.muted = take.muted[:-1] + ((take.muted[-1][0], at),)
 
+            self._save_locked()
+
     def _watch_call(self) -> None:
         try:
             from . import callmute as indicator
@@ -601,6 +649,10 @@ class Recorder:
         end waited for, at most STOP_WAIT seconds: after that they are cut
         where they are, still readable); the tracks, with their loudest
         peaks."""
+        with self._stop_lock:
+            return self._stop_recording()
+
+    def _stop_recording(self):
         if self._state in ("recording", "paused", "stopping"):
             self.resume()               # a paused source passes on nothing, the end neither
             if self._ended_at is None:
@@ -612,7 +664,10 @@ class Recorder:
                 branch.source.send_event(Gst.Event.new_eos())
             if not self._eos.wait(STOP_WAIT):
                 self._error = self._error or _("The files took too long to close: they were cut where they were.")
-            self._finish()
+            try:
+                self._finish()
+            finally:
+                self._release_journal()
         return self.takes()
 
     def teams_reading(self, reading) -> None:
@@ -620,12 +675,13 @@ class Recorder:
             if self._state not in ("recording", "paused"):
                 return
             self._teams_state, self._teams_people = reading.state, reading.people
-            if reading.title:
+            if reading.title and self.teams_names:
                 self._meeting_title = reading.title
             at = self.elapsed()
+            self._call_end.teams("present" if getattr(reading, "meeting", False) else reading.state, at)
             if reading.state == "ended":
                 self._events.append(Event(at, TEAMS_ENDED))
-            if reading.state == "ready" and self._state == "recording" and "others" not in self._off:
+            if self.teams_names and reading.state == "ready" and self._state == "recording" and "others" not in self._off:
                 self._named.read(at, reading.active)
             else:
                 self._named.unavailable(at)
@@ -633,7 +689,8 @@ class Recorder:
     def _watch_teams(self) -> None:
         from scriba.app import teams
         try:
-            teams.follow(self.teams_reading, self._quit, opener=self.teams_reader or teams.Reader)
+            opener = self.teams_reader or (lambda: teams.Reader(names=self.teams_names))
+            teams.follow(self.teams_reading, self._quit, opener=opener)
         except Exception as error:  # worker boundary: recording continues, failure is visible
             complain("following Teams names", error)
             self.teams_reading(teams.Reading("unavailable"))
@@ -651,6 +708,7 @@ class Recorder:
             for take in self._takes.values():
                 take.named_spans = named
                 take.meeting_title = self._meeting_title
+            self._save_locked("finishing:closing")
         self._state = "failed" if self._error and self._state == "failed" else "stopped"
 
     def takes(self) -> list[Take]:
@@ -675,7 +733,9 @@ class Recorder:
                 alerts += (levels.Alert(echo.ECHO, "", 0.0),)
             return Status(self._state, self.elapsed(), tuple(replace(t) for t in self._takes.values()),
                           dict(self._now), alerts, tuple(self._events), self._left, self._error,
-                          frozenset(self._off), self._call_muted, self._teams_state, self._teams_people)
+                          frozenset(self._off), self._call_muted, self._teams_state if self.teams_names else "",
+                          self._teams_people, self._call_end.ended, self._call_end.prompt,
+                          self._output_silence(self.elapsed()) if self._last_output_sound is not None else None)
 
     # -- the threads -------------------------------------------------------------------
 
@@ -709,6 +769,10 @@ class Recorder:
                         with self._lock:
                             self._now[key] = (rms, peak)
                             self._watch.feed(key, time.monotonic(), rms, peak)
+                            if self._takes[key].role == "others" and "others" not in self._off:
+                                self._last_output_sample = self.elapsed()
+                                if rms >= echo.PLAYING_ABOVE or peak >= echo.PLAYING_ABOVE + 10:
+                                    self._last_output_sound = self._last_output_sample
         except Exception as e:      # the thread's border: said; the recording is stopped by the window
             complain("the recording's bus", e)
 
@@ -754,6 +818,8 @@ class Recorder:
 
     def _look_at_disk(self) -> None:
         with self._lock:
+            if self._state in ("recording", "paused"):
+                self._save_locked()
             tracks = sum(1 for t in self._takes.values() if t.ended is None)
         try:
             free = shutil.disk_usage(self.folder).free
@@ -769,6 +835,30 @@ class Recorder:
         elif state == "low" and not any(e.kind == DISK_LOW for e in self._events):
             self._say(DISK_LOW)
 
+    def _output_silence(self, at):
+        if (self._last_output_sample is None or "others" in self._off
+                or at - self._last_output_sample > WATCH_EVERY + 1):
+            return None
+        return self._last_output_sound if self._last_output_sound is not None else self._silence_from
+
+    def continue_after_call(self, ended):
+        with self._lock:
+            if self._call_end.ended != ended or not self._call_end.prompt:
+                return False
+            self._call_end.continue_call()
+            return True
+
+    def _check_call(self, devices, at):
+        if self.call_stop_minutes is None:
+            return False
+        with self._lock:
+            open_mic = any(d.kind == dev.INPUT and dev.call_program(d) for d in devices)
+            silent_since = self._output_silence(at)
+            playing = silent_since is not None and at - silent_since < callend.SILENCE_SECONDS
+            playing = playing and self._last_output_sound is not None
+            self._call_end.update(at, open_mic, silent_since, playing)
+            return self._call_end.due(at, self.call_stop_minutes)
+
     def _look_at_devices(self) -> None:
         try:
             present = self._list()
@@ -777,15 +867,19 @@ class Recorder:
             return
         ids = {d.id for d in present}
         at = self.elapsed()
+        if self._check_call(present, at):
+            threading.Thread(target=self.stop, daemon=True).start()
+            return
         with self._lock:
             live = [(key, self._branches[key].device, take) for key, take in self._takes.items() if take.ended is None]
         lost_input = False
         for key, device, take in live:
             if device.id not in ids:
-                take.ended = at
                 with self._lock:
+                    take.ended = at
                     self._watch.forget(key)
                     self._now.pop(key, None)
+                    self._save_locked()
                 self._say(GONE, device.name)
                 lost_input = lost_input or take.role == "me"
         recorded = {device.id for _key, device, take in live if take.ended is None}
@@ -811,6 +905,10 @@ class Recorder:
         joined with the others at the end: the microphone's tracks are all
         the user's). A microphone chosen by hand stays; that is said, once
         for each microphone the call takes."""
+        with self._lock:
+            if self.call_stop_minutes is not None and self._call_end.blocks_follow:
+                self._follow.look((), recorded.id)
+                return
         found = self._follow.look(present, recorded.id)
         if found is None:
             return
@@ -827,6 +925,7 @@ class Recorder:
             take.ended, take.replaced = at, True
             self._watch.forget(key)
             self._now.pop(key, None)
+            self._save_locked()
         branch.source.send_event(Gst.Event.new_eos())
 
     def _add_live(self, device: dev.Device, role: str, at: float, kind: str, detail: str = "") -> Take | None:

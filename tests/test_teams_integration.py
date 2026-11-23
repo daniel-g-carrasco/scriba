@@ -8,7 +8,7 @@ import _setup  # noqa: F401
 from scriba.app import recording
 from scriba.app.config import Config
 from scriba.app.engines import ffmpeg
-from scriba.core import spans
+from scriba.core import callend, spans
 from scriba.data import session
 
 
@@ -20,6 +20,8 @@ class PersistenceTest(unittest.TestCase):
         recorder = gstreamer().Recorder.__new__(gstreamer().Recorder)
         recorder._lock = threading.Lock()
         recorder._named, recorder._state, recorder._off = Builder(), "recording", set()
+        recorder._call_end = callend.CallEnd()
+        recorder.teams_names = True
         at = [0.0]
         recorder.elapsed = lambda: at[0]
         recorder.teams_reading(Reading("ready", ("Ada Example",), 2))
@@ -33,6 +35,7 @@ class PersistenceTest(unittest.TestCase):
 
     def test_old_settings_and_sessions_take_optional_defaults(self):
         self.assertTrue(Config.from_json({}).teams_names)
+        self.assertEqual(Config.from_json({}).call_stop_minutes, 5)
         self.assertEqual(session.from_json({"kind": session.KIND}).named_spans, ())
 
     def test_named_intervals_travel_from_recording_tag_to_session(self):

@@ -314,7 +314,8 @@ def record_command(args) -> int:
     if status.error:
         print(status.error, file=sys.stderr)
     try:
-        finished = recording.finish(takes, folder, stem)
+        from scriba.app import recovery
+        finished = recovery.finalize(take.journal, takes, elapsed=take.elapsed())
     except Failure as e:
         return _say_failure(e)
     for path in (finished.recording, finished.together):

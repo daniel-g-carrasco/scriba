@@ -1,5 +1,21 @@
 # Novità di Scriba
 
+## [0.1.13] - 2026-11-23
+
+### Novità
+- Quando una call finisce (una riunione di Teams, o un programma di chiamata che rilascia il microfono), Scriba propone di fermare la registrazione e, senza risposta, si ferma da solo dopo cinque minuti. L'attesa si cambia nelle Preferenze; con 0 lo stop automatico è spento. Una riunione in presenza non si ferma mai da sola.
+- Dopo lo stop scegli **Solo la call** o **Tutta la registrazione** prima della rimozione dell'eco e del mix. Senza risposta, dopo due minuti Scriba tiene la call; la registrazione completa resta nelle revisioni precedenti.
+- Puoi tagliare l'inizio e la fine di una registrazione senza ricodificarla; l'originale resta nelle revisioni precedenti.
+- Le registrazioni interrotte da un crash, da un'interruzione di corrente o da un'uscita forzata vengono proposte da completare alla riapertura di Scriba, dal passo in cui si erano fermate.
+- **Salta la rifinitura** fa uscire prima senza perdere nulla; la copia da ascoltare si crea dopo dalla scheda Trascrivi.
+
+### Modifiche
+- Dopo lo stop una sola barra mostra il tempo che manca e l'ora di fine, anche nell'area di notifica e nel dialogo di uscita.
+- Il salvataggio della registrazione è più veloce: l'eco si cerca e si toglie solo dove il microfono e le uscite sono attivi.
+
+### Correzioni
+- Dopo una call, un microfono aperto dal programma di chiamata (per esempio quello della webcam) non prende più il posto di quello che stava registrando.
+
 ## [0.1.12] - 2026-11-22
 
 La 0.1.11 non è mai uscita: le sue costruzioni si sono fermate per una traduzione mancante. La 0.1.12 contiene le stesse modifiche.

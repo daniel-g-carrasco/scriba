@@ -38,6 +38,11 @@ class Builder:
             self._close(name, start, at if off is None else off)
         self._open.clear()
 
+    def snapshot(self, at: float) -> tuple[Span, ...]:
+        current = [(name, start, at if off is None else off) for name, (start, off) in self._open.items()]
+        return tuple(sorted([*self._closed, *(span for span in current if span[2] - span[1] >= self.minimum)],
+                            key=lambda s: (s[1], s[0])))
+
     def finish(self, at: float) -> tuple[Span, ...]:
         self.unavailable(at)
         return tuple(sorted(self._closed, key=lambda s: (s[1], s[0])))

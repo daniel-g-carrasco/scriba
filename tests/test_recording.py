@@ -5,6 +5,7 @@ mix, the silent output left out, and nothing removed when joining fails."""
 import shutil
 import subprocess
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -80,6 +81,30 @@ class FinishTest(unittest.TestCase):
         done = recording.finish(self.takes(), self.folder, "r")
         self.assertEqual(done.recording.name, "r_R01.mka")
         self.assertEqual((self.folder / "r.mka").read_bytes(), b"another meeting")
+
+    def test_skipping_before_join_keeps_the_original_tracks(self):
+        takes = self.takes()
+        cancel = threading.Event()
+        cancel.set()
+        done = recording.finish(takes, self.folder, "r", cancelled=cancel)
+        self.assertTrue(done.pending)
+        self.assertTrue(all(t.path.is_file() for t in takes))
+        self.assertFalse(list(self.folder.glob("*.mka")))
+
+    def test_skipping_after_join_allows_rebuilding_the_listening_copy(self):
+        takes = self.takes()
+        cancel = threading.Event()
+
+        def step(name):
+            if name == recording.CLEANING:
+                cancel.set()
+
+        done = recording.finish(takes, self.folder, "r", cancelled=cancel, progress=step)
+        self.assertFalse(done.pending)
+        self.assertIsNone(done.together)
+        self.assertEqual(ffmpeg.probe(done.recording).sound_tracks, 2)
+        mix = recording.listening_mix(done.recording)
+        self.assertAlmostEqual(ffmpeg.probe(mix).duration, 3, delta=.15)
 
     def test_an_overlong_track_is_bounded_in_both_outputs_and_the_source_is_retained(self):
         takes = self.takes()[:2]
