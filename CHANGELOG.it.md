@@ -2,7 +2,7 @@
 
 ## [0.1.13] - 2026-11-23
 
-### Novità
+### Aggiunte
 - Quando una call finisce (una riunione di Teams, o un programma di chiamata che rilascia il microfono), Scriba propone di fermare la registrazione e, senza risposta, si ferma da solo dopo cinque minuti. L'attesa si cambia nelle Preferenze; con 0 lo stop automatico è spento. Una riunione in presenza non si ferma mai da sola.
 - Dopo lo stop scegli **Solo la call** o **Tutta la registrazione** prima della rimozione dell'eco e del mix. Senza risposta, dopo due minuti Scriba tiene la call; la registrazione completa resta nelle revisioni precedenti.
 - Puoi tagliare l'inizio e la fine di una registrazione senza ricodificarla; l'originale resta nelle revisioni precedenti.
