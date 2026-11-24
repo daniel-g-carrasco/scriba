@@ -62,6 +62,9 @@ class FinishTest(unittest.TestCase):
         from scriba.app.engines import echo as canceller
         from scriba.core.echo import Window
 
+        lacking = canceller.missing()
+        if lacking:
+            self.skipTest(f"GStreamer lacks {', '.join(lacking)}")
         mic = Take("mic", "me", "Mic", flac(self.folder / "mic.flac", 40, .2), muted=((10, 30),))
         out = Take("out", "others", "Output", flac(self.folder / "out.flac", 40, .2))
         work = self.folder / "work"
