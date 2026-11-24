@@ -332,6 +332,11 @@ class MainWindow(_WindowBase):
         return True
 
     def destroy(self) -> None:
+        self._closing = True
+        self.result.stop()
+        # Win32's input method removes its message filter on focus-out. It
+        # needs the editor's surface, which GTK tears down during destroy().
+        self.set_focus(None)
         self.result.release_name_draft()
         super().destroy()
 

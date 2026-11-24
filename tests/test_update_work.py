@@ -89,8 +89,8 @@ class UpdateWorkTest(unittest.TestCase):
             self.assertEqual(len(self.presented), 1)
 
     def test_manual_check_shows_new_release_during_preview_playback(self):
-        with mock.patch.object(self.window.result, "media") as preview, self.immediate_check():
-            preview.get_playing.return_value = True
+        page = self.window.result
+        with mock.patch.multiple(page, _voice_player=mock.Mock(), _playing="Speaker 1"), self.immediate_check():
             self.app.check_updates(manual=True)
             updates.latest_release.assert_called_once()
             self.assertEqual(len(self.presented), 1)

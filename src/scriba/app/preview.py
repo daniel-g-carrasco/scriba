@@ -1,9 +1,8 @@
-"""A disposable voice excerpt: GTK only receives PCM WAV, never tagged media.
+"""A disposable PCM WAV excerpt for listening to a voice.
 
-Some tagged MP3s abort GTK's GStreamer backend in native code, outside
-Python's error handling. ffmpeg already reads the source formats safely;
-extracting at most fifteen seconds also bounds temporary space and avoids
-seeking a whole recording in the player. The balance preview prepares two
+ffmpeg reads the source formats and extracts at most fifteen seconds.
+This bounds temporary space and lets GStreamer start from the beginning
+of the WAV. The balance preview prepares two
 PCM excerpts for live mixing instead. Originals are only read.
 """
 

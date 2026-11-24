@@ -501,9 +501,10 @@ class App(Adw.Application):
                 self._update_dialog.close()
             if window is not None:
                 window._closing = True
+                window.result.stop()
+                window.set_focus(None)
                 window.set_sensitive(False)
                 window.transcribe.remember()
-                window.result.stop()
                 window.transcribe.stop_all()
                 window.cards.stop()
                 if window.record.busy:

@@ -17,6 +17,8 @@
 - Alla fine della call, la finestra mostra il tempo che manca allo stop. La notifica di Windows offre Ferma e Continua anche dall’area di notifica.
 
 ### Correzioni
+- Su Windows Scriba non si chiude in errore se un campo di testo è attivo quando si chiude la finestra o si aggiorna la pagina dei risultati.
+- I campioni delle voci partono rapidamente dalla copia da ascoltare e si fermano quando lasci i risultati o chiudi la finestra.
 - Il parlato veloce viene segnalato meno spesso come dubbio per la sola quantità di testo.
 - Le battute del microfono mantengono il loro posto anche prima e dopo una lunga pausa nella registrazione.
 - Se usi ancora «Io», il nome che dai alla voce del microfono viene salvato nelle Preferenze. Puoi annullare dal messaggio di conferma.

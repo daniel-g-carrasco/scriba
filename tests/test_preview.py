@@ -32,6 +32,9 @@ def _child_play(source: Path):
     _setup.gtk_or_skip()
     import fake_engines
     from test_window import TestApp
+
+    from gi.repository import Gst
+
     from scriba.app import jobs
     from scriba.core.segments import Segment
     from scriba.gui.window import MainWindow
@@ -44,24 +47,23 @@ def _child_play(source: Path):
         made = fake_engines.made_result(Path(tmp), source, [Segment(1, 2.2, "Voice sample", "Speaker 1")])
         window.show_result(made, jobs.Request(source))
         page.listen(Voice("Speaker 1", 1, 1, (1, 2.2)))
-        assert _setup.spin(lambda: page.media is not None and page.media.is_prepared(), 12), "player not ready"
-        assert page.media.get_muted(), "the regression must never play aloud"
-        # Let native preparation and playback run before inspecting the path.
-        _setup.spin(lambda: False, 0.15)
-        assert page.media is not None, "excerpt ended too soon"
-        assert Path(page.media.get_file().get_path()).suffix == ".wav", "GTK received the tagged MP3"
-        assert page.media.get_duration() / 1e6 < 1.5, "the whole source reached GTK"
+        assert _setup.spin(lambda: page._voice_player is not None and
+                           page._voice_player._pipeline.get_state(0)[1] == Gst.State.PLAYING, 12), "player not ready"
+        pipeline = page._voice_player._pipeline
+        assert pipeline.get_by_name("output").get_factory().get_name() == "fakesink", "the test must be silent"
+        source_path = Path(pipeline.get_by_name("voice").get_property("location"))
+        assert source_path.suffix == ".wav", "the player received the tagged MP3"
+        found, duration = pipeline.query_duration(Gst.Format.TIME)
+        assert found and duration / Gst.SECOND < 1.5, "the whole source reached the player"
         page.stop()
         # Let the native ended signal stop an excerpt shorter than the requested span.
-        from gi.repository import GLib
-        timeout_add = GLib.timeout_add
-        with mock.patch.object(GLib, "timeout_add", lambda _ms, callback: timeout_add(10_000, callback)):
-            page.listen(Voice("Speaker 1", 3.8, 1, (3.8, 12)))
-            assert _setup.spin(lambda: page.media is not None, 12), "short excerpt not ready"
-            assert page._clip.duration < 0.3, "source end was not respected"
-            folder = page._clip.path.parent
-            assert _setup.spin(lambda: page._playing is None, 4), "ended did not stop the short excerpt"
-            assert _setup.spin(lambda: not folder.exists(), 4), "short excerpt was not removed"
+        page.listen(Voice("Speaker 1", 3.8, 1, (3.8, 12)))
+        assert _setup.spin(lambda: page._voice_player is not None, 12), "short excerpt not ready"
+        assert page._clip.duration < 0.3, "source end was not respected"
+        folder = page._clip.path.parent
+        assert _setup.spin(lambda: page._playing is None, 4), "ended did not stop the short excerpt"
+        assert _setup.spin(lambda: not folder.exists(), 4), "short excerpt was not removed"
+        assert _setup.spin(lambda: not source_path.parent.exists(), 4), "first excerpt was not removed"
         window.destroy()
     print("tagged MP3: muted WAV voice preview passed", flush=True)
 
@@ -320,7 +322,7 @@ class PreviewRaceTest(unittest.TestCase):
         done_a(clip_a, None)
         self.drain_cleanup()
         self.assertEqual(self.page._playing, "Speaker 2")
-        self.assertEqual(Path(self.page.media.get_file().get_path()), clip_b.path)
+        self.assertEqual(self.page._clip, clip_b)
         self.assertFalse(clip_a.path.exists())
         self.assertTrue(clip_b.path.exists())
         self.page.stop()
@@ -341,9 +343,9 @@ class PreviewRaceTest(unittest.TestCase):
         self.drain_cleanup()
         self.assertTrue(newest.path.exists())
         self.assertFalse(old.path.exists())
-        self.page.emit("hidden")
+        self.page.emit("hiding")
         self.drain_cleanup()
-        self.assertIsNone(self.page.media)
+        self.assertIsNone(self.page._voice_player)
         self.assertFalse(newest.path.exists())
         self.page.listen(a)
         _work_close, done_close = self.pending.pop()
@@ -353,7 +355,7 @@ class PreviewRaceTest(unittest.TestCase):
         late = self.clip("after-close")
         done_close(late, None)
         self.drain_cleanup()
-        self.assertIsNone(self.page.media)
+        self.assertIsNone(self.page._voice_player)
         self.assertFalse(late.path.exists())
         self.assertTrue(_setup.spin(lambda: self.app.exit_ready))
         self.app.quit.assert_called_once()
@@ -381,8 +383,36 @@ class PreviewRaceTest(unittest.TestCase):
         with mock.patch.object(self.window, "toast", said.append), contextlib.redirect_stderr(io.StringIO()):
             done(None, Failure("The audio could not be decoded.", "ffmpeg failed"))
         self.assertIn("could not be decoded", said[0])
-        self.assertIsNone(self.page.media)
+        self.assertIsNone(self.page._voice_player)
         self.assertIsNone(self.page._playing)
+
+    def test_destroy_cancels_an_unmapped_result_and_discards_the_late_excerpt(self):
+        self.page.listen(Voice("Speaker 1", 0, 1, (0, 1)))
+        _work, done = self.pending.pop()
+        cancel = self.page._listen_cancel
+        late = self.clip("unmapped")
+        self.assertFalse(self.window.get_mapped())
+        self.window.destroy()
+        self.assertTrue(cancel.is_set())
+        done(late, None)
+        self.drain_cleanup()
+        self.assertIsNone(self.page._voice_player)
+        self.assertIsNone(self.page._playing)
+        self.assertFalse(late.path.parent.exists())
+
+    def test_replacing_the_result_closes_the_reader_before_removing_the_excerpt(self):
+        from gi.repository import Gst
+
+        self.page.listen(Voice("Speaker 1", 0, 1, (0, 1)))
+        _work, done = self.pending.pop()
+        clip = self.clip("replaced")
+        done(clip, None)
+        pipeline = self.page._voice_player._pipeline
+        self.page.show(self.page.result, self.page.request)
+        self.assertIsNone(self.page._voice_player)
+        self.assertEqual(pipeline.get_state(0)[1], Gst.State.NULL)
+        self.drain_cleanup()
+        self.assertFalse(clip.path.parent.exists())
 
 
 if __name__ == "__main__":

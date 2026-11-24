@@ -35,6 +35,7 @@ from scriba.data.timing import clock  # noqa: E402
 from scriba.i18n import _, count, ngettext  # noqa: E402
 
 from .balance_playback import BalancePlayback  # noqa: E402
+from .playback import VoicePlayback  # noqa: E402
 from .style_values import SPACE_L, SPACE_M, SPACE_S, SPACE_XS  # noqa: E402
 from .transcript import TranscriptPage  # noqa: E402
 from .ui import escape, header_bar, open_path, report, reveal, run_in_thread  # noqa: E402
@@ -77,11 +78,9 @@ class ResultPage(Adw.NavigationPage):
         self.result: jobs.Result | None = None
         self._draft_lease = None
         self._saved_voice_fields = None
-        self.media = None                   # Gtk.MediaFile of the recording, made on the first Listen
+        self._voice_player: VoicePlayback | None = None
         self.muted = False                  # the tests listen without a sound
         self._playing: str | None = None    # the voice being played
-        self._stop_id = 0
-        self._listen_token = 0
         self._listen_cancel: threading.Event | None = None
         self._clip = None
         self._balance_player: BalancePlayback | None = None
@@ -96,7 +95,7 @@ class ResultPage(Adw.NavigationPage):
         self.banner = Adw.Banner(use_markup=False)
         self.view.add_top_bar(self.banner)
         self.set_child(self.view)
-        self.connect("hidden", lambda *_: self.stop())
+        self.connect("hiding", lambda *_: self.stop())
 
     @property
     def busy(self):
@@ -114,7 +113,12 @@ class ResultPage(Adw.NavigationPage):
     # -- filling it ------------------------------------------------------------------
 
     def show(self, result: jobs.Result, request: jobs.Request) -> None:
-        self._reset_media()
+        content = self.view.get_content()
+        focused = self.window.get_focus()
+        if content is not None and focused is not None and focused.is_ancestor(content):
+            # Let the old editor detach its input method while it still has a surface.
+            self.window.set_focus(None)
+        self.stop()
         self.release_name_draft()
         self._saved_voice_fields = None
         self.result, self.request = result, request
@@ -359,6 +363,10 @@ class ResultPage(Adw.NavigationPage):
 
     def _saving_changed(self, active: bool, listening: bool = False) -> None:
         self._saving = active
+        focused = self.window.get_focus()
+        if active and focused is not None and focused.is_ancestor(self.meeting_title_entry):
+            # Disabling the focused row on Windows skips the IM filter's focus-out.
+            self.window.set_focus(None)
         self.balance_button.set_sensitive(not active)
         self.meeting_title_entry.set_sensitive(not active)
         self.balance_scale.set_sensitive(not active)
@@ -382,7 +390,7 @@ class ResultPage(Adw.NavigationPage):
                 return
             if error is not None:
                 return
-            self._reset_media()
+            self.stop()
             self.session_row.set_subtitle(result.session.name)
             self._loaded_session = self._session_stamp()
             self._sync_outputs()
@@ -613,12 +621,13 @@ class ResultPage(Adw.NavigationPage):
     def listen(self, voice: speakers.Voice) -> None:
         source = self.result.source or self.request.source
         heard = self.result.listen or source
-        self._play(voice.label, lambda cancel: self.window.backend.preview_listening_copy(
-            source, heard, *voice.listen, cancel))
+        prepare = self.window.backend.preview_listening_copy
+        self._play(voice.label, lambda cancel: prepare(source, heard, *voice.listen, cancel))
 
     def listen_balance(self) -> None:
         result = self.result
-        self._play(BALANCE_PREVIEW, lambda cancel: self.window.backend.balance_preview(result, cancel))
+        prepare = self.window.backend.balance_preview
+        self._play(BALANCE_PREVIEW, lambda cancel: prepare(result, cancel))
 
     def _show_playing(self, key: str, playing: bool) -> None:
         if key == BALANCE_PREVIEW:
@@ -632,80 +641,46 @@ class ResultPage(Adw.NavigationPage):
     def _play(self, key: str, work) -> None:
         """Prepare an excerpt off the main loop, then play it from zero.
         Pressing the same button again stops the preview."""
-        if self.window.app.closing:
+        if self.window.app.closing or self.window._closing:
             return
         if self._playing == key:
             self.stop()
             return
         self.stop()
-        token = self._listen_token
         cancel = self._listen_cancel = threading.Event()
         self._playing = key
         self._show_playing(key, True)
 
+        def finished(error):
+            if not cancel.is_set():
+                self.stop()
+                if error is not None:
+                    self._playback_error(error)
+
         def done(clip, error):
-            if token != self._listen_token or cancel.is_set():
+            if cancel.is_set():
                 if isinstance(clip, Clip):
                     self._discard_clip(clip)
                 return
-            self._listen_cancel = None
             if error is not None:
                 self.stop()
                 if not isinstance(error, Cancelled):
                     report("preparing a voice excerpt", error)
                     self.window.toast(str(error))
                 return
-            if isinstance(clip, BalanceClip):
-                self._play_balance(clip, token)
-                return
-            self._clip = clip
-            media = self.media = Gtk.MediaFile.new_for_filename(str(clip.path))
-            media.set_muted(self.muted)
-            if self.muted:
-                media.set_volume(0.0)
-            media.connect("notify::error", lambda m, _p: self._cannot_play(m))
-            def ended(m, _property):
-                if m is self.media and m.get_ended():
-                    # Let the native EOS handler return before clearing its stream.
-                    GLib.idle_add(finished, m)
-
-            def finished(m):
-                if token == self._listen_token and m is self.media:
-                    self.stop()
-                return False
-
-            media.connect("notify::ended", ended)
-            started = [False]
-
-            def prepared(m, *_args):
-                if token != self._listen_token or m is not self.media or started[0] or not m.is_prepared():
-                    return
-                started[0] = True
-                m.play()                   # the excerpt starts at zero: no seek in tagged media
-                self._stop_id = GLib.timeout_add(max(1, round(clip.duration * 1000) + 250),
-                                                 lambda: self.stop() or False)
-
-            media.connect("notify::prepared", prepared)
-            if media.get_error() is not None:
-                self._cannot_play(media)
-            else:
-                prepared(media)
+            try:
+                if isinstance(clip, BalanceClip):
+                    player = self._balance_player = BalancePlayback(
+                        clip, self.balance_scale.get_value(), self.muted, finished)
+                else:
+                    self._clip = clip
+                    player = self._voice_player = VoicePlayback(clip, self.muted, finished)
+                player.play()
+            except (GLib.Error, RuntimeError) as error:
+                report("starting audio preview", error)
+                finished(str(error))
 
         self._preview_worker(lambda: work(cancel), done)
-
-    def _play_balance(self, clip: BalanceClip, token: int) -> None:
-        def finished(error):
-            if token == self._listen_token:
-                self.stop()
-                if error is not None:
-                    self._playback_error(error)
-
-        try:
-            self._balance_player = BalancePlayback(clip, self.balance_scale.get_value(), self.muted, finished)
-            self._balance_player.play()
-        except (GLib.Error, RuntimeError) as error:
-            report("starting the balance preview", error)
-            finished(str(error))
 
     def _preview_worker(self, work, done) -> None:
         # The last window may close during decoding. Keep the main loop
@@ -730,39 +705,22 @@ class ResultPage(Adw.NavigationPage):
                 report("removing a voice excerpt", error)
         self._preview_worker(clip.close, done)
 
-    def _reset_media(self) -> None:
-        self.stop()
-
     def stop(self) -> None:
-        self._listen_token += 1
         if self._listen_cancel is not None:
             self._listen_cancel.set()
             self._listen_cancel = None
-        if self._stop_id:
-            GLib.source_remove(self._stop_id)
-            self._stop_id = 0
         player, self._balance_player = self._balance_player, None
         if player is not None:
             player.close()
-        media, self.media = self.media, None
-        if media is not None:
-            media.pause()
-            media.clear()                  # release GTK's reader before removing its WAV
+        player, self._voice_player = self._voice_player, None
+        if player is not None:
+            player.close()
         clip, self._clip = self._clip, None
         if clip is not None:
             self._discard_clip(clip)
         if self._playing is not None:
             self._show_playing(self._playing, False)
         self._playing = None
-
-    def _cannot_play(self, media) -> None:
-        if media is not self.media:
-            return
-        error = media.get_error()
-        if error is None:
-            return
-        self.stop()
-        self._playback_error(error.message)
 
     def _playback_error(self, message: str) -> None:
         self.window.toast(_("This recording cannot be played here ({error}): the times are in the text.").format(

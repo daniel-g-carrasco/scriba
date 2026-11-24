@@ -568,16 +568,46 @@ class WindowTest(unittest.TestCase):
         result = fake_engines.made_result(folder, self.recording, [Segment(0, 2, "Hi there.", "Speaker 1")])
         window.show_result(result, jobs.Request(self.recording))
         window.result.entries["Speaker 1"].set_text("Ada")
-        window.result.meeting_title_entry.set_text("Second / draft")
+        title = window.result.meeting_title_entry
+        title.set_text("Second / draft")
+        self.assertTrue(_setup.spin(title.get_mapped))
+        title.grab_focus_without_selecting()
+        focused = window.get_focus()
+        self.assertTrue(focused.is_ancestor(title))
+        focus_out = []
+        def check_focus(*_):
+            if not focus_out and window.get_focus() is not focused:
+                focus_out.append((focused.get_mapped(), focused.is_sensitive()))
+        handler = window.connect("notify::focus-widget", check_focus)
         window.result.meeting_title_button.emit("clicked")
         target = folder.with_name(folder.name + " Second draft")
         self.assertTrue(_setup.spin(lambda: window.transcribe.source == target / self.recording.name))
+        window.disconnect(handler)
         self.assertFalse(folder.exists())
         self.assertEqual(window.result.title.get_subtitle(), "Second / draft")
+        self.assertEqual(focus_out, [(True, True)])
         self.assertEqual(window.result.entries["Speaker 1"].get_text(), "Ada")
         self.assertEqual(window.result._shown_outputs, {o.path for o in result.outputs})
         self.assertTrue(all(Path(o.path).is_file() for o in result.outputs))
         self.assertEqual(jobs.open_session(result.session)[0].meeting_title, "Second / draft")
+
+    def test_closing_the_window_releases_text_focus_before_unmapping(self):
+        window = self.app.window = self.opened()
+        self.app.quit = mock.Mock()
+        self.app.cfg.keep_running = False
+        terms = window.transcribe.terms_row
+        self.assertTrue(_setup.spin(terms.get_mapped))
+        terms.grab_focus_without_selecting()
+        focused = window.get_focus()
+        self.assertTrue(focused.is_ancestor(terms))
+        focus_out = []
+        handler = window.connect("notify::focus-widget",
+                                 lambda *_: focus_out.append((focused.get_mapped(), focused.is_sensitive())))
+        window.close()
+        self.assertTrue(_setup.spin(lambda: self.app.exit_ready))
+        window.disconnect(handler)
+        self.assertEqual(focus_out, [(True, True)])
+        self.app.quit.assert_called_once()
 
     def test_teams_names_prefill_editable_fields_without_changing_saved_names(self):
         from scriba.core.naming import Proposal
@@ -706,6 +736,8 @@ class WindowTest(unittest.TestCase):
 
     def test_listen_plays_the_voice_and_the_same_button_stops_it(self):
         import numpy as np
+        from gi.repository import Gst
+
         from scriba.app.engines import audio
         window = self.result_window()
         result = window.result
@@ -714,15 +746,22 @@ class WindowTest(unittest.TestCase):
         # long enough for the voice's stretch, wherever in the meeting it is
         audio.write(wav, np.zeros(int(voice.listen[1] + 1) * audio.RATE, np.int16))
         result.result.listen = wav
-        result.listen(voice)
-        self.assertTrue(_setup.spin(lambda: result.media is not None and result.media.is_prepared()))
-        self.assertEqual(result.listen_buttons["Speaker 1"].get_icon_name(), "media-playback-stop-symbolic")
-        path = Path(result.media.get_file().get_path())
+        button = result.listen_buttons["Speaker 1"]
+        self.assertTrue(_setup.spin(button.get_mapped))
+        button.emit("clicked")
+        self.assertTrue(_setup.spin(lambda: result._voice_player is not None and
+                                    result._voice_player._pipeline.get_state(0)[1] == Gst.State.PLAYING))
+        pipeline = result._voice_player._pipeline
+        self.assertEqual(button.get_icon_name(), "media-playback-stop-symbolic")
+        path = Path(pipeline.get_by_name("voice").get_property("location"))
         self.assertEqual(path.suffix, ".wav")
-        self.assertLess(result.media.get_timestamp(), 1_000_000)
-        result.listen(voice)
-        self.assertIsNone(result.media)
-        self.assertEqual(result.listen_buttons["Speaker 1"].get_icon_name(), "media-playback-start-symbolic")
+        found, position = pipeline.query_position(Gst.Format.TIME)
+        self.assertTrue(found)
+        self.assertLess(position, Gst.SECOND)
+        button.emit("clicked")
+        self.assertIsNone(result._voice_player)
+        self.assertEqual(pipeline.get_state(0)[1], Gst.State.NULL)
+        self.assertEqual(button.get_icon_name(), "media-playback-start-symbolic")
         self.assertTrue(_setup.spin(lambda: not path.parent.exists()))
 
     def test_a_session_opens_with_models_missing_and_names_can_be_corrected(self):
@@ -927,7 +966,7 @@ class WindowTest(unittest.TestCase):
             hold.set()
             self.assertTrue(_setup.spin(lambda: made.listen is not None and page.balance_button.get_sensitive()))
         self.assertTrue(made.listen.is_file())
-        self.assertIsNone(page.media)
+        self.assertIsNone(page._voice_player)
         heard = []
         prepare = self.engines.preview
 
@@ -937,9 +976,9 @@ class WindowTest(unittest.TestCase):
 
         with mock.patch.object(self.engines, "preview", preview):
             page.listen(speakers.voices(made.segments)[0])
-            self.assertTrue(_setup.spin(lambda: page.media is not None))
+            self.assertTrue(_setup.spin(lambda: page._voice_player is not None))
         self.assertEqual(heard, [made.listen])
-        clip = Path(page.media.get_file().get_path())
+        clip = page._clip.path
         self.assertNotEqual(clip, made.listen)
         page.stop()
         self.assertTrue(_setup.spin(lambda: not clip.parent.exists()))

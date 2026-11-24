@@ -22,6 +22,8 @@ available from GitHub Releases. Linux Flatpak builds and runtime checks use GNOM
 - When the call ends, the visible window shows a stop countdown. The Windows notification also offers Stop and Continue when Scriba is in the tray.
 
 ### Fixed
+- Windows no longer crashes when closing a window or replacing the results page while a text field is focused.
+- Voice samples start promptly from the listening copy and stop when you leave the results page or close the window.
 - Fast speech is less likely to be marked doubtful just because its transcript has a lot of text.
 - Microphone replies stay on their own side of a long gap in the recording.
 - Editing your microphone voice's name saves it in Preferences when you still use the default name. The confirmation offers Undo.

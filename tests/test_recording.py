@@ -106,6 +106,11 @@ class FinishTest(unittest.TestCase):
         rebuilt = recording.listening_mix(joined)
         self.assertEqual(rebuilt.name, "old_together_R01.m4a")
         self.assertEqual(jobs.listening_copy(joined, media), rebuilt)
+        with mock.patch.object(ffmpeg, "probe", wraps=ffmpeg.probe) as probe:
+            clip = service.preview_listening_copy(joined, rebuilt, 2.5, 3.5, None)
+        self.addCleanup(clip.close)
+        self.assertEqual([call.args[0] for call in probe.call_args_list], [rebuilt])
+        self.assertFalse(audio.read(clip.path).any())
         self.assertEqual(joined.read_bytes(), original)
         self.assertEqual(legacy.read_bytes(), old_bytes)
 

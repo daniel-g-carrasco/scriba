@@ -2,8 +2,7 @@
 
 This deliberately tests GTK/GStreamer's native input support in a build,
 including its codecs, seeking and plugin bundle. ResultPage's voice
-previews instead decode a bounded WAV with ffmpeg before reaching GTK;
-this raw diagnostic is not their playback path.
+previews decode a bounded WAV with ffmpeg and play it directly with GStreamer.
 """
 
 from __future__ import annotations

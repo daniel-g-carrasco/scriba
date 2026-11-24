@@ -170,16 +170,26 @@ class Backend:
         from . import preview
         from .task import Failure
 
-        original = Path(original) if original is not None else None
-        if original is not None and original.suffix.lower() == ".mka" and original.is_file():
+        def probe(path):
             try:
-                media = ffmpeg.probe(original, cancelled)
+                return ffmpeg.probe(path, cancelled)
             except Failure:
-                media = None
+                return None
+
+        original = Path(original) if original is not None else None
+        heard = Path(heard) if heard is not None else original
+        if original is not None and original.suffix.lower() == ".mka" and original.is_file():
+            if heard != original and heard.suffix.lower() == ".m4a" and heard.is_file():
+                copy = probe(heard)
+                if copy is not None and copy.call_mute_applied:
+                    return self.preview(heard, start, end, cancelled)
+            media = probe(original)
             if media is not None and media.has_call_mute:
                 heard = jobs.listening_copy(original, media, cancelled, preferred=heard)
                 if heard == original:
                     return preview.prepare(original, start, end, cancelled, tracks=media.roles)
+            elif not heard.is_file():
+                heard = original
         return self.preview(heard, start, end, cancelled)
 
     def can_balance(self, result: jobs.Result) -> bool:
