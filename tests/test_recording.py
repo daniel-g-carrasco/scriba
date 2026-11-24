@@ -8,10 +8,11 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import _setup  # noqa: F401
 
-from scriba.app import recording
+from scriba.app import jobs, recording
 from scriba.app.engines import ffmpeg
 from scriba.app.recording import Take
 
@@ -41,6 +42,69 @@ class FinishTest(unittest.TestCase):
                      loudest=-10.0),
                 Take("others-3", "others", "Altoparlanti (Realtek(R) Audio)", flac(self.folder / "r_out 2.flac", 3, 0),
                      loudest=-350.0)]
+
+    def test_muted_microphone_is_silent_in_new_and_rebuilt_mixes_but_original_is_exact(self):
+        microphone = flac(self.folder / "mic.flac", 6, .3)
+        take = Take("mic", "me", "Mic", microphone, loudest=-20, muted=((2, 4),))
+        saved = ffmpeg.decode(microphone, self.folder / "saved.wav").read_bytes()
+        done = recording.finish([take], self.folder, "r")
+        original = done.recording.read_bytes()
+        self.assertEqual(ffmpeg.decode(done.recording, self.folder / "original.wav").read_bytes(), saved)
+        rebuilt = recording.listening_mix(done.recording)
+        self.assertEqual(done.recording.read_bytes(), original)
+        for n, copy in enumerate((done.together, rebuilt)):
+            from scriba.app.engines import audio
+            samples = audio.read(ffmpeg.decode(copy, self.folder / f"copy{n}.wav"))
+            self.assertGreater(abs(samples[:audio.RATE]).max(), 100)
+            self.assertLessEqual(abs(samples[3 * audio.RATE: 7 * audio.RATE // 2]).max(), 1)
+
+    def test_echo_is_measured_and_cancelled_only_outside_mute(self):
+        from scriba.app.engines import echo as canceller
+        from scriba.core.echo import Window
+
+        mic = Take("mic", "me", "Mic", flac(self.folder / "mic.flac", 40, .2), muted=((10, 30),))
+        out = Take("out", "others", "Output", flac(self.folder / "out.flac", 40, .2))
+        work = self.folder / "work"
+        work.mkdir()
+
+        def measure(_path, _progress, _cancelled, *, began, ended):
+            verdict = .8 if began == 0 else 0
+            return [Window(began, ended, verdict, 0, -20, -20)], 40
+
+        with mock.patch.object(canceller, "measure", side_effect=measure) as measured, \
+                mock.patch.object(canceller, "cancel", wraps=canceller.cancel) as cancel:
+            takes, _, notes = recording.without_echo([mic, out], work)
+        self.assertEqual([(c.kwargs["began"], c.kwargs["ended"]) for c in measured.call_args_list],
+                         [(0, 10), (30, 40)])
+        self.assertEqual(cancel.call_count, 1)
+        self.assertIn("50 % of the time you were unmuted", notes[0])
+        from scriba.app.engines import audio
+        samples = audio.read(takes[0].path)
+        self.assertFalse(samples[10 * audio.RATE:30 * audio.RATE].any())
+
+    def test_legacy_listening_copy_is_preserved_and_the_new_revision_is_used(self):
+        from scriba.app.backend import Backend
+        from scriba.app.engines import audio
+
+        microphone = flac(self.folder / "mic.flac", 6, .3)
+        take = Take("mic", "me", "Mic", microphone, loudest=-20, muted=((2, 4),))
+        joined = recording.join([take], self.folder, "old")
+        media = ffmpeg.probe(joined)
+        original = joined.read_bytes()
+        legacy = self.folder / "old_together.m4a"
+        subprocess.run([str(ffmpeg.need("ffmpeg")), "-nostdin", "-v", "error", "-i", str(microphone),
+                        "-c:a", "aac", str(legacy)], check=True)
+        old_bytes = legacy.read_bytes()
+        self.assertEqual(jobs.listening_copy(joined, media), joined)
+        service = Backend(self.folder, self.folder / "speeds.json")
+        clip = service.preview_listening_copy(joined, legacy, 2.5, 3.5, None)
+        self.addCleanup(clip.close)
+        self.assertFalse(audio.read(ffmpeg.decode(clip.path, self.folder / "preview.wav")).any())
+        rebuilt = recording.listening_mix(joined)
+        self.assertEqual(rebuilt.name, "old_together_R01.m4a")
+        self.assertEqual(jobs.listening_copy(joined, media), rebuilt)
+        self.assertEqual(joined.read_bytes(), original)
+        self.assertEqual(legacy.read_bytes(), old_bytes)
 
     def test_the_tracks_go_into_one_file_with_their_roles_and_the_silent_output_is_left_out(self):
         takes = self.takes()

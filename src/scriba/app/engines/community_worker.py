@@ -30,6 +30,7 @@ def main(args=None):
             speakers=job['speakers'],threads=8,progress=progress,session_factory=factory,segmentation_batch=32)
         output = dict(turns=[asdict(t) for t in result.turns],
                       exclusive=[asdict(t) for t in result.exclusive_turns],centroids=result.centroids,
+                      fingerprints=community.named_fingerprints(result,job.get('named',()),files['recipe']),
                       provenance=provenance,speakers=result.speakers)
         (root/'result.json').write_text(json.dumps(output,allow_nan=False),encoding='utf-8')
         return 0

@@ -28,7 +28,7 @@ def select(requested, where=None, cancelled=None):
         return 'legacy', _("Community voice models are unavailable; using the previous voice method.")
 
 
-def run(samples, where, speakers=None, requested='auto', progress=None, cancelled=None, force_cpu=False):
+def run(samples, where, speakers=None, requested='auto', progress=None, cancelled=None, force_cpu=False, *, named=()):
     from scriba.app import process
     from scriba.app.engines import bundle
     from scriba.core.segments import Turn
@@ -38,7 +38,7 @@ def run(samples, where, speakers=None, requested='auto', progress=None, cancelle
         root = Path(temp)
         np.save(root/'samples.npy',samples,allow_pickle=False)
         (root/'request.json').write_text(json.dumps(dict(models=str(where or models.folder()),
-            speakers=speakers,requested=requested,force_cpu=force_cpu)),encoding='utf-8')
+            speakers=speakers,requested=requested,force_cpu=force_cpu,named=named)),encoding='utf-8')
         args = ([sys.executable,'--community-worker',temp] if bundle.FROZEN else
                 [sys.executable,'-m','scriba.app.engines.community_worker',temp])
         env = dict(os.environ, OMP_NUM_THREADS='1', OPENBLAS_NUM_THREADS='1', MKL_NUM_THREADS='1',
@@ -75,9 +75,9 @@ def run(samples, where, speakers=None, requested='auto', progress=None, cancelle
         return data
 
 
-def proposals(lines, named, centroids, microphone=''):
+def proposals(lines, named, centroids, microphone='', *, fingerprints=None):
     from scriba.core import naming
-    found, reasons = naming.propose_with_voices(lines,named,centroids,microphone)
+    found, reasons = naming.propose_with_voices(lines,named,centroids,microphone,fingerprints=fingerprints)
     # Keep core independent of gettext; localise the editable display proposals here.
     from dataclasses import replace
     for key, proposal in list(found.items()):

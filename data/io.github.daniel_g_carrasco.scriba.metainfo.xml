@@ -50,6 +50,11 @@
   </requires>
 
   <releases>
+    <release version="0.1.14" date="2026-11-24" type="stable">
+      <description>
+        <p>Teams speaker names are read on high-resolution screens and from a single part of the call. The recording cut is chosen on one timeline, each meeting has one titled folder, and names and balance update the files in place.</p>
+      </description>
+    </release>
     <release version="0.1.13" date="2026-11-23" type="stable">
       <description>
         <p>Scriba notices when a call ends, offers to stop, and can keep only the call. Saving after the stop is faster, shows the time left, can be skipped, and resumes after a crash.</p>

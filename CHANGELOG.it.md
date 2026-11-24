@@ -1,5 +1,28 @@
 # Novità di Scriba
 
+## [0.1.14] - 2026-11-24
+
+### Aggiunte
+- Da riga di comando puoi elencare e aprire le riunioni, cercare nei testi e dare un nome alle voci. L’uscita JSON è disponibile per gli altri programmi.
+- Scriba salva il massimo di persone viste in Teams, te compreso, e lo propone in Trascrivi.
+- La registrazione conserva i conteggi delle letture Teams per minuto. La riga Nomi da Teams avvisa dopo cinque minuti senza bordi di chi parla riconosciuti.
+- Un nome letto in un tratto della call può essere proposto per tutta la voce e per voci simili sentite altrove. Nei risultati si vede da dove viene ogni proposta.
+
+### Modifiche
+- Scegli il taglio su una sola barra allo stop. Trascrivi mostra la parte tenuta e permette di modificarla partendo dall’originale completo.
+- Il salvataggio dei nomi aggiorna i file della trascrizione. Il bilanciamento aggiorna la stessa copia da ascoltare.
+- L’anteprima del bilanciamento dura fino a 25 secondi e preferisce un tratto in cui si sentono bene sia la tua voce sia le altre.
+- Registrazione e trascrizioni stanno nella stessa cartella. Scriba aggiunge il titolo se lo conosce allo stop e aggiorna la cartella quando lo cambi.
+- Gli avvisi audio durante la registrazione sono brevi e in alto. I dettagli sulla rimozione dell’eco compaiono nei risultati.
+- Alla fine della call, la finestra mostra il tempo che manca allo stop. La notifica di Windows offre Ferma e Continua anche dall’area di notifica.
+
+### Correzioni
+- Il parlato veloce viene segnalato meno spesso come dubbio per la sola quantità di testo.
+- Le battute del microfono mantengono il loro posto anche prima e dopo una lunga pausa nella registrazione.
+- Se usi ancora «Io», il nome che dai alla voce del microfono viene salvato nelle Preferenze. Puoi annullare dal messaggio di conferma.
+- I tratti in cui eri muto nella call diventano silenzio nella copia da ascoltare e nella trascrizione. La rimozione dell’eco e la sua percentuale considerano solo il tempo in cui il microfono era aperto. La traccia originale conserva il suono.
+- Scriba legge i nomi di chi parla in Teams sugli schermi ad alta risoluzione, dove il bordo può essere largo un solo pixel.
+
 ## [0.1.13] - 2026-11-23
 
 ### Aggiunte

@@ -8,15 +8,16 @@ import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 import _setup
 
-_setup.gtk_or_skip()
+Gtk, _Adw = _setup.gtk_or_skip()
 from scriba.app import recording  # noqa: E402
 from scriba.app.config import Config  # noqa: E402
 from scriba.app.paths import Paths  # noqa: E402
 from scriba.app.task import Failure  # noqa: E402
-from scriba.core import devices  # noqa: E402
+from scriba.core import devices, echo, levels  # noqa: E402
 from scriba.gui import ui  # noqa: E402
 from scriba.gui.record import RecordPage  # noqa: E402
 
@@ -157,6 +158,131 @@ class RecordLifecycleTest(unittest.TestCase):
 
     def complete(self):
         self.assertTrue(_setup.spin(lambda: not self.page.busy and not ui.activities.active_count))
+
+    def test_audio_warnings_are_at_the_top_and_echo_has_no_banner(self):
+        host = Gtk.Window()
+        self.addCleanup(host.destroy)
+        host.set_child(self.page)
+        host.present()
+        status = recording.Status("recording", 25, (), {}, (levels.Alert(echo.ECHO, "", 0),), (), 1e9)
+        self.page._show_status(status)
+        self.assertFalse(self.page.banner.get_revealed())
+        self.page._show_status(replace(status, alerts=(levels.Alert(levels.QUIET, "mic", -47),)))
+        view = self.page.stack.get_child_by_name("page")
+        self.assertTrue(_setup.spin(lambda: view.get_top_bar_height() > 0))
+        self.assertEqual(view.get_bottom_bar_height(), 0)
+        self.assertIn("-47 dB", self.page.banner.get_title())
+
+    def test_teams_row_reports_five_minutes_without_recognised_borders(self):
+        status = recording.Status("recording", 300, (), {}, (), (), 1e9, teams_state="ready",
+                                  teams_people=8, teams_without_border=5)
+        self.page._show_status(status)
+        self.assertEqual(self.page.teams_row.get_subtitle(), "8 people seen · no one recognised for 5 min")
+        self.page._show_status(replace(status, teams_without_border=0))
+        self.assertEqual(self.page.teams_row.get_subtitle(), "8 people seen")
+
+    def test_visible_call_dialog_counts_down_and_shares_the_notification_answer(self):
+        from scriba.core.callend import CallEnd
+
+        recorder = self.begin()
+        host = Gtk.Window()
+        host.on_screen = lambda: host.get_mapped()
+        self.addCleanup(host.destroy)
+        host.set_child(self.page)
+        host.present()
+        self.page.window = host
+        self.addCleanup(setattr, self.page, "window", self.window)
+        withdrawn = mock.Mock()
+        self.app.notify_call_ended = mock.Mock(return_value=withdrawn)
+        recorder.continue_after_call = mock.Mock(return_value=True)
+        end = CallEnd()
+        end.ended, end.detected = 60, 100
+
+        def tick(at):
+            status = replace(recorder.snapshot(), elapsed=at, call_ended=end.ended,
+                             call_prompt=True, call_remaining=end.remaining(at, 5))
+            self.page._show_call_end(status)
+
+        tick(128)
+        dialog = self.page._call_dialog
+        self.assertEqual(dialog.get_heading(), "The call has ended")
+        self.assertEqual(dialog.get_body(), "Stopping in 4:32")
+        self.assertEqual(dialog.get_response_appearance("stop"), _Adw.ResponseAppearance.SUGGESTED)
+        tick(129)
+        self.assertIs(self.page._call_dialog, dialog)
+        self.assertEqual(dialog.get_body(), "Stopping in 4:31")
+        tick(400)
+        self.assertEqual(dialog.get_body(), "Stopping in 0:00")
+        self.assertTrue(end.due(400, 5))
+        dialog.emit("response", "continue")
+        withdrawn.assert_called_once()
+        self.assertIsNone(self.page._call_dialog)
+        self.app.notify_call_ended.call_args.args[0]()  # late notification button
+        recorder.continue_after_call.assert_called_once_with(60)
+        end.ended, end.detected = 130, 410
+        tick(420)
+        self.assertIsNotNone(self.page._call_dialog)
+        with mock.patch.object(self.page, "stop") as stop:
+            self.app.notify_call_ended.call_args.args[0]()
+        stop.assert_called_once()
+        self.assertIsNone(self.page._call_dialog)
+
+    @unittest.skipUnless(_setup.WINDOWS, "WinRT notification actions")
+    def test_hidden_recording_sends_the_winrt_notification_and_both_actions_work(self):
+        from scriba.app import call_notifications
+        from scriba.gui.application import App
+        from scriba.gui.background import Background
+
+        recorder = self.begin()
+        host = Gtk.Window()
+        host.on_screen = lambda: host.get_mapped()
+        host.save_state = lambda: None
+        self.addCleanup(host.destroy)
+        host.set_child(self.page)
+        host.present()
+        self.page.window = self.app.window = host
+        self.addCleanup(setattr, self.page, "window", self.window)
+        tray = Background.__new__(Background)
+        tray.app, tray.tray = self.app, SimpleNamespace(available=True)
+        tray._stopping = False
+        self.assertTrue(tray.hide())
+        self.assertFalse(host.get_visible())
+        self.page.shown(False)
+        win = call_notifications.win
+        toasts = self.app.toasts = win.Toasts.__new__(win.Toasts)
+        toasts.app_id, toasts.group = "test.scriba", "test"
+        toasts._notifier, toasts._toast_factory, toasts._kept = object(), object(), []
+        self.app.notify_call_ended = lambda stop, go_on: App.notify_call_ended(self.app, stop, go_on)
+        real_snapshot = recorder.snapshot
+        self.addCleanup(setattr, recorder, "snapshot", real_snapshot)
+
+        def answered(_ended):
+            recorder.snapshot = real_snapshot
+            return True
+
+        recorder.continue_after_call = mock.Mock(side_effect=answered)
+        snapshot = recorder.snapshot()
+
+        with mock.patch.object(win.combase, "RoActivateInstance", return_value=0), \
+                mock.patch.object(win, "_query"), mock.patch.object(win, "_release"), \
+                mock.patch.object(win, "_factory"), mock.patch.object(win, "_call") as native, \
+                mock.patch.object(self.page, "stop") as stop:
+            for n, button in enumerate(("continue", "stop"), 1):
+                recorder.snapshot = lambda n=n: replace(snapshot, call_ended=n, call_prompt=True, call_remaining=90)
+                self.assertTrue(self.page._tick())
+                self.assertEqual(sum(c.args[:2] == (toasts._notifier, win.NOTIFIER_SHOW)
+                                     for c in native.call_args_list), n)
+                self.assertIsNone(self.page._call_dialog)
+                handler = toasts._kept[-1][1]
+                self.assertEqual(set(handler.actions), {"continue", "stop"})
+                with mock.patch.object(call_notifications, "_argument", return_value=button):
+                    handler._invoke(None, None, object())
+                self.assertTrue(_setup.spin(lambda: self.page.call_action is None))
+                recorder.continue_after_call.assert_called_with(n)
+                self.assertFalse(host.get_visible())
+            stop.assert_called_once()
+            self.assertEqual(sum(c.args[:2] == (toasts._notifier, call_notifications._NOTIFIER_HIDE)
+                                 for c in native.call_args_list), 2)
 
     def test_quit_during_start_stops_and_finalizes_once_before_success_callback(self):
         self.backend.start_release.clear()

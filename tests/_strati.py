@@ -12,11 +12,12 @@ TOOLKIT = ("gi",)
 # GStreamer pipelines through gi without windows, in app/recorder.py; the
 # echo canceller (WebRTC's, a GStreamer plugin: it takes the computer's
 # sound out of the microphone's track after the recording) in
-# app/engines/echo.py. There only.
-WINDOWLESS: tuple[str, ...] = ("gi.repository.Gst",)
+# app/engines/echo.py. The meeting commands use GLib to find the system's
+# Music folder when the user has left the recordings preference empty.
+WINDOWLESS: tuple[str, ...] = ("gi.repository.Gst", "gi.repository.GLib")
 
 # The files of app/ that may use WINDOWLESS.
-WINDOWLESS_FILES: tuple[str, ...] = ("app/recorder.py", "app/engines/echo.py")
+WINDOWLESS_FILES: tuple[str, ...] = ("app/recorder.py", "app/engines/echo.py", "app/meetings.py")
 
 # "file -> what it imports": "why it is still there, and when it goes".
 # The list can only get shorter.

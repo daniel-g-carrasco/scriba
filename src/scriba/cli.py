@@ -20,6 +20,8 @@ folder).
 from __future__ import annotations
 
 import argparse
+import datetime
+import json
 import sys
 import threading
 import time
@@ -29,7 +31,8 @@ from scriba import SLUG, __version__
 from scriba.core.terms import terms_of  # noqa: F401 (the command line's own, and the tests')
 from scriba.i18n import _, ngettext
 
-COMMANDS = ("transcribe", "models", "benchmark", "record", "check")
+MEETING_COMMANDS = ("list", "show", "voices", "search", "names")
+COMMANDS = ("transcribe", "models", "benchmark", "record", "check", *MEETING_COMMANDS)
 OK, FAILED, USAGE, CANCELLED = 0, 1, 2, 3
 
 
@@ -90,7 +93,32 @@ def build_parser() -> argparse.ArgumentParser:
                                               "the recorder has what it needs; each file given is opened, "
                                               "muted, by the player of Listen."))
     check.add_argument("files", type=Path, nargs="*", help=_("recordings to open with the player"))
+    _meeting_parsers(commands)
     return parser
+
+
+def _meeting_parsers(commands) -> None:
+    descriptions = {
+        "list": _("list saved meetings"),
+        "show": _("show a meeting transcript"),
+        "voices": _("list the voices in a meeting"),
+        "search": _("find text in meeting transcripts"),
+        "names": _("edit the speaker names in a meeting"),
+    }
+    parsers = {}
+    for command, description in descriptions.items():
+        parser = parsers[command] = commands.add_parser(command, help=description)
+        parser.add_argument("--folder", type=Path, help=_("the folder for the recordings"))
+        parser.add_argument("--json", action="store_true", help=_("write JSON"))
+    parsers["list"].add_argument("--since", type=datetime.date.fromisoformat, metavar="YYYY-MM-DD")
+    for command in ("show", "voices", "names"):
+        parsers[command].add_argument("meeting", help=_("a meeting path, date or part of its title"))
+    parsers["show"].add_argument("--format", choices=("md", "txt", "srt", "json"), default="md")
+    parsers["search"].add_argument("text")
+    parsers["search"].add_argument("--meeting", help=_("search only this meeting"))
+    parsers["names"].add_argument("--set", action="append", default=[], metavar="VOICE=NAME")
+    parsers["names"].add_argument("--clear", action="append", default=[], metavar="VOICE")
+    parsers["names"].add_argument("--me", metavar="VOICE")
 
 
 class Printer:
@@ -384,10 +412,92 @@ def _first_line(argv: list[str]) -> str:
     return said.splitlines()[0] if said else ""
 
 
+def _meeting_command(args) -> int:
+    from scriba.app import config, jobs, meetings, services
+    from scriba.app.task import Failure
+    from scriba.data.session import SessionError
+    from scriba.data.timing import clock
+
+    paths = services.app_paths()
+    cfg = config.load(paths.config_file)
+    folder = args.folder if args.folder is not None else meetings.default_folder(cfg)
+
+    def output(key, value, text):
+        if args.json:
+            print(json.dumps({"schema": 1, key: value}, ensure_ascii=True, allow_nan=False))
+        else:
+            print(text, end="" if text.endswith("\n") or not text else "\n")
+
+    def summary(meeting):
+        return meeting.summary(meeting.open() if meeting.path is not None else None)
+
+    try:
+        if args.command == "list":
+            listed = [summary(item) for item in meetings.list_meetings(folder)
+                      if args.since is None or item.date.date() >= args.since]
+            def names(row):
+                if not row["transcribed"]:
+                    return _("This meeting has no transcript.")
+                people = ", ".join(row["names"].values())
+                return f"{row['voices']} · {people}" if people else str(row["voices"])
+
+            output("meetings", listed, "\n".join(f"{row['date']}  {row['title']}  "
+                                                f"{clock(row['duration'])}  {names(row)}  {row['path']}" for row in listed))
+            return OK
+        if args.command == "search":
+            query = args.text.strip().casefold()
+            if not query:
+                raise Failure(_("Enter text to search for."))
+            items = ([meetings.resolve(args.meeting, folder)] if args.meeting else meetings.list_meetings(folder))
+            matches = []
+            for item in items:
+                if item.path is not None:
+                    result = item.open()
+                    matches.extend({"meeting": item.summary(result), **line} for line in meetings.lines(result)
+                                   if query in line["text"].casefold())
+            output("matches", matches, "\n".join(f"{hit['meeting']['title']}  {clock(hit['start'])}  "
+                                                f"{hit['name'] or hit['speaker'] or ''}  {hit['text']}" for hit in matches))
+            return OK
+        item = meetings.resolve(args.meeting, folder)
+        if args.command == "names":
+            if not (args.set or args.clear or args.me):
+                raise Failure(_("Choose a voice with --set, --clear or --me."))
+            result = meetings.edit_names(item, paths, cfg, args.set, args.clear, args.me)
+            if args.json:
+                print(json.dumps({"schema": 1, "meeting": item.summary(result), "names": result.names, "me": result.me},
+                                 ensure_ascii=True, allow_nan=False))
+            else:
+                print(_("Transcript updated"))
+            return OK
+        result = item.open()
+        if args.command == "voices":
+            found = meetings.voices(result)
+            rows = []
+            for voice in found:
+                row = f"{voice['label']}  {voice['name'] or ''}  {voice['lines']}  "
+                row += f"{clock(voice['first'])}  {voice['minutes']:g} min"
+                if voice["me"]:
+                    row += "  " + _("My Voice")
+                if proposal := voice["proposal"]:
+                    row += f"  {proposal['name']} ({proposal['origin']})"
+                rows.append(row)
+            output("voices", found, "\n".join(rows))
+        elif args.json or args.format == "json":
+            print(json.dumps({"schema": 1, "meeting": item.summary(result), "lines": meetings.lines(result)},
+                             ensure_ascii=True, allow_nan=False))
+        else:
+            print(jobs.transcript_texts(result, result.names)[args.format], end="")
+        return OK
+    except (Failure, SessionError, OSError, ValueError) as error:
+        return _say_failure(error)
+
+
 def main(argv: list[str]) -> int:
     from scriba.app import log
     log.setup(SLUG)
     args = build_parser().parse_args(argv)
+    if args.command in MEETING_COMMANDS:
+        return _meeting_command(args)
     if args.command == "transcribe":
         return transcribe(args)
     if args.command == "models":

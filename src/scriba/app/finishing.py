@@ -15,8 +15,10 @@ CHOICE_SECONDS = 120
 
 
 class CallChoice:
-    def __init__(self, interval, *, timer=time.monotonic):
+    def __init__(self, interval, *, duration=None, call=None, timer=time.monotonic):
         self.interval = interval
+        self.duration = duration if duration is not None else interval[1]
+        self.call = call
         self._timer = timer
         self._until = timer() + CHOICE_SECONDS
         self._ready = threading.Event()
@@ -32,6 +34,14 @@ class CallChoice:
                 return False
             self._only_call = only_call
             self._ready.set()
+            return True
+
+    def select(self, interval) -> bool:
+        start, end = interval
+        with self._lock:
+            if self._ready.is_set() or not self.left() or not 0 <= start < end <= self.duration:
+                return False
+            self.interval = start, end
             return True
 
     def wait(self, cancelled):

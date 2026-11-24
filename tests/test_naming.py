@@ -7,6 +7,39 @@ from scriba.core.segments import Segment
 
 
 class NamingTest(unittest.TestCase):
+    def test_one_named_quarter_proposes_the_name_for_the_whole_voice(self):
+        lines = [Segment(0, 40, "hello", "A")]
+        found = naming.propose(lines, [("Ada", 0, 10)])
+        self.assertEqual(found["A"], naming.Proposal("Ada", 10, .25))
+
+    def test_mixed_named_time_needs_seventy_percent_and_eight_seconds_total(self):
+        lines = [Segment(0, 40, "hello", "A")]
+        for named in ([("Ada", 0, 6.9), ("Bob", 6.9, 10)], [("Ada", 0, 7.9)],
+                      [("Ada", 0, 10), ("Bob", .5, 10)]):
+            self.assertEqual(naming.propose(lines, named), {})
+        self.assertEqual(naming.propose(lines, [("Ada", 0, 7), ("Bob", 7, 10)])["A"].share, .175)
+
+    def test_a_segment_fingerprint_recognises_an_unseen_voice_but_not_the_microphone(self):
+        lines = [Segment(0, 40, "seen", "A"), Segment(40, 70, "unseen", "B"),
+                 Segment(70, 90, "me", "Mic")]
+        centroids = {"A": [0, 1], "B": [1, .1], "Mic": [1, 0]}
+        named = [("Ada", 0, 10), ("Own tile", 70, 85)]
+        found, _ = naming.propose_with_voices(lines, named, centroids, "Mic",
+                                             fingerprints={"Ada": [[1, 0]]})
+        self.assertEqual(found["A"].share, .25)
+        self.assertEqual((found["B"].name, found["B"].source, found["B"].seconds), ("Ada", "voice", 0))
+        self.assertNotIn("Mic", found)
+        self.assertNotIn("B", naming.propose_with_voices(lines, named, centroids, "Mic")[0])
+        centroids["A"] = [1, 0]
+        self.assertEqual(naming.propose_with_voices(lines, named, centroids, "Mic")[0]["B"].name, "Ada")
+
+    def test_fingerprints_do_not_break_conflicts(self):
+        lines = [Segment(0, 20, "mixed", "A"), Segment(20, 40, "unseen", "B")]
+        named = [("Ada", 0, 10), ("Bob", 10, 20)]
+        found, _ = naming.propose_with_voices(lines, named, {"A": [1, 0], "B": [1, 0]},
+                                             fingerprints={"Ada": [[1, 0]], "Bob": [[1, .01]]})
+        self.assertEqual(found, {})
+
     def test_automatic_names_require_strong_overlap_and_no_competing_voice(self):
         lines = [Segment(0, 20, "hello", "A"), Segment(20, 26, "yes", "B")]
         self.assertEqual(naming.automatic(lines, [("Ada", 0, 19)]), {"A": "Ada"})

@@ -9,7 +9,7 @@ import sys
 from . import PACKAGE_DIR, SLUG, TEXTDOMAIN, __version__, i18n
 
 
-def main() -> int:
+def main(*, console_only: bool = False) -> int:
     if len(sys.argv) > 1 and sys.argv[1] == "--community-worker":
         from scriba.app.engines.community_worker import main as worker_main
         return worker_main(sys.argv[2:])
@@ -27,6 +27,9 @@ def main() -> int:
     if len(sys.argv) > 1 and sys.argv[1] in ("--version", "-V"):
         print(__version__)
         return 0
+    if console_only:
+        from .cli import main as cli_main
+        return cli_main(sys.argv[1:] or ["--help"])
     if len(sys.argv) > 1 and sys.argv[1] in ("--help", "-h"):
         from .i18n import _
         command = __package__.replace("_", "-")

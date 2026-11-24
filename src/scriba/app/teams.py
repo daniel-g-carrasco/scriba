@@ -31,6 +31,11 @@ class Reading:
     people: int = 0
     title: str = ""
     meeting: bool = False
+    tiles: int | None = None
+    capture_source: str = ""
+    covered: bool | None = None
+    error: bool = False
+    border_sides: tuple[float, float, float, float] | None = None
 
 
 class CapturePolicy:
@@ -65,7 +70,7 @@ class Reader(com.Indicator):
         self._dpi = None
         self._policy, self._window = CapturePolicy(), None
         self.capture_source = "unavailable"
-        self.covered = False
+        self.covered = None
         try:
             self._gdi = ctypes.WinDLL("gdi32", use_last_error=True)
             self._kernel = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -156,13 +161,13 @@ class Reader(com.Indicator):
                     if kind.value not in (50011, 50006):  # MenuItem, Image
                         continue
                     person = teams.tile_name(self._text(element, 23))
-                    if person is None or person.own:
+                    if person is None:
                         continue
                     rect = w.RECT()
                     com._checked(com._method(element, 43, ctypes.POINTER(w.RECT))(
                         element, ctypes.byref(rect)), "BoundingRectangle")
                     if rect.right - rect.left >= 60 and rect.bottom - rect.top >= 40:
-                        tiles.append((person.name, (rect.left, rect.top, rect.right, rect.bottom)))
+                        tiles.append((person, (rect.left, rect.top, rect.right, rect.bottom)))
                 finally:
                     com._release(element)
             return meeting, tiles
@@ -221,6 +226,7 @@ class Reader(com.Indicator):
 
     def read(self):
         self.capture_source = "unavailable"
+        self.covered = None
         for hwnd in self._teams_windows():
             meeting, tiles = self._elements(hwnd)
             if not meeting:
@@ -235,21 +241,30 @@ class Reader(com.Indicator):
                 return Reading("minimized", title=title)
             if not self._user32.IsWindowVisible(hwnd) or not tiles:
                 return Reading("unavailable", title=title, meeting=True)
+            people = sum(not person.own for person, _rect in tiles) + any(person.own for person, _rect in tiles)
             rect = self._rect(hwnd)
             printed = self._capture(hwnd, rect)
             self.covered = not self._uncovered(hwnd, rect)
             screen = self._capture(hwnd, rect, screen=True) if not self.covered else None
             pixels = self._policy.choose(printed, screen)
             if pixels is None:
-                return Reading("unavailable", people=len(tiles), title=title, meeting=True)
+                return Reading("unavailable", people=people, title=title, meeting=True,
+                               tiles=len(tiles), covered=self.covered)
             self.capture_source = "print-window" if pixels is printed else "screen"
             left, top, right, bottom = rect
             active = []
-            for name, (a, b, c, d) in tiles:
+            best_sides = None
+            for person, (a, b, c, d) in tiles:
+                if person.own:
+                    continue
                 tile = (math.floor(a - left), math.floor(b - top), math.ceil(c - left), math.ceil(d - top))
-                if teams.border(pixels, right - left, bottom - top, (right - left) * 4, tile).active:
-                    active.append(name)
-            return Reading("ready", tuple(dict.fromkeys(active)), len(tiles), title)
+                border = teams.border(pixels, right - left, bottom - top, (right - left) * 4, tile)
+                best_sides = (border.sides if best_sides is None else
+                              tuple(map(max, best_sides, border.sides)))
+                if border.active:
+                    active.append(person.name)
+            return Reading("ready", tuple(dict.fromkeys(active)), people, title, tiles=len(tiles),
+                           capture_source=self.capture_source, covered=self.covered, border_sides=best_sides)
         self._policy, self._window = CapturePolicy(), None
         return Reading("no-meeting")
 
@@ -296,7 +311,7 @@ def follow(told, stop: threading.Event, every=EVERY_S, opener=Reader):
         reader = opener()
     except OSError as error:
         complain("opening Teams observations", error)
-        told(Reading("unavailable"))
+        told(Reading("unavailable", error=True))
         return
     saw_meeting = False
     absent = 0
@@ -306,7 +321,7 @@ def follow(told, stop: threading.Event, every=EVERY_S, opener=Reader):
                 reading = reader.read()
             except OSError as error:
                 complain("reading Teams observations", error)
-                reading = Reading("unavailable")
+                reading = Reading("unavailable", error=True, covered=getattr(reader, "covered", None))
             if reading.meeting or reading.state in ("ready", "minimized", "present"):
                 saw_meeting = True
             absent = absent + 1 if saw_meeting and reading.state == "no-meeting" else 0

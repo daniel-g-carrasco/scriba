@@ -40,6 +40,67 @@ class RecoveryTest(unittest.TestCase):
         self.assertEqual(ffmpeg.probe(result.recording).roles[0].role, "me")
         self.assertEqual(recovery.pending(self.root), [])
 
+    def test_stop_uses_the_teams_title_and_a_free_name(self):
+        flac(self.path, 2, .3)
+        journal = recovery.Journal(self.folder, self.stem)
+        take = recording.Take("me-1", "me", "Mic", self.path, -10, meeting_title="Plan / example")
+        occupied = self.root / f"{self.folder.name} Plan example"
+        occupied.mkdir()
+        result = recovery.finalize(journal, [take], elapsed=2)
+        target = occupied.with_name(occupied.name + "_R01")
+        self.assertEqual(result.recording, target / f"{target.name}.mka")
+        self.assertEqual(result.together.parent, target)
+        self.assertFalse(self.folder.exists())
+        self.assertEqual(list(occupied.iterdir()), [])
+        self.assertEqual(ffmpeg.probe(result.recording).meeting_title, take.meeting_title)
+
+    def test_untitled_stop_keeps_the_dated_folder(self):
+        flac(self.path, 2, .3)
+        journal = recovery.Journal(self.folder, self.stem)
+        result = recovery.finalize(journal, [recording.Take("me-1", "me", "Mic", self.path, -10)], elapsed=2)
+        self.assertEqual(result.recording.parent, self.folder)
+
+    def test_a_folder_locked_at_stop_still_keeps_the_recording_and_title(self):
+        from scriba.app import meeting_folders
+
+        flac(self.path, 2, .3)
+        journal = recovery.Journal(self.folder, self.stem)
+        take = recording.Take("me-1", "me", "Mic", self.path, -10, meeting_title="Plan")
+        with patch.object(meeting_folders, "rename_directory", side_effect=PermissionError("open file")):
+            result = recovery.finalize(journal, [take], elapsed=2)
+        self.assertEqual(result.recording.parent, self.folder)
+        self.assertEqual(ffmpeg.probe(result.recording).meeting_title, "Plan")
+        self.assertIsNotNone(result.together)
+        self.assertIn("Scriba will try again", result.notes[0])
+        self.assertEqual(meeting_folders.read(self.folder).target, self.folder.name + " Plan")
+
+    def test_restart_after_directory_move_reads_the_same_checkpoint_and_audio(self):
+        from scriba.app import meeting_folders
+
+        class Interrupted(BaseException):
+            pass
+
+        original = flac(self.path, 2, .3).read_bytes()
+        journal = recovery.Journal(self.folder, self.stem)
+        take = recording.Take("me-1", "me", "Mic", self.path, -10, meeting_title="Plan")
+        journal.save("finishing:closing", [take], 2)
+        rename = meeting_folders.rename_directory
+
+        def interrupted(source, target):
+            rename(source, target)
+            raise Interrupted()
+
+        with patch.object(meeting_folders, "rename_directory", side_effect=interrupted):
+            with self.assertRaises(Interrupted):
+                recovery.finalize(journal, [take], elapsed=2)
+        item, = recovery.pending(self.root)
+        self.assertEqual(item.folder.name, self.folder.name + " Plan")
+        self.assertEqual(item.takes()[0].path.read_bytes(), original)
+        finished = recovery.resume(item)
+        self.assertEqual(finished.recording.parent, item.folder)
+        self.assertEqual(ffmpeg.probe(finished.recording).meeting_title, "Plan")
+        self.assertEqual(recovery.pending(self.root), [])
+
     def test_restart_at_mix_keeps_the_verified_join(self):
         flac(self.path, 2, .3)
         journal = recovery.Journal(self.folder, self.stem)
@@ -80,7 +141,9 @@ class RecoveryTest(unittest.TestCase):
     def test_stop_offers_the_choice_after_a_verified_join_and_keeps_the_whole_recording(self):
         journal, take = self.call_recording()
 
-        def choose(interval, cancelled):
+        def choose(interval, cancelled, duration, call):
+            self.assertAlmostEqual(duration, 90, delta=.2)
+            self.assertEqual(call, interval)
             self.assertEqual(interval, (12, 32))
             state = journal.read()
             self.assertEqual(state["phase"], "finishing:waiting")
@@ -90,22 +153,32 @@ class RecoveryTest(unittest.TestCase):
         result = recovery.finalize(journal, [take], elapsed=90, choose=choose)
         self.assertAlmostEqual(ffmpeg.probe(result.recording).duration, 90, delta=.2)
         self.assertIsNotNone(result.together)
+        self.assertTrue(journal.read()["choice_done"])
 
     def test_resume_while_waiting_can_keep_only_the_call_without_the_flac(self):
         journal, take = self.call_recording()
+        from scriba.core.teams import ReadingSummary
+
+        summary = ReadingSummary()
+        summary.observe(5, "ready", 8, True, "print-window", True, (0, .91, .90, .92))
+        journal.teams_minutes = summary.minutes
         joined = recording.join([take], self.folder, self.stem, call_range=(12, 32))
         original = joined.read_bytes()
         journal.save("finishing:waiting", [take], 90, joined=joined, call_range=(12, 32))
         take.path.unlink()
         item, = recovery.pending(self.root)
 
-        def choose(interval, cancelled):
+        def choose(interval, cancelled, duration, call):
             self.assertEqual(interval, (12, 32))
             self.assertEqual(journal.verified_join(journal.read()), joined)
             return True
 
         result = recovery.resume(item, choose=choose)
-        self.assertAlmostEqual(ffmpeg.probe(result.recording).duration, 20, delta=.2)
+        media = ffmpeg.probe(result.recording)
+        self.assertAlmostEqual(media.duration, 20, delta=.2)
+        self.assertEqual(media.teams_people, 8)
+        self.assertEqual(journal.read()["teams_people"], 8)
+        self.assertEqual(journal.read()["teams_minutes"], summary.minutes)
         self.assertAlmostEqual(ffmpeg.probe(result.together).duration, 20, delta=.2)
         self.assertFalse(joined.exists())
         archived, = self.folder.glob("*/*.mka")
@@ -127,22 +200,24 @@ class RecoveryTest(unittest.TestCase):
         out = recording.Take("out", "others", "Out", flac(self.folder / "out.flac", 90, .3, 660), -10)
         steps = []
 
-        def timeout(interval, cancelled):
+        def timeout(interval, cancelled, duration, call):
             now = [0]
-            choice = finishing.CallChoice(interval, timer=lambda: now[0])
+            choice = finishing.CallChoice(interval, duration=duration, call=call, timer=lambda: now[0])
+            self.assertTrue(choice.select((13, 31)))
             now[0] += 120
-            return choice.wait(cancelled)
+            return choice.interval if choice.wait(cancelled) else None
 
         result = recovery.finalize(journal, [take, out], threading.Event(), steps.append, elapsed=90, choose=timeout)
         self.assertEqual(steps, [recording.JOINING, recording.WAITING, recording.TRIMMING,
                                  recording.CLEANING, recording.MIXING])
         self.assertEqual([track.role for track in ffmpeg.probe(result.recording).roles], ["me", "others"])
-        self.assertAlmostEqual(ffmpeg.probe(result.together).duration, 20, delta=.2)
+        self.assertAlmostEqual(ffmpeg.probe(result.together).duration, 18, delta=.2)
+        self.assertEqual(journal.read()["excerpt"], [13, 31])
         self.assertFalse(recovery.pending(self.root))
 
     def call_recording(self):
         flac(self.path, 90, .3)
-        take = recording.Take("me-1", "me", "Mic", self.path, -10)
+        take = recording.Take("me-1", "me", "Mic", self.path, -10, teams_people=8)
         journal = recovery.Journal(self.folder, self.stem)
         journal.save("finishing:closing", [take], 90, call_range=(12, 32))
         return journal, take

@@ -5,6 +5,29 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 are `0.x` while the app evolves. Stable Windows and Linux packages are
 available from GitHub Releases. Linux Flatpak builds and runtime checks use GNOME Platform 50. The app's metainfo carries a shorter description.
 
+## [0.1.14] - 2026-11-24
+
+### Added
+- List, open, search and name speakers in saved meetings from the command line, with JSON output for other tools.
+- The highest participant count seen in Teams, including your own tile, is saved and suggested in Transcribe.
+- The recording keeps minute-by-minute Teams reading counts. The Names from Teams row reports when no speaker border has been recognised for five minutes.
+- A name read in one part of a Teams call can be proposed for the whole voice and for matching voices heard elsewhere. The result shows where each proposal came from.
+
+### Changed
+- Choose the recording cut on one timeline at stop. Transcribe shows the saved selection and lets you edit it from the complete recording.
+- Saving speaker names updates the transcript in place. Saving the listening balance updates the same listening copy.
+- The listening balance preview plays up to 25 seconds, favouring a clear exchange between you and the other speakers.
+- Recordings and transcripts share one meeting folder. Scriba adds a known title when recording stops and updates the folder when you edit the title.
+- Recording shows short audio warnings at the top. Echo removal details appear with the results.
+- When the call ends, the visible window shows a stop countdown. The Windows notification also offers Stop and Continue when Scriba is in the tray.
+
+### Fixed
+- Fast speech is less likely to be marked doubtful just because its transcript has a lot of text.
+- Microphone replies stay on their own side of a long gap in the recording.
+- Editing your microphone voice's name saves it in Preferences when you still use the default name. The confirmation offers Undo.
+- Call mute silences the microphone in listening copies and transcripts. Echo removal and its percentage use only unmuted time. The original track retains the sound.
+- Speaker names are read from Teams on high-resolution screens, where the speaking border is one pixel thin.
+
 ## [0.1.13] - 2026-11-23
 
 ### Added

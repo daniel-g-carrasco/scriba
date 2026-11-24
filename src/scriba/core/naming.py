@@ -1,16 +1,21 @@
-"""Conservative, one-to-one proposals from overlapping speech and named spans."""
-from dataclasses import dataclass
+"""Editable Teams name proposals from labelled speech and voice similarity."""
+from dataclasses import dataclass, replace
 
-MIN_SHARE = 0.5
-MIN_SECONDS = 3.0  # a short acknowledgement is too little to identify a voice
-MIN_MARGIN = 0.1  # near ties remain for the user, even when both reach 50 percent
+MIN_PURITY = 0.70
+MIN_SECONDS = 8.0
+MIN_MARGIN = 0.10
+
+# The undecided band leaves a shared tile's ambiguous voices unnamed.
+SIMILAR_DISTANCE = 0.15
+DIFFERENT_DISTANCE = 0.35
 
 
 @dataclass(frozen=True)
 class Proposal:
     name: str
     seconds: float
-    share: float
+    share: float     # coverage of the whole voice, for display
+    source: str = "teams"
 
 
 def _union(intervals):
@@ -25,32 +30,70 @@ def _union(intervals):
     return out
 
 
-def propose(lines, named, microphone: str = "", minimum_share: float = MIN_SHARE,
-            minimum_seconds: float = MIN_SECONDS) -> dict[str, Proposal]:
-    voices, people = {}, {}
+def named_intervals(named):
+    people = {}
+    for name, start, end in named:
+        people.setdefault(name, []).append((start, end))
+    return {name: _union(times) for name, times in people.items()}
+
+
+def duration(intervals):
+    return sum(end - start for start, end in intervals)
+
+
+def _intersect(left, right):
+    i = j = 0
+    while i < len(left) and j < len(right):
+        a, b = left[i]
+        c, d = right[j]
+        start, end = max(a, c), min(b, d)
+        if end > start:
+            yield start, end
+        if b <= d:
+            i += 1
+        else:
+            j += 1
+
+
+@dataclass
+class _Evidence:
+    total: float
+    named: float
+    scores: list[tuple[float, str]]
+
+    def proposal(self, minimum_purity=MIN_PURITY, minimum_seconds=MIN_SECONDS):
+        if self.named < minimum_seconds or not self.scores:
+            return None
+        seconds, name = self.scores[0]
+        runner_up = self.scores[1][0] if len(self.scores) > 1 else 0
+        if seconds >= self.named * minimum_purity and seconds - runner_up >= self.named * MIN_MARGIN:
+            return Proposal(name, seconds, seconds / self.total)
+        return None
+
+
+def _evidence(lines, named, microphone):
+    people = named_intervals(named)
+    all_named = _union(interval for times in people.values() for interval in times)
+    voices = {}
     for line in lines:
         if line.speaker and line.speaker != microphone and line.text.strip():
             voices.setdefault(line.speaker, []).append((line.start, line.end))
-    for name, start, end in named:
-        people.setdefault(name, []).append((start, end))
-    people = {name: _union(times) for name, times in people.items()}
-    candidates = []
+    evidence = {}
     for voice, times in voices.items():
         times = _union(times)
-        total = sum(b - a for a, b in times)
-        if not total:
-            continue
-        scores = sorted(((sum(max(0, min(b, d) - max(a, c)) for a, b in times for c, d in other), name)
-                         for name, other in people.items()), reverse=True)
-        if not scores:
-            continue
-        seconds, name = scores[0]
-        runner_up = scores[1][0] if len(scores) > 1 else 0
-        share = seconds / total
-        if seconds >= minimum_seconds and share >= minimum_share and (seconds - runner_up) / total >= MIN_MARGIN:
-            candidates.append((seconds, voice, Proposal(name, seconds, share)))
+        if times:
+            scores = [(duration(_intersect(times, intervals)), name) for name, intervals in people.items()]
+            evidence[voice] = _Evidence(duration(times), duration(_intersect(times, all_named)),
+                                        sorted(((s, name) for s, name in scores if s > 0), reverse=True))
+    return evidence
+
+
+def propose(lines, named, microphone: str = "", minimum_purity: float = MIN_PURITY,
+            minimum_seconds: float = MIN_SECONDS) -> dict[str, Proposal]:
+    candidates = [(voice, proposal) for voice, evidence in _evidence(lines, named, microphone).items()
+                  if (proposal := evidence.proposal(minimum_purity, minimum_seconds)) is not None]
     out, used = {}, set()
-    for _seconds, voice, proposal in sorted(candidates, key=lambda c: (-c[0], c[1])):
+    for voice, proposal in sorted(candidates, key=lambda item: (-item[1].seconds, item[0])):
         if proposal.name not in used:
             out[voice] = proposal
             used.add(proposal.name)
@@ -58,76 +101,76 @@ def propose(lines, named, microphone: str = "", minimum_share: float = MIN_SHARE
 
 
 def automatic(lines, named, microphone: str = "") -> dict[str, str]:
-    """Assign only well-observed names without a competing voice."""
-    voices = {}
-    for line in lines:
-        if line.speaker and line.speaker != microphone:
-            voices.setdefault(line.speaker, []).append(line)
-    candidates = {}
-    competing = {}
-    for key, own in voices.items():
-        for proposal in propose(own, named, microphone).values():
-            competing.setdefault(proposal.name.casefold(), set()).add(key)
-            if proposal.seconds >= 12 and proposal.share >= 0.85:
-                candidates[key] = proposal.name
-    return {key: name for key, name in candidates.items() if len(competing[name.casefold()]) == 1}
-
-
-# Conservative proposal thresholds, not automatic identity decisions.
-# A cosine distance <= .15 suggests a split voice; >= .35 suggests distinct
-# voices. The undecided band deliberately leaves names blank. AMI validation
-# is recorded separately; these thresholds do not alter diarization clusters.
-SIMILAR_DISTANCE = .15
-DIFFERENT_DISTANCE = .35
+    """Keep automatic assignment for a well-observed voice without a competitor."""
+    competing, candidates = {}, {}
+    for voice, evidence in _evidence(lines, named, microphone).items():
+        match = evidence.proposal(minimum_seconds=3)
+        if match is None:
+            continue
+        competing.setdefault(match.name.casefold(), set()).add(voice)
+        if match.seconds >= 12 and match.share >= .85:
+            candidates[voice] = match.name
+    return {voice: name for voice, name in candidates.items() if len(competing[name.casefold()]) == 1}
 
 
 def cosine_distance(a, b):
     import math
     if len(a) != len(b) or not a or not all(math.isfinite(v) for v in (*a, *b)):
         return None
-    norm = math.sqrt(sum(v*v for v in a) * sum(v*v for v in b))
-    return 1 - sum(x*y for x,y in zip(a,b,strict=True)) / norm if norm else None
+    norm = math.sqrt(sum(v * v for v in a) * sum(v * v for v in b))
+    return 1 - sum(x * y for x, y in zip(a, b, strict=True)) / norm if norm else None
 
 
-def propose_with_voices(lines, named, centroids, microphone=""):
-    """Return editable proposals and reason codes; never merge actual voices."""
+def _similar(a, b):
+    distance = cosine_distance(a, b)
+    return distance is not None and distance <= SIMILAR_DISTANCE
+
+
+def propose_with_voices(lines, named, centroids, microphone="", *, fingerprints=None):
+    """Use a dominant observed name or an unambiguous voice match."""
     if not centroids:
         return propose(lines, named, microphone), []
-    by_voice, notes = {}, []
-    for voice in dict.fromkeys(s.speaker for s in lines if s.speaker and s.speaker != microphone):
-        own = [s for s in lines if s.speaker == voice]
-        times = _union((s.start, s.end) for s in own if s.text.strip())
-        total = sum(b-a for a,b in times)
-        if not total:
+    evidence = _evidence(lines, named, microphone)
+    groups, notes = {}, []
+    for voice, match in evidence.items():
+        proposal = match.proposal()
+        if proposal is not None:
+            groups.setdefault(proposal.name, {})[voice] = proposal
+        elif match.named >= MIN_SECONDS and len(match.scores) > 1:
+            notes.append("multiple_tiles")
+
+    out, references = {}, dict(fingerprints or {})
+    for name, direct in groups.items():
+        group = sorted(direct)
+        if len(group) > 1:
+            distances = [cosine_distance(centroids.get(a, []), centroids.get(b, []))
+                         for i, a in enumerate(group) for b in group[i + 1:]]
+            if all(d is not None and d >= DIFFERENT_DISTANCE for d in distances):
+                direct = {voice: replace(direct[voice], name=f"{name}, voice {i}")
+                          for i, voice in enumerate(group, 1)}
+                notes.append("multiple_voices")
+            elif all(d is not None and d <= SIMILAR_DISTANCE for d in distances):
+                notes.append("merge_voices")
+            else:
+                references.pop(name, None)
+                continue
+        out.update(direct)
+        references.setdefault(name, [centroids[voice] for voice in group if voice in centroids])
+
+    for voice, match in evidence.items():
+        if match.named or voice not in centroids:
             continue
-        scores = []
-        for name in dict.fromkeys(n for n,_,_ in named):
-            seconds = sum(max(0,min(b,d)-max(a,c)) for a,b in times
-                          for c,d in _union((c,d) for n,c,d in named if n == name))
-            if seconds >= MIN_SECONDS and seconds / total >= .2:
-                scores.append(name)
-        if len(scores) > 1:
-            notes.append('multiple_tiles')
+        vector = centroids[voice]
+        matches = [name for name, examples in references.items() if any(_similar(vector, other) for other in examples)]
+        if len(matches) != 1:
             continue
-        match = propose(own, named, microphone)
-        if voice in match:
-            by_voice[voice] = match[voice]
-    out = {}
-    for name in dict.fromkeys(p.name for p in by_voice.values()):
-        group = sorted(v for v,p in by_voice.items() if p.name == name)
-        if len(group) == 1:
-            out[group[0]] = by_voice[group[0]]
-            continue
-        distances = [cosine_distance(centroids.get(a,[]),centroids.get(b,[]))
-                     for i,a in enumerate(group) for b in group[i+1:]]
-        if any(d is None for d in distances):
-            continue
-        if all(d <= SIMILAR_DISTANCE for d in distances):
-            out.update((v,by_voice[v]) for v in group)
-            notes.append('merge_voices')
-        elif all(d >= DIFFERENT_DISTANCE for d in distances):
-            for i,v in enumerate(group,1):
-                p = by_voice[v]
-                out[v] = Proposal(f'{name}, voice {i}',p.seconds,p.share)
-            notes.append('multiple_voices')
+        name, = matches
+        group = groups.get(name, {})
+        labels = {out[v].name for v in group if v in out}
+        if len(labels) > 1:
+            labels = {out[v].name for v in group if _similar(vector, centroids.get(v, []))}
+            if len(labels) != 1:
+                continue
+            name, = labels
+        out[voice] = Proposal(name, 0, 0, "voice")
     return out, list(dict.fromkeys(notes))

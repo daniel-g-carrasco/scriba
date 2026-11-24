@@ -84,4 +84,9 @@ class CallEnd:
         self.dismissed = True
 
     def due(self, at, minutes):
-        return bool(minutes and self.prompt and at - self.detected >= minutes * 60)
+        return self.remaining(at, minutes) == 0
+
+    def remaining(self, at, minutes):
+        if minutes and self.prompt:
+            return max(0, minutes * 60 - (at - self.detected))
+        return None

@@ -94,6 +94,25 @@ class TranscribeLifecycleTest(unittest.TestCase):
         self.addCleanup(release.set)
         return entered, release
 
+    def test_teams_count_is_proposed_without_replacing_manual_choices(self):
+        from scriba.app.engines.ffmpeg import Media
+
+        self.backend.media = Media(20, 1, False, 0, teams_people=8)
+        self.page.open(str(self.source))
+        self.assertTrue(_setup.spin(lambda: self.page.media is not None))
+        self.assertEqual(self.page.count_row.get_value(), 8)
+        self.assertEqual(self.page.request().speaker_count, 8)
+        self.assertEqual(self.app.cfg.speaker_count, 0)
+        self.page.count_row.set_value(4)
+        self.page.settings_changed()
+        self.assertEqual(self.page.request().speaker_count, 4)
+        self.page.open(str(self.source))
+        self.assertTrue(_setup.spin(lambda: self.page.media is not None))
+        self.assertEqual(self.page.request().speaker_count, 4)
+        self.page.automatic_row.set_active(True)
+        self.page.settings_changed()
+        self.assertIsNone(self.page.request().speaker_count)
+
     def test_card_cancel_keeps_ownership_and_discards_a_late_success(self):
         entered, release = self.barrier()
         self.app.cfg.measured_device = ""
@@ -227,9 +246,9 @@ class TranscribeLifecycleTest(unittest.TestCase):
             order.append("gpu finished")
             return self.backend.choice
 
-        def transcribe(*_args):
+        def transcribe(request, *_args):
             order.append("transcription started")
-            return object()
+            return fake_engines.made_result(self.folder, request.source, [])
 
         self.backend.runner = transcribe
         with mock.patch.object(self.backend, "try_devices", side_effect=gpu):

@@ -51,6 +51,18 @@ def pack(spans: Iterable[tuple[float, float]], gap: float = 0.0) -> list[Piece]:
     return pieces
 
 
+def separate(pieces: Sequence[Piece], maximum_gap: float) -> list[list[Piece]]:
+    """Packed runs whose clocks start at zero and never straddle a long source gap."""
+    runs: list[list[Piece]] = []
+    origin = 0.0
+    for piece in pieces:
+        if not runs or piece.start - runs[-1][-1].end > maximum_gap:
+            runs.append([])
+            origin = piece.at
+        runs[-1].append(Piece(piece.start, piece.end, piece.at - origin))
+    return runs
+
+
 # seconds of silence in the recording between two pieces past which they are
 # taken as apart: a line of whisper's that runs across such a silence keeps
 # to the side where most of it is (spans). On a real meeting (13/11/2026)

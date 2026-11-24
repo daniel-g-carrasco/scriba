@@ -158,14 +158,14 @@ class BalanceFileTest(unittest.TestCase):
                 recording.rebalance(source, self.folder, "wrong", 0)
         self.assertEqual(sorted(p.name for p in self.folder.iterdir()), before)
 
-    def test_a_reopened_session_gets_a_new_listening_file_and_json_with_transcripts_untouched(self):
+    def test_a_reopened_session_keeps_the_balance_in_place_with_transcripts_untouched(self):
         import fake_engines
         from scriba.data import session
         joined = recording.join(self.takes(), self.folder, "meeting")
         made = fake_engines.made_result(self.folder, joined, fake_engines.lines(2, 4, 1))
         jobs.save_names(made, {"Speaker 1": "Io"})
         opened, request = jobs.open_session(made.session)
-        before = {p: p.read_bytes() for p in self.folder.iterdir() if p.is_file()}
+        before = {p.resolve(): p.read_bytes() for p in self.folder.iterdir() if p.is_file()}
         original_segments = list(opened.segments)
         saved = jobs.save_balance(opened, 0.5)
         self.assertEqual(saved.notes, [])
@@ -173,9 +173,11 @@ class BalanceFileTest(unittest.TestCase):
         self.assertEqual(saved.outputs[0].kind, "audio-balanced")
         self.assertEqual(opened.listen, Path(saved.outputs[0].path))
         for path, content in before.items():
-            self.assertEqual(path.read_bytes(), content, path.name)
-        self.assertNotIn(opened.session, before)
+            if path != opened.session:
+                self.assertEqual(path.read_bytes(), content, path.name)
+        self.assertIn(opened.session, before)
         again, request = jobs.open_session(opened.session)
         self.assertEqual(again.listen, opened.listen)
         self.assertEqual(again.names, {"Speaker 1": "Io"})
+        self.assertEqual(jobs.listening_balance(again), 0.5)
         self.assertIn("audio-balanced", {o.kind for o in session.load(opened.session).outputs})

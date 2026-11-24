@@ -14,10 +14,8 @@ The English words are NOT verified: "Microphone ... muted / unmuted" is a
 guess at Windows 11's English text, and any other text, any other language,
 gives UNKNOWN, which changes nothing.
 
-While muted in the call, what the microphone hears is not the user speaking
-in the call (someone in the room, the user aside): the sound stays in the
-recording, whole, but the speech found on the microphone's track in those
-stretches is left out of the transcript (`outside`).
+The original microphone track retains the sound. Its muted intervals are
+silenced in the listening copy and before transcription.
 """
 
 from __future__ import annotations

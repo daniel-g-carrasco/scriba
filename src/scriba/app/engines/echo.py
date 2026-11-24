@@ -33,11 +33,12 @@ import math
 import os
 import threading
 import wave
+from collections.abc import Callable
 from pathlib import Path
 
 from scriba.app.task import Failure, Progress, check, tell
-from scriba.core import echo
-from scriba.i18n import _
+from scriba.core import callmute, echo
+from scriba.i18n import N_, _
 
 # what the cleaning pipeline is made of
 ELEMENTS = ("filesrc", "wavparse", "concat", "audioconvert", "capsfilter", "deinterleave", "queue",
@@ -263,21 +264,21 @@ def splice(pair: str | os.PathLike, cleaned: str | os.PathLike, parts: list[echo
     return Path(dest)
 
 
-def refine(pair: Path, mic: Path, ranges: list[tuple[float, float]], dest: Path,
+def refine(pair: Path, mic: Path, ranges: list[tuple[float, float, float, float]], dest: Path,
            cancelled: threading.Event | None = None, *, progress: Progress | None = None) -> Path:
     """Run the canceller on echo ranges and copy the rest directly."""
-    total = sum(end - start for start, end in ranges)
+    total = sum(end - start for start, end, _, _ in ranges)
     done = 0.0
     with wave.open(os.fspath(mic), "rb") as raw, wave.open(os.fspath(pair), "rb") as combined, \
             wave.open(os.fspath(dest), "wb") as output:
         rate, frames = raw.getframerate(), raw.getnframes()
         output.setparams(raw.getparams())
         cursor = 0
-        for index, (start, end) in enumerate(ranges):
+        for index, (start, end, left, right) in enumerate(ranges):
             check(cancelled)
             length = end - start
-            a = max(cursor, round(max(0.0, start - WARM) * rate))
-            b = min(frames, round((end + echo.CROSSFADE / 2) * rate))
+            a = max(cursor, round(max(left, start - WARM) * rate))
+            b = min(frames, round(min(right, end + echo.CROSSFADE / 2) * rate))
             if index + 1 < len(ranges):
                 b = min(b, round(ranges[index + 1][0] * rate))
             clip = dest.with_name(f"{dest.stem}-part.wav")
@@ -316,6 +317,83 @@ def refine(pair: Path, mic: Path, ranges: list[tuple[float, float]], dest: Path,
     return dest
 
 
+def silence_mutes(mic: Path, dest: Path, muted, cancelled) -> Path:
+    """Copy a decoded PCM track, writing digital silence in the muted spans."""
+    if not muted:
+        return mic
+    with wave.open(os.fspath(mic), "rb") as raw, wave.open(os.fspath(dest), "wb") as output:
+        output.setparams(raw.getparams())
+        rate, frames = raw.getframerate(), raw.getnframes()
+        # Complement of the audible spans gives disjoint, bounded mute spans.
+        audible = callmute.outside([(0, frames)], [
+            (round(start * rate), round(end * rate) if end is not None else None) for start, end in muted
+        ])
+        cursor = 0
+        width = raw.getsampwidth() * raw.getnchannels()
+        for start, end in [*audible, (frames, frames)]:
+            while cursor < start:
+                check(cancelled)
+                count = min(start - cursor, 65536)
+                output.writeframesraw(bytes(count * width))
+                cursor += count
+            raw.setpos(start)
+            _copy_frames(raw, output, end - start, cancelled)
+            cursor = end
+    return dest
+
+
+ECHO_UNMUTED = N_("The microphone heard the loudspeakers in {share} of the time you were unmuted. "
+                  "Echo removed there.")
+ECHO_WHOLE = N_("The microphone heard the loudspeakers in {share} of the recording. Echo removed there.")
+
+
+def remove(mic: Path, references: list[Path], dest: Path, muted, cancelled, *,
+           began=0.0, ended=None, progress: Progress | None = None,
+           observed: Callable[[list[echo.Window]], None] | None = None) -> tuple[Path, str]:
+    """Measure and clean the unmuted spans, with independent echo detection across each mute."""
+    with wave.open(os.fspath(mic), "rb") as raw:
+        duration = raw.getnframes() / raw.getframerate()
+    audible = callmute.outside([(0.0, duration)], muted)
+    unmuted = sum(end - start for start, end in audible)
+    if not unmuted:
+        return mic, ""
+    limit = ended if ended is not None else duration
+    active = [(max(start, began), min(end, limit)) for start, end in audible]
+    active = [(left, right) for left, right in active if right > left]
+    total_active = sum(right - left for left, right in active)
+    if not total_active:
+        return mic, ""
+    pair = dest.with_name(f"{dest.stem}-pair.wav")
+    try:
+        def paired(done, total):
+            if total:
+                tell(progress, .15 * done / total, 1)
+
+        pair_files(mic, references, pair, cancelled, progress=paired)
+        ranges = []
+        measured = 0.0
+        for left, right in active:
+            def measuring(done, _total, before=measured):
+                tell(progress, .15 + .25 * (before + done) / total_active, 1)
+
+            windows, _duration = measure(pair, measuring, cancelled, began=left, ended=right)
+            if observed is not None:
+                observed(windows)
+            ranges.extend((start, end, left, right) for start, end in echo.clean_ranges(windows))
+            measured += right - left
+        if not ranges:
+            return mic, ""
+        def cleaned(done, total):
+            if total:
+                tell(progress, .4 + .6 * done / total, 1)
+
+        refine(pair, mic, ranges, dest, cancelled, progress=cleaned)
+    finally:
+        pair.unlink(missing_ok=True)
+    share = min(sum(end - start for start, end, _, _ in ranges) / unmuted, 1)
+    return dest, _(ECHO_UNMUTED if muted else ECHO_WHOLE).format(share=f"{share * 100:.0f} %")
+
+
 def _copy_frames(reader, writer, frames, cancelled):
     while frames:
         check(cancelled)
@@ -325,75 +403,6 @@ def _copy_frames(reader, writer, frames, cancelled):
             raise EOFError("incomplete WAV")
         writer.writeframesraw(data)
         frames -= n
-
-
-class Live:
-    """The echo looked for while recording (app/recorder.py feeds it the
-    tracks' samples as they come): each time WINDOW seconds more of every
-    track are there, the last WINDOW is measured as window() does after the
-    recording, at 16 kHz (three samples of 48 kHz averaged: enough for a
-    correlation), and core/echo.py's Follow says whether the microphone
-    hears the computer now. Nothing is cleaned while recording: the raw
-    tracks are the recording, and the cleaning comes after, for this
-    recording as for the ones made before. Thread-safe: the streaming
-    threads feed, the recorder's watch looks."""
-
-    def __init__(self, rate: int) -> None:
-        self.rate = rate
-        self.step = rate // 16000 if rate % 16000 == 0 else 1
-        self._lock = threading.Lock()
-        self._chunks: dict[str, list] = {}         # key -> [(first sample, float32 samples)], the last seconds only
-        self._measured = 0                          # the sample the next window starts after
-        self.follow = echo.Follow(echo.LIVE_CLEAN_AFTER)    # the warning: steady, see LIVE_CLEAN_AFTER
-        self.last: echo.Window | None = None
-
-    def feed(self, key: str, first: int, samples) -> None:
-        keep = int(echo.WINDOW * 1.5 * self.rate)
-        with self._lock:
-            chunks = self._chunks.setdefault(key, [])
-            chunks.append((first, samples))
-            end = first + len(samples)
-            while chunks and chunks[0][0] + len(chunks[0][1]) < end - keep:
-                chunks.pop(0)
-
-    def forget(self, key: str) -> None:
-        with self._lock:
-            self._chunks.pop(key, None)
-
-    def _end(self, key: str) -> int:
-        chunks = self._chunks.get(key)
-        return chunks[-1][0] + len(chunks[-1][1]) if chunks else 0
-
-    def _piece(self, key: str, start: int, stop: int):
-        import numpy as np
-        out = np.zeros(stop - start, dtype=np.float32)
-        for first, samples in self._chunks.get(key, ()):
-            a, b = max(first, start), min(first + len(samples), stop)
-            if a < b:
-                out[a - start:b - start] = samples[a - first:b - first]
-        return out
-
-    def look(self, mic: str, outputs: list[str]) -> bool:
-        """Whether the microphone `mic` hears the outputs now, measuring a
-        new window when every track has WINDOW seconds more."""
-        import numpy as np
-        size = int(echo.WINDOW * self.rate)
-        with self._lock:
-            if not outputs or mic not in self._chunks:
-                return self.follow.echo
-            end = min(self._end(key) for key in (mic, *outputs))
-            if end - max(self._measured, 0) < size:
-                return self.follow.echo
-            start = end - size
-            heard = self._piece(mic, start, end)
-            played = sum(self._piece(key, start, end) for key in outputs)
-            self._measured = end
-        if self.step > 1:
-            usable = len(heard) // self.step * self.step
-            heard = heard[:usable].reshape(-1, self.step).mean(axis=1)
-            played = np.asarray(played)[:usable].reshape(-1, self.step).mean(axis=1)
-        self.last = window(heard, played, self.rate // self.step, start / self.rate)
-        return self.follow.feed(self.last.verdict)
 
 
 # -- the canceller -------------------------------------------------------------------------

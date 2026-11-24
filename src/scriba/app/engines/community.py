@@ -80,6 +80,72 @@ def load_plda(transform_path, plda_path):
     return lambda embeddings: plda(xvec(embeddings), lda_dim=128), phi[:128]
 
 
+def embedding_masks(binary, recipe):
+    import numpy as np
+
+    masks = binary.T.copy()
+    if recipe["exclude_overlap"]:
+        clean = masks * (binary.sum(1) < 2)[None]
+        minimum = np.ceil(len(binary) * recipe["min_num_samples"] / 160000)
+        return np.where((clean.sum(1) > minimum)[:, None], clean, masks)
+    return masks
+
+
+def named_fingerprints(result, named, recipe, cancelled=None):
+    """Aggregate segment embeddings whose speech was mostly under one Teams name."""
+    from scriba.core import naming
+
+    if not named or not result.intermediates:
+        return {}
+    import numpy as np
+
+    binary = result.intermediates["segmentation"]
+    embeddings = result.intermediates["embeddings"]
+    frame = recipe["frame"]
+    period = frame["step"]
+    centres = frame["start"] + frame["duration"] / 2 + np.arange(binary.shape[1]) * period
+    people = list(naming.named_intervals(named).items())
+    spans = [(i, start, end) for i, (_, times) in enumerate(people, 1) for start, end in times]
+    if not spans:
+        return {}
+    ids, starts, ends = map(np.asarray, zip(*spans, strict=True))
+    sums, observed = {}, []
+    for chunk, (activity, vectors) in enumerate(zip(binary, embeddings, strict=True)):
+        check(cancelled)
+        times = centres + chunk * recipe["step"]
+        candidates = np.flatnonzero((starts < times[-1] + period) & (ends > times[0]))
+        if not candidates.size:
+            continue
+        owner = np.zeros(len(times), dtype=int)
+
+        for i in candidates:
+            region = (times >= starts[i]) & (times < ends[i])
+            owner[region] = np.where(owner[region] == 0, ids[i], -1)
+        named_speech = (activity.sum(1) == 1) & (owner > 0)
+        for mask, vector in zip(embedding_masks(activity, recipe), vectors, strict=True):
+            mask = mask.astype(bool)
+            count = np.count_nonzero(mask)
+            if not count or not np.isfinite(vector).all():
+                continue
+            eligible = mask & named_speech
+            counts = np.bincount(owner[eligible], minlength=len(people) + 1)
+            index = int(counts.argmax())
+            weight = counts[index]
+            norm = np.linalg.norm(vector)
+            if not weight or weight < count * naming.MIN_PURITY or not norm:
+                continue
+            sums[index] = sums.get(index, 0) + vector * (weight / norm)
+            name = people[index - 1][0]
+            matched = eligible & (owner == index)
+            edges = np.flatnonzero(np.diff(matched, prepend=False, append=False))
+            observed.extend((name, times[a], times[b - 1] + period)
+                            for a, b in zip(edges[::2], edges[1::2], strict=True))
+
+    evidence = naming.named_intervals(observed)
+    return {people[index - 1][0]: vector.tolist() for index, vector in sums.items()
+            if naming.duration(evidence[people[index - 1][0]]) >= naming.MIN_SECONDS}
+
+
 def diarize(samples, model_files, speakers=None, threads=4, progress=None, cancelled=None, session_factory=None, segmentation_batch=1):
     check(cancelled)
     import numpy as np
@@ -123,11 +189,7 @@ def diarize(samples, model_files, speakers=None, threads=4, progress=None, cance
             piece[:len(raw)] = raw
             feats = fbank(piece)
             feats -= feats.mean(0, dtype=np.float32)
-            masks = binary[i].T.copy()
-            if recipe['exclude_overlap']:
-                clean = masks * (binary[i].sum(1) < 2)[None]
-                minimum = np.ceil(589 * recipe['min_num_samples'] / 160000)
-                masks = np.where((clean.sum(1) > minimum)[:, None], clean, masks)
+            masks = embedding_masks(binary[i], recipe)
             vectors[i] = session.run(['embeddings'], {'feats': feats[None], 'weights': masks[None].astype(np.float32)})[0][0]
             tell(progress, len(starts) + i + 1, 2 * len(starts))
     phases['embedding'] = time.perf_counter() - begin

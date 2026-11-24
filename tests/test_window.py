@@ -24,12 +24,13 @@ import fake_engines  # noqa: E402
 from test_engines import AUDIO, MODELS, real  # noqa: E402
 
 from scriba import APP_NAME, TEXTDOMAIN, i18n  # noqa: E402
-from scriba.app import backend, jobs, models, updates  # noqa: E402
+from scriba.app import backend, jobs, meeting_folders, models, updates  # noqa: E402
 from scriba.app.config import Config  # noqa: E402
 from scriba.app.engines import ffmpeg  # noqa: E402
 from scriba.app.paths import Paths  # noqa: E402
 from scriba.app.task import Failure  # noqa: E402
 from scriba.core import speakers  # noqa: E402
+from scriba.core.segments import Segment  # noqa: E402
 from scriba.gui import application as app_mod  # noqa: E402
 from scriba.gui.preferences import PreferencesDialog, about_dialog  # noqa: E402
 from scriba.gui.update_dialog import UpdateDialog  # noqa: E402
@@ -402,6 +403,80 @@ class WindowTest(unittest.TestCase):
         window.open_path(str(self.tmp / "gone.mp3"))           # not there: said, nothing opened
         self.assertEqual(window.transcribe.source, self.recording)
 
+    def test_trim_controls_use_the_same_range_in_the_editor_and_read_only_view(self):
+        from gi.repository import Gdk
+
+        from scriba.gui.trim_range import TrimRange
+        from scriba.gui.ui import load_style
+
+        self.recording = self.tmp / "recording.mka"
+        self.recording.write_bytes(b"recording")
+        tracks = (ffmpeg.Track(0, role="me"),)
+        window = self.opened(ffmpeg.Media(2570, 1, False, 0, tracks=tracks, suggested_range=(130, 1685)))
+        page = window.transcribe
+        self.assertEqual(page.trim_row.get_title(), "Whole Recording")
+        self.assertFalse(page.trim_preview.get_visible())
+        dialogs = []
+        with mock.patch.object(Adw.AlertDialog, "present", lambda dialog, _parent: dialogs.append(dialog)):
+            page.trim_button.emit("clicked")
+        control = dialogs[0].get_extra_child()
+        self.assertIsInstance(control, TrimRange)
+        self.assertEqual(control.selection.interval, (130, 1685))
+        self.assertTrue(control.key("start", Gdk.KEY_Right, Gdk.ModifierType.SHIFT_MASK))
+        self.assertEqual(control.selection.start, 140)
+        self.assertTrue(control.key("end", Gdk.KEY_Left, Gdk.ModifierType(0)))
+        self.assertEqual(control.selection.end, 1684)
+        control._resized(None, 360, 64)
+        control._begin(None, 24 + control.selection.position("start", 312), 30)
+        control._drag(None, 20 * 312 / 2570, 0)
+        self.assertEqual(control.selection.start, 160)
+        control.entries["start"].set_text("02:30")
+        control.entries["end"].set_text("29:30")
+        self.assertTrue(control.read_entries())
+        self.assertEqual(control.selection.interval, (150, 1770))
+        with mock.patch.object(page, "_trim") as save:
+            dialogs[0].emit("response::trim", "trim")
+        save.assert_called_once_with(150, 1770)
+
+        self.engines.media = ffmpeg.Media(1555, 1, False, 0, tracks=tracks, trimmed=True,
+                                          trim_selection=(130, 1685, 2570))
+        self.assertIsNone(page.trim_control)
+        window.open_path(str(self.recording))
+        self.assertTrue(_setup.spin(lambda: page.trim_control is not None))
+        self.assertEqual(page.trim_row.get_title(), "Trimmed Recording")
+        self.assertFalse(page.trim_control.editable)
+        self.assertEqual(page.trim_control.selection.interval, (130, 1685))
+        self.assertEqual(page.trim_control.summary.get_text(), "Keep 25:55 of 42:50")
+
+        if target := os.environ.get("SCRIBA_TEST_TRIM_SCREENSHOTS"):
+            self.addCleanup(i18n.use, i18n.language())
+            i18n.setup(TEXTDOMAIN, _setup.ROOT, "it")
+            manager = Adw.StyleManager.get_default()
+            old = manager.get_color_scheme()
+            self.addCleanup(manager.set_color_scheme, old)
+            avatar = Gtk.Window(title="Scriba", default_width=480)
+            self.addCleanup(avatar.destroy)
+            body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18,
+                           margin_start=24, margin_end=24, margin_top=22, margin_bottom=22)
+            body.append(Gtk.Label(label="Taglia la registrazione", css_classes=["title-3"]))
+            bar = TrimRange(2570, (130, 1685), (130, 1685), editable=True)
+            body.append(bar)
+            self.assertEqual(bar.summary.get_text(), "Tieni 25:55 di 42:50")
+            body.append(Gtk.Label(label="Taglio automatico tra 1:42", css_classes=["caption", "dim-label"]))
+            buttons = Gtk.Box(spacing=12, halign=Gtk.Align.CENTER)
+            buttons.append(Gtk.Button(label="Tieni tutto"))
+            buttons.append(Gtk.Button(label="Taglia", css_classes=["suggested-action"]))
+            body.append(buttons)
+            avatar.set_child(body)
+            self.assertEqual(load_style(Gdk.Display.get_default()), [])
+            avatar.present()
+            for mode in ("light", "dark"):
+                manager.set_color_scheme(Adw.ColorScheme.FORCE_LIGHT if mode == "light" else Adw.ColorScheme.FORCE_DARK)
+                _setup.spin(lambda: False, .25)
+                destination = Path(target) / f"taglio-{mode}.png"
+                self.app._save_screenshot(avatar, str(destination))
+                self.assertGreater(destination.stat().st_size, 1000)
+
     def test_a_made_up_job_goes_through_its_steps_to_the_result_page(self):
         made = []
 
@@ -468,7 +543,7 @@ class WindowTest(unittest.TestCase):
         self.assertTrue(_setup.spin(lambda: window.nav.get_visible_page() is window.result))
         return window
 
-    def test_the_names_of_the_voices_write_new_files(self):
+    def test_the_names_of_the_voices_update_the_files(self):
         window = self.result_window()
         result = window.result
         before = {p.name: p.read_bytes() for p in self.out.iterdir()}
@@ -477,13 +552,32 @@ class WindowTest(unittest.TestCase):
         self.assertTrue(result.save_button.get_sensitive())
         self.assertEqual(result.headings["Speaker 2"][0].get_label(), "Anna Rossi")     # the text follows the name
         result.save_button.emit("clicked")
-        named = self.out / "call_transcript_names.md"
-        self.assertTrue(_setup.spin(lambda: named.is_file()))
+        named = self.out / "call_transcript.md"
+        self.assertTrue(_setup.spin(lambda: not result.busy))
         self.assertIn("**Anna Rossi**", named.read_text(encoding="utf-8"))
-        for name, content in before.items():
-            if not name.endswith(".json"):
-                self.assertEqual((self.out / name).read_bytes(), content, name)
-        self.assertTrue(_setup.spin(lambda: "md-named" in {o.kind for o in result.result.outputs}))
+        self.assertEqual({p.name for p in self.out.iterdir() if not p.name.startswith(".")}, set(before))
+        self.assertEqual({o.kind for o in result.result.outputs}, {"md", "txt", "srt"})
+
+    def test_editing_a_meeting_title_moves_the_folder_and_retargets_the_window(self):
+        folder = self.tmp / "2026-11-19 10-17-48"
+        folder.mkdir()
+        self.recording = folder / f"{folder.name} recording.mka"
+        self.recording.write_bytes(b"original recording")
+        meeting_folders.MeetingFolder(folder.name).save(folder)
+        window = self.opened()
+        result = fake_engines.made_result(folder, self.recording, [Segment(0, 2, "Hi there.", "Speaker 1")])
+        window.show_result(result, jobs.Request(self.recording))
+        window.result.entries["Speaker 1"].set_text("Ada")
+        window.result.meeting_title_entry.set_text("Second / draft")
+        window.result.meeting_title_button.emit("clicked")
+        target = folder.with_name(folder.name + " Second draft")
+        self.assertTrue(_setup.spin(lambda: window.transcribe.source == target / self.recording.name))
+        self.assertFalse(folder.exists())
+        self.assertEqual(window.result.title.get_subtitle(), "Second / draft")
+        self.assertEqual(window.result.entries["Speaker 1"].get_text(), "Ada")
+        self.assertEqual(window.result._shown_outputs, {o.path for o in result.outputs})
+        self.assertTrue(all(Path(o.path).is_file() for o in result.outputs))
+        self.assertEqual(jobs.open_session(result.session)[0].meeting_title, "Second / draft")
 
     def test_teams_names_prefill_editable_fields_without_changing_saved_names(self):
         from scriba.core.naming import Proposal
@@ -494,6 +588,7 @@ class WindowTest(unittest.TestCase):
         window.show_result(result, window.result.request)
         entry = window.result.entries["Speaker 2"]
         self.assertEqual(entry.get_text(), "Ada Example")
+        self.assertIn("from Teams, 8 s of 10 s", label_texts(entry))
         self.assertEqual(result.names, before)
         entry.set_text("Bob Example")
         self.assertEqual(window.result.names()["Speaker 2"], "Bob Example")
@@ -651,8 +746,8 @@ class WindowTest(unittest.TestCase):
         self.assertTrue(_setup.spin(lambda: not window.result.busy))
         self.assertEqual(window.result.result.session, previous)        # names: no new meeting file
         self.assertEqual(window.result.result.names["Speaker 2"], "Anna")
-        # the files with the names, saved twice, are listed once
-        named = [o.path for o in window.result.result.outputs if o.kind == "md-named"]
+        # the rewritten transcript is listed once
+        named = [o.path for o in window.result.result.outputs if o.kind == "md"]
         self.assertEqual(len(named), 1)
         self.assertEqual(len(window.result._shown_outputs & set(named)), 1)
 
@@ -708,6 +803,75 @@ class WindowTest(unittest.TestCase):
         window.show_result(opened, request)
         self.assertEqual(window.result.entries["Speaker 1"].get_text(), "")
 
+    def test_renaming_my_microphone_saves_the_preference_and_undo_restores_it(self):
+        from scriba.app import config
+
+        made = fake_engines.made_result(self.out, self.recording, fake_engines.lines(2, 4, 0))
+        made.me, made.names = "Speaker 1", {"Speaker 1": "Io"}
+        window = self.window()
+        window.show_result(made, jobs.Request(self.recording))
+        entry = window.result.entries["Speaker 1"]
+        with mock.patch.object(self.app, "save_config", lambda: app_mod.App.save_config(self.app)), \
+                mock.patch.object(window.toasts, "add_toast") as shown:
+            entry.set_text("  Ada   Wells ")
+            self.assertEqual(self.app.cfg.my_name, "Io")
+            entry.emit("entry-activated")
+            self.assertEqual(config.load(self.app.paths.config_file).my_name, "Ada Wells")
+            shown.assert_called_once()
+            toast = shown.call_args.args[0]
+            self.assertEqual(toast.get_title(), "Name saved in Preferences")
+            self.assertEqual(toast.get_button_label(), "Undo")
+            toast.emit("button-clicked")
+            self.assertEqual(config.load(self.app.paths.config_file).my_name, "Io")
+            self.assertEqual(entry.get_text().strip(), "Ada   Wells")
+            entry.emit("entry-activated")
+            shown.assert_called_once()
+
+    def test_renaming_a_voice_keeps_an_existing_preference_and_ignores_other_voices(self):
+        made = fake_engines.made_result(self.out, self.recording, fake_engines.lines(2, 4, 0))
+        made.me, made.names = "Speaker 1", {"Speaker 1": "Io"}
+        window = self.window()
+        window.show_result(made, jobs.Request(self.recording))
+        for label, previous in (("Speaker 1", "Ada"), ("Speaker 2", "Io")):
+            self.app.cfg.my_name = previous
+            entry = window.result.entries[label]
+            entry.set_text("Mara")
+            entry.emit("entry-activated")
+            self.assertEqual(self.app.cfg.my_name, previous)
+        self.assertEqual(self.app.saved, 0)
+
+    def test_cli_names_refuses_to_write_over_an_open_draft(self):
+        from scriba import cli
+        from scriba.app import services
+
+        window = self.result_window()
+        page = window.result
+        original = page.result.session.read_bytes()
+        page.entries["Speaker 1"].set_text("Editing in Scriba")
+        error = io.StringIO()
+        with mock.patch.object(services, "app_paths", return_value=self.app.paths), contextlib.redirect_stderr(error):
+            self.assertEqual(cli.main(["names", str(page.result.session), "--set", "Speaker 1=New name"]), 1)
+        self.assertIn("This meeting is being edited in Scriba.", error.getvalue())
+        self.assertEqual(page.result.session.read_bytes(), original)
+        page.release_name_draft()
+
+    def test_a_name_edited_in_a_reopened_meeting_replaces_the_default(self):
+        made = fake_engines.made_result(self.out, self.recording, fake_engines.lines(2, 4, 0))
+        made.me = "Speaker 1"
+        jobs.save_names(made, {"Speaker 1": "Io"})
+        self.app.cfg.my_name = "Me"
+        window = self.window()
+        window.open_path(str(made.session))
+        self.assertTrue(_setup.spin(lambda: window.nav.get_visible_page() is window.result))
+        entry = window.result.entries["Speaker 1"]
+        with mock.patch.object(self.app, "save_config", lambda: app_mod.App.save_config(self.app)):
+            entry.emit("entry-activated")  # opening the saved name does not promote it
+            self.assertEqual(self.app.cfg.my_name, "Me")
+            entry.set_text("Ada")
+            window.result.save_names()
+            self.assertTrue(_setup.spin(lambda: not window.result.busy))
+            self.assertEqual(self.app.cfg.my_name, "Ada")
+
     def test_editing_names_during_a_save_cannot_start_a_second_save(self):
         from scriba.app import jobs
         made = fake_engines.made_result(self.out, self.recording, fake_engines.lines(2, 4, 0))
@@ -731,7 +895,7 @@ class WindowTest(unittest.TestCase):
             self.assertTrue(_setup.spin(lambda: bool(made.names)))
             _setup.spin(lambda: False, 0.2)
         self.assertFalse(sensitive)
-        self.assertEqual(len([o for o in made.outputs if o.kind == "md-named"]), 1)
+        self.assertEqual(len([o for o in made.outputs if o.kind == "md"]), 1)
 
     def test_the_listening_balance_saves_in_a_thread_and_listen_uses_the_new_copy(self):
         from scriba.app import recording
@@ -1199,6 +1363,27 @@ class RecordPageTest(unittest.TestCase):
         page.output_side.row.set_enable_expansion(True)
         self.assertTrue(page.record_button.get_sensitive())
 
+    def test_stop_shows_one_editable_selection_and_keep_all_uses_the_same_choice(self):
+        from scriba.app.finishing import CallChoice
+
+        window = self.window()
+        page = window.record
+        now = [1000]
+        page._stopping = page._on_screen = True
+        page._finish_cancel = threading.Event()
+        choice = CallChoice((130, 1685), duration=2570, call=(130, 1685), timer=lambda: now[0])
+        page._show_call_choice(choice)
+        self.assertEqual(page.trim_control.selection.interval, (130, 1685))
+        self.assertEqual(len(page.trim_control.call_marks), 2)
+        now[0] += 18
+        page._show_finishing()
+        self.assertEqual(page.finish_step.get_text(), "Automatic trim in 01:42")
+        self.assertEqual(page.choice_buttons.get_first_child().get_label(), "Trim")
+        page.choice_buttons.get_last_child().emit("clicked")
+        self.assertFalse(choice.wait(None))
+        page._hide_call_choice()
+        self.assertIsNone(page.trim_control)
+
     def test_a_recording_shows_its_tracks_and_warnings_and_goes_to_transcribe_when_stopped(self):
         from scriba.app import recording as recordings
         from scriba.core import levels
@@ -1218,7 +1403,7 @@ class RecordPageTest(unittest.TestCase):
         recorder.takes[1].ended = 70.0
         self.assertTrue(_setup.spin(lambda: page.time_label.get_label() == "01:15", 5))
         self.assertTrue(_setup.spin(lambda: page.banner.get_revealed(), 5))
-        self.assertIn("hears you faintly (-46 dB)", page.banner.get_title())
+        self.assertIn("Low microphone level (-46 dB)", page.banner.get_title())
         self.assertIn("went away at 01:10", page._track_rows["others-2"][0].get_subtitle())
         page.pause_button.emit("clicked")
         self.assertEqual(recorder.state, "paused")
@@ -1232,25 +1417,25 @@ class RecordPageTest(unittest.TestCase):
         self.assertEqual(window.transcribe.source, joined)
         self.assertTrue(_setup.spin(lambda: window.transcribe.media is not None, 5))
 
-    def test_the_banner_says_the_microphone_hears_the_computer_while_it_does(self):
-        from scriba.core import echo, levels
+    def test_the_banner_shows_the_translated_audio_level_warning(self):
+        from scriba.core import levels
         from scriba.gui.record import alert_words
 
         window = self.window()
         page, recorder = self.recording(window)
-        alert = levels.Alert(echo.ECHO, "", 0.0)
+        alert = levels.Alert(levels.CLIPPING, "", 0.0)
         recorder.alerts = (alert,)
         self.assertTrue(_setup.spin(lambda: page.banner.get_revealed(), 5))
-        self.assertIn("sound: with earphones the transcript comes out better", page.banner.get_title())
-        self.assertIn(alert_words(alert, {}), list(label_texts(page.banner)))
+        self.assertIn("Microphone clipping", page.banner.get_title())
+        self.assertIn(alert_words(alert), list(label_texts(page.banner)))
         recorder.alerts = ()
         self.assertTrue(_setup.spin(lambda: not page.banner.get_revealed(), 5))
         italian = gettext.translation(TEXTDOMAIN, _setup.ROOT / "locale", languages=["it"])
         with mock.patch.object(i18n, "_translation", italian):
             recorder.alerts = (alert,)
             self.assertTrue(_setup.spin(lambda: page.banner.get_revealed(), 5))
-            expected = alert_words(alert, {})
-            self.assertIn("l'audio del computer", expected)
+            expected = alert_words(alert)
+            self.assertIn("Microfono in saturazione", expected)
             self.assertIn(expected, label_texts(page.banner))
         page.stop_button.emit("clicked")
         self.assertTrue(_setup.spin(lambda: not page.busy, 5))

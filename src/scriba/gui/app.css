@@ -15,3 +15,27 @@ window.system-titlebar headerbar.page-toolbar {
 button.record-button {
   padding: var(--space-l);
 }
+.trim-track {
+  background-color: alpha(currentColor, 0.22);
+  border-radius: var(--space-xs);
+}
+
+.trim-kept {
+  background-color: @accent_bg_color;
+  border-radius: var(--space-xs);
+}
+
+.trim-call {
+  min-width: var(--space-xxs);
+  background-color: @window_fg_color;
+  opacity: 0.6;
+}
+
+button.trim-handle {
+  min-width: calc(var(--space-l) + var(--space-s));
+  min-height: calc(var(--space-l) + var(--space-s));
+  padding: 0;
+  border-radius: 100%;
+  background-color: @accent_bg_color;
+  box-shadow: 0 0 0 var(--space-xxs) @window_bg_color;
+}

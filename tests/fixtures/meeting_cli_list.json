@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "meetings": [
+    {
+      "date": "2026-11-12T10:00:00",
+      "title": "Project Alpha",
+      "duration": 30.0,
+      "transcribed": true,
+      "voices": 2,
+      "names": {},
+      "path": ""
+    },
+    {
+      "date": "2026-11-14T13:00:00",
+      "title": "Project Beta",
+      "duration": 30.0,
+      "transcribed": true,
+      "voices": 2,
+      "names": {},
+      "path": ""
+    }
+  ]
+}

@@ -101,6 +101,8 @@ class MainWindow(_WindowBase):
 
     def _view_changed(self) -> None:
         main = self.nav.get_visible_page() is self.nav.find_page("main")
+        if main and not self.result.busy:
+            self.result.release_name_draft()
         self.record.shown(self.on_screen() and main and self.views.get_visible_child_name() == "record")
         self.page_changed()
 
@@ -266,6 +268,9 @@ class MainWindow(_WindowBase):
         if self.transcribe.busy:
             self.toast(_("A transcription is in progress: cancel it first."))
             return
+        if self.result.busy:
+            self.toast(_("The meeting is being saved or has an unfinished edit."))
+            return
         if self.nav.get_visible_page() is not self.nav.find_page("main"):
             self.nav.pop_to_tag("main")
         self.views.set_visible_child_name("transcribe")
@@ -286,7 +291,7 @@ class MainWindow(_WindowBase):
                 report("opening a saved meeting", error)
                 self.toast(str(error))
                 return
-            self.app.cfg.last_folder = os.path.dirname(path)
+            self.app.cfg.last_folder = str(opened[0].session.parent)
             self.app.save_config()
             self.show_result(*opened)
 
@@ -325,6 +330,10 @@ class MainWindow(_WindowBase):
                 return True
         self.app.request_quit()
         return True
+
+    def destroy(self) -> None:
+        self.result.release_name_draft()
+        super().destroy()
 
     def _restore_state(self) -> None:
         try:

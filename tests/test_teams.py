@@ -5,9 +5,33 @@ from unittest.mock import Mock
 
 import _setup  # noqa: F401
 from scriba.app import teams
+from scriba.core.teams import tile_name
 
 
 class CaptureTest(unittest.TestCase):
+    def test_own_tile_counts_without_being_used_for_names(self):
+        reader = teams.Reader.__new__(teams.Reader)
+        reader._user32 = Mock()
+        reader._user32.IsIconic.return_value = False
+        reader._teams_windows = lambda: [123]
+        bounds = (0, 0, 80, 60)
+        own = tile_name("Video personale, Ada Example, Microfono disattivato")
+        other = tile_name("Cora Example, Microfono disattivato")
+        reader._elements = lambda _hwnd: (True, [(own, bounds), (other, bounds)])
+        reader._window, reader._policy = None, teams.CapturePolicy()
+        reader._meeting_title = lambda _hwnd: "Example"
+        reader._rect = lambda _hwnd: bounds
+        reader._uncovered = lambda _hwnd, _bounds: True
+        reader._capture = Mock(return_value=bytes((90, 80, 70, 0)) * 80 * 60)
+        sides = (.05, .85, .94, .96)
+        with unittest.mock.patch.object(teams.teams, "border", return_value=Mock(active=True, sides=sides)) as border:
+            reading = reader.read()
+        self.assertEqual(reading.people, 2)
+        self.assertEqual(reading.active, ("Cora Example",))
+        self.assertEqual((reading.tiles, reading.capture_source, reading.covered), (2, "print-window", False))
+        self.assertEqual(reading.border_sides, sides)
+        border.assert_called_once()
+
     def test_minimized_and_absent_meetings_never_capture(self):
         reader = teams.Reader.__new__(teams.Reader)
         reader._user32 = Mock()
@@ -54,6 +78,7 @@ class CaptureTest(unittest.TestCase):
                 stop.set()
         teams.follow(told, stop, every=0.001, opener=lambda: reader)
         self.assertEqual([r.state for r in readings], ["unavailable", "ready"])
+        self.assertEqual([r.error for r in readings], [True, False])
         self.assertTrue(reader.closed)
 
     def test_end_requires_a_seen_meeting_and_six_consecutive_absences(self):

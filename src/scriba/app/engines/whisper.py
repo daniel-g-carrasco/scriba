@@ -50,7 +50,7 @@ import shutil
 import threading
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from scriba import ENV_PREFIX
@@ -363,6 +363,86 @@ def transcribe(wav: str | os.PathLike, options: Options, workdir: str | os.PathL
     if transcript is None:
         raise Failure(_("whisper-cli could not transcribe the audio."), failure)
     return transcript
+
+
+def _run_chunks(cli, inputs, options, folder, progress, cancelled, on_state):
+    outputs = [Path(f"{path}.json") for path in inputs]
+    for output in outputs:
+        output.unlink(missing_ok=True)
+    names = [path.name if path.parent == folder else str(path.resolve()) for path in inputs]
+    completed = 0
+    language = []
+    gpu = options.device
+
+    def heard(line):
+        nonlocal completed, gpu
+        if "saving output" in line:
+            completed += 1
+            tell(progress, completed, len(inputs))
+        elif found := _PROGRESS.search(line):
+            if on_state is not None:
+                on_state("transcribing")
+            tell(progress, completed + float(found.group(1)) / 100, len(inputs))
+        elif "no GPU found" in line:
+            gpu = None
+        elif found := _LANGUAGE.search(line):
+            language.append((found.group(1), float(found.group(2))))
+
+    if on_state is not None:
+        on_state("loading")
+    argv = [*options_arguments(cli, options, flags(cli, cancelled)), *names]
+    began = time.perf_counter()
+    try:
+        done = process.run(argv, cwd=folder, env=environment(options), on_stderr=heard, cancelled=cancelled)
+    except OSError as error:
+        raise Failure(_("whisper-cli could not be started."), str(error)) from error
+    if done.returncode != 0 or not all(path.is_file() for path in outputs):
+        return [], f"exit {done.returncode}: {done.detail}"
+    elapsed = (time.perf_counter() - began) / len(inputs)
+    result = []
+    for index, output in enumerate(outputs):
+        try:
+            segments, guessed = parse_output(json.loads(output.read_bytes().decode("utf-8", "replace")))
+        except ValueError as error:
+            return [], f"output not JSON: {error}"
+        detected, probability = language[index] if len(language) == len(inputs) else (guessed, None)
+        fallback = "whisper-cli found no usable graphics card" if options.device and gpu is None else ""
+        result.append(Transcript(segments, detected, probability, gpu, fallback, elapsed))
+    return result, ""
+
+
+def transcribe_chunks(inputs: Sequence[Path], options: Options, workdir: Path,
+                      progress: Progress | None = None, cancelled: threading.Event | None = None,
+                      on_state: Callable[[str], None] | None = None) -> list[Transcript]:
+    """Give isolated speech regions to one engine process, using its per-file clocks."""
+    cli = need()
+    result = []
+    batch_size = 128  # keep the Windows command line bounded even on long recordings
+    for start in range(0, len(inputs), batch_size):
+        check(cancelled)
+        batch = inputs[start:start + batch_size]
+        size = len(batch)
+
+        def advance(done, total, first=start, count=size):
+            tell(progress, first + count * done / total, len(inputs))
+
+        transcripts, failure = _run_chunks(cli, batch, options, workdir, advance, cancelled, on_state)
+        if not transcripts and options.device is not None:
+            check(cancelled)
+            if on_state is not None:
+                on_state("fallback")
+            options = replace(options, threads=processor_threads(), device=None)
+            transcripts, reason = _run_chunks(cli, batch, options, workdir, advance, cancelled, on_state)
+            if not transcripts:
+                failure += f"\non the processor: {reason}"
+            for transcript in transcripts:
+                transcript.fallback = failure
+        if not transcripts:
+            raise Failure(_("whisper-cli could not transcribe the audio."), failure)
+        if transcripts[-1].fallback and options.device is not None:
+            options = replace(options, threads=processor_threads(), device=None)
+        result.extend(transcripts)
+    return result
 
 
 SAMPLE_SECONDS = 30.0         # what the test takes of a recording of the user's

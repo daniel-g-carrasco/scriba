@@ -263,6 +263,11 @@ jobs:
           export LANGUAGE=en  # check labels below are matched in English
           bare="/c/Windows/System32:/c/Windows"
           PATH="$bare" ./dist/Scriba/scriba-cli.exe --version
+          PATH="$bare" ./dist/Scriba/scriba-cli.exe --help > cli-help.log
+          grep -q 'list saved meetings' cli-help.log
+          mkdir -p smoke/cli-meetings
+          PATH="$bare" ./dist/Scriba/scriba-cli.exe list --json --folder "$(cygpath -w "$PWD/smoke/cli-meetings")" > cli-meetings.json
+          python -c 'import json; assert json.load(open("cli-meetings.json")) == {"schema": 1, "meetings": []}'
           # no models on the runner, no graphics card: check says so and
           # exits 1; what matters is that every engine is the build's own
           PATH="$bare" ./dist/Scriba/scriba-cli.exe check > check.log 2>&1 || true

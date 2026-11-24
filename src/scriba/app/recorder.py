@@ -57,13 +57,8 @@ starts from that one and the old one's source is told it is the end, so
 its file closes where it is; the files of the microphone are joined at the
 end as the user's, one after the other.
 
-While recording, a probe after each branch's meter keeps the last seconds
-of its samples, and the watch measures every new ten seconds whether the
-microphone hears the computer (app/engines/echo.py, Live; core/echo.py):
-snapshot() says it as a warning while it lasts. Nothing is cleaned live:
-the raw tracks are the recording, and the computer's sound is taken out of
-the microphone afterwards, for the copy to listen to and the transcript
-(app/recording.py, app/jobs.py), the same way for recordings made before.
+The raw tracks are the recording. Echo removal works on the listening
+copy and the audio prepared for transcription (app/recording.py, app/jobs.py).
 
 GStreamer's bus is read in threads of this module (no main loop): the
 window reads snapshot() ten times a second and draws. Gst is the part of
@@ -89,14 +84,13 @@ from gi.repository import Gst  # noqa: E402
 
 from scriba import WINDOWS  # noqa: E402
 from scriba.app import recovery  # noqa: E402
-from scriba.app.engines import echo as canceller  # noqa: E402
-from scriba.core import callend, callmute, devices as dev, echo, levels, recording as rec, spans  # noqa: E402
+from scriba.core import callend, callmute, devices as dev, echo, levels, recording as rec, spans, teams  # noqa: E402
 from scriba.data import files  # noqa: E402
 from scriba.i18n import _  # noqa: E402
 
 from .log import complain  # noqa: E402
 from .recording import (ADDED, CALL_ELSEWHERE, DISK_FULL, DISK_LOW, FAILED, FOLLOWED, GONE, OFF, ON,  # noqa: E402
-                        SWITCHED, TEAMS_ENDED, Event, Meters, Status, Take, file_words)
+                        SWITCHED, Event, Meters, Status, Take, file_words)
 from .task import Failure  # noqa: E402
 
 SOURCE = "wasapi2src" if WINDOWS else "pulsesrc"
@@ -412,7 +406,6 @@ class Recorder:
         self._left = math.inf
         self._counts = {"me": 0, "others": 0}
         self._off: set[str] = set()             # the roles switched off in Scriba while recording
-        self._echo = canceller.Live(rec.RATE)   # whether the microphone hears the computer (look_for_echo)
         self._follow = dev.Follow()             # the microphone a call program opens (_follow_the_call)
         self._told: set[str] = set()            # the microphones said to be the call's, not followed
         self.follow_call = False                # Windows: follow the call's mute (set before start)
@@ -428,6 +421,7 @@ class Recorder:
         self._named = spans.Builder()
         self._meeting_title = ""
         self._teams_state, self._teams_people = "", 0
+        self._teams_summary = teams.ReadingSummary()
 
     # -- the tracks ----------------------------------------------------------------
 
@@ -463,7 +457,6 @@ class Recorder:
             take.off = ((at, None),)
         if role == "me" and self._call_muted:
             take.muted = ((at, None),)
-        branch.level.get_static_pad("src").add_probe(Gst.PadProbeType.BUFFER, self._heard, key)
         with self._lock:
             self._branches[key] = branch
             self._takes[key] = take
@@ -528,12 +521,13 @@ class Recorder:
             return
         at = self.elapsed()
         named = self._named.snapshot(at)
-        takes = [replace(take, named_spans=named, meeting_title=self._meeting_title,
+        takes = [replace(take, named_spans=named, meeting_title=self._meeting_title, teams_people=self._teams_people,
                          loudest=self._watch.loudest.get(key, -math.inf))
                  for key, take in self._takes.items()]
         try:
             silent_since = self._output_silence(at) if self._last_output_sound is not None else None
             cut = rec.tail_cut(at, self._call_end.ended, silent_since)
+            self.journal.teams_minutes = self._teams_summary.minutes
             self.journal.save(phase, takes, at, cut=cut, call_range=self._call_end.interval(at))
             self._last_save_error = ""
         except OSError as error:
@@ -674,13 +668,20 @@ class Recorder:
         with self._lock:
             if self._state not in ("recording", "paused"):
                 return
-            self._teams_state, self._teams_people = reading.state, reading.people
+            self._teams_state = reading.state
+            if self.teams_names:
+                self._teams_people = max(self._teams_people, reading.people)
             if reading.title and self.teams_names:
                 self._meeting_title = reading.title
             at = self.elapsed()
+            if self._state == "recording":
+                state = "error" if reading.error else "no-meeting" if reading.state == "ended" else reading.state
+                tiles = reading.people if reading.tiles is None else reading.tiles
+                self._teams_summary.observe(at, state, tiles, bool(reading.active), reading.capture_source,
+                                            reading.covered, reading.border_sides)
+            else:
+                self._teams_summary.interrupt()
             self._call_end.teams("present" if getattr(reading, "meeting", False) else reading.state, at)
-            if reading.state == "ended":
-                self._events.append(Event(at, TEAMS_ENDED))
             if self.teams_names and reading.state == "ready" and self._state == "recording" and "others" not in self._off:
                 self._named.read(at, reading.active)
             else:
@@ -693,7 +694,7 @@ class Recorder:
             teams.follow(self.teams_reading, self._quit, opener=opener)
         except Exception as error:  # worker boundary: recording continues, failure is visible
             complain("following Teams names", error)
-            self.teams_reading(teams.Reading("unavailable"))
+            self.teams_reading(teams.Reading("unavailable", error=True))
 
     def _finish(self) -> None:
         self._quit.set()
@@ -708,6 +709,7 @@ class Recorder:
             for take in self._takes.values():
                 take.named_spans = named
                 take.meeting_title = self._meeting_title
+                take.teams_people = self._teams_people
             self._save_locked("finishing:closing")
         self._state = "failed" if self._error and self._state == "failed" else "stopped"
 
@@ -722,20 +724,19 @@ class Recorder:
     def snapshot(self) -> Status:
         with self._lock:
             now = time.monotonic()
+            elapsed = self.elapsed()
             # no warning about a side switched off here: its silence is wanted
             # nor about a microphone muted in the call: the user is not speaking in it
             alerts = tuple(a for a in self._watch.warnings(now)
                            if ("others" if a.kind == levels.SILENT else "me") not in self._off
                            and (a.kind == levels.SILENT or not self._call_muted)) \
                 if self._state == "recording" else ()
-            # the microphone hears the computer: said while it lasts, with both sides on
-            if self._state == "recording" and self._echo.follow.echo and not self._off:
-                alerts += (levels.Alert(echo.ECHO, "", 0.0),)
-            return Status(self._state, self.elapsed(), tuple(replace(t) for t in self._takes.values()),
+            return Status(self._state, elapsed, tuple(replace(t) for t in self._takes.values()),
                           dict(self._now), alerts, tuple(self._events), self._left, self._error,
                           frozenset(self._off), self._call_muted, self._teams_state if self.teams_names else "",
                           self._teams_people, self._call_end.ended, self._call_end.prompt,
-                          self._output_silence(self.elapsed()) if self._last_output_sound is not None else None)
+                          self._output_silence(elapsed) if self._last_output_sound is not None else None,
+                          self._call_end.remaining(elapsed, self.call_stop_minutes), self._teams_summary.without_border)
 
     # -- the threads -------------------------------------------------------------------
 
@@ -776,27 +777,6 @@ class Recorder:
         except Exception as e:      # the thread's border: said; the recording is stopped by the window
             complain("the recording's bus", e)
 
-    def _heard(self, _pad, info, key: str):
-        """A buffer of a track on its way to the file (a pad probe, in
-        GStreamer's streaming thread): its samples kept for look_for_echo.
-        The buffer passes on as it is."""
-        buffer = info.get_buffer()
-        if buffer is not None and buffer.pts != Gst.CLOCK_TIME_NONE:
-            import numpy as np
-            samples = np.frombuffer(buffer.extract_dup(0, buffer.get_size()), dtype="<f4")
-            self._echo.feed(key, round(buffer.pts * rec.RATE / Gst.SECOND), samples)
-        return Gst.PadProbeReturn.OK
-
-    def _look_for_echo(self) -> None:
-        """Whether the microphone hears the computer now (engines/echo.py,
-        Live): the banner says it while it lasts (snapshot)."""
-        with self._lock:
-            live = [(key, take.role) for key, take in self._takes.items() if take.ended is None]
-        mics = [key for key, role in live if role == "me"]
-        outputs = [key for key, role in live if role == "others"]
-        if mics:
-            self._echo.look(mics[-1], outputs)
-
     def _stop_after_error(self) -> None:
         self.stop()
         self._state = "failed"
@@ -812,7 +792,6 @@ class Recorder:
                 if now - looked >= WATCH_EVERY and self._state == "recording":
                     looked = now
                     self._look_at_devices()
-                    self._look_for_echo()
         except Exception as e:      # the thread's border: said, and the recording goes on unwatched
             complain("watching the devices", e)
 

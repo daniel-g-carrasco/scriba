@@ -661,34 +661,23 @@ class App(Adw.Application):
         self.send_notification(tag or None, note)
 
     def notify_call_ended(self, stop, go_on):
-        title = _("The call seems to have ended. Stop recording?")
-        if WINDOWS and self.toasts is not None:
-            def dispatch(callback):
-                return lambda: GLib.idle_add(lambda: callback() or False)
-            try:
-                from scriba.app import call_notifications
-                call_notifications.show(self.toasts, title, {"stop": (_("Stop"), dispatch(stop)),
-                                                             "continue": (_("Continue"), dispatch(go_on))})
-                return
-            except OSError as error:
-                complain("notifying about the end of the call", error)
-        if self.window is not None and self.window.get_visible():
-            dialog = Adw.AlertDialog(heading=title)
-            dialog.add_response("stop", _("Stop"))
-            dialog.add_response("continue", _("Continue"))
-            dialog.set_close_response("close")
+        if not WINDOWS or self.toasts is None:
+            return None
 
-            def answered(_dialog, response):
-                if response == "stop":
-                    stop()
-                elif response == "continue":
-                    go_on()
+        def dispatch(callback):
+            return lambda: GLib.idle_add(lambda: callback() or False)
 
-            dialog.connect("response", answered)
-            dialog.present(self.window)
+        from scriba.app import call_notifications
+        try:
+            return call_notifications.show(self.toasts, _("The call has ended"),
+                                           {"stop": (_("Stop"), dispatch(stop)),
+                                            "continue": (_("Continue"), dispatch(go_on))})
+        except OSError as error:
+            complain("notifying about the end of the call", error)
+            return None
 
     def notify_recording_choice(self, title, answer):
-        labels = {"only-call": (_("Only the Call"), True), "whole-recording": (_("Whole Recording"), False)}
+        labels = {"trim": (_("Trim"), True), "keep-all": (_("Keep All"), False)}
         if WINDOWS and self.toasts is not None:
             from scriba.app import call_notifications
 

@@ -66,7 +66,7 @@ def percentile(values, share: float) -> float:
 
 @dataclass(frozen=True)
 class Alert:
-    kind: str           # CLIPPING, QUIET or SILENT; the recorder adds core/echo.py's ECHO
+    kind: str           # CLIPPING, QUIET or SILENT
     track: str          # the track's key; for SILENT, "" when it is every output
     level: float        # dBFS: the peak, the voice's level, or the outputs' loudest peak
     seconds: float = 0.0    # SILENT: for how long

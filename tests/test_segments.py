@@ -146,9 +146,27 @@ class FlagDoubtfulTest(unittest.TestCase):
         segs = [Segment(0, 30, loop),
                 Segment(30, 34, "una frase detta a velocità normale, sedici caratteri"),   # 13 a second
                 Segment(34, 34.4, "Sì, va bene, grazie."),        # rounded times: judged on 2 s, 10 a second
-                Segment(40, 41, "x" * 51)]                         # 51 characters in under 2 s: 25.5 a second
+                Segment(40, 41, "x" * 81)]                         # 81 characters in under 2 s: 40.5 a second
         self.assertEqual([s.doubts for s in sg.flag_doubtful(segs)], [(sg.DENSE,), (), (), (sg.DENSE,)])
         self.assertEqual(sg.flag_doubtful(segs, dense_min_seconds=0.1)[2].doubts, (sg.DENSE,))
+
+    def test_fast_english_at_the_ten_measured_rates_is_not_doubtful(self):
+        measured = [
+            (26.3, "Check the next page and tell us if the numbers match the earlier summary."),
+            (26.0, "They moved the review to Friday so there is time to test the whole setup."),
+            (31.0, "We should put the final figures on a single page and send it around after this."),
+            (26.1, "Can you open the example and read the last paragraph before we continue?"),
+            (32.0, "Please make sure each copy uses the same units so we can compare them quickly."),
+            (30.5, "We changed the table yesterday and the new version already includes these amounts."),
+            (25.5, "The answer depends on how much time they set aside for the final review."),
+            (26.1, "I will check the totals while you go through the rest of the document."),
+            (30.1, "We need the date and the number together so the next person can find the source."),
+            (25.0, "The updated notes should be enough for everyone to prepare before the review."),
+        ]
+        lines = [Segment(0, len(text) / speed, text, avg_logprob=-.15, level=-28,
+                         words=((0, .2), (.3, len(text) / speed))) for speed, text in measured]
+        self.assertTrue(all(1.8 <= line.end <= 3.9 for line in lines))
+        self.assertEqual([line.doubts for line in sg.flag_doubtful(lines)], [()] * len(measured))
 
     def test_a_line_of_no_time_is_judged_on_the_floor(self):
         # an engine that gives a line the same start and end: no division by zero

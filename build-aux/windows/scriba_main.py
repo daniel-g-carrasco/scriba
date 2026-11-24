@@ -58,6 +58,10 @@ def console_streams() -> None:
 
 if __name__ == "__main__":             # tests/test_bundle.py imports the functions above
     console_streams()
-    own_gstreamer(getattr(sys, "_MEIPASS", os.path.dirname(sys.executable)))
+    from scriba.cli import MEETING_COMMANDS
     from scriba.__main__ import main
-    sys.exit(main())
+    console = os.path.basename(sys.executable).casefold() == "scriba-cli.exe"
+    if not (len(sys.argv) > 1 and sys.argv[1] in (*MEETING_COMMANDS, "--help", "-h", "--version", "-V")):
+        if not console or len(sys.argv) > 1:
+            own_gstreamer(getattr(sys, "_MEIPASS", os.path.dirname(sys.executable)))
+    sys.exit(main(console_only=console))

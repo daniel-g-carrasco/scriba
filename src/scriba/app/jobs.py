@@ -53,15 +53,16 @@ from pathlib import Path
 from string import Formatter
 
 from scriba import PACKAGE_DIR, WINDOWS, __version__
-from scriba.core import callmute, estimate, loudness, naming, segments as seg, speakers, terms as term_lists, timeline, words
+from scriba.core import balance_excerpt, callmute, echo as echo_logic, estimate, loudness, naming
+from scriba.core import segments as seg, speakers, terms as term_lists, timeline, words
 from scriba.core.paragraphs import paragraphs
 from scriba.core.recording import safe
 from scriba.core.subtitles import subtitles as cut_subtitles
-from scriba.data import files, markdown, session as sessions, srt, termfiles, txt
+from scriba.data import atomic, edits, files, markdown, session as sessions, srt, termfiles, txt
 from scriba.data.timing import clock
 from scriba.i18n import N_, _
 
-from . import models
+from . import meeting_folders, models
 from scriba.app.engines import vad
 from scriba.app.engines.ffmpeg import Track
 from .log import complain
@@ -136,7 +137,6 @@ class Request:
     # video): with `out` None the files go in a folder of its own there,
     # with a link to the file (home_folder, link_to); None: output_folder
     home: Path | None = None
-    titled_folder: bool = False         # a new export folder beside Scriba's original recording
 
 
 class Progress:
@@ -230,6 +230,10 @@ class Result:
     diarization: dict = field(default_factory=dict)
     voice_centroids: dict = field(default_factory=dict)
     meeting_title: str = ""
+    voice_fingerprints: dict = field(default_factory=dict)
+    recorded_voice: str | None = None   # microphone label before any manual assignment
+    balance_echo: tuple[tuple[float, float], ...] | None = None
+    balance_activity: tuple[balance_excerpt.Speech, ...] | None = None
 
 
 def full_path(path: str | os.PathLike) -> str:
@@ -279,6 +283,12 @@ def home_folder(source: str | os.PathLike, recordings: str | os.PathLike, title_
     source, recordings = Path(source), Path(recordings)
     stem = title_stem or source.stem
     wanted = full_path(source)
+    # A meeting imported from a file can have been given a different title since.
+    for marker in recordings.glob(f"*/{meeting_folders.STATE}"):
+        folder = marker.parent
+        state = meeting_folders.read(folder) if not folder.is_symlink() else None
+        if state is not None and state.external_source == wanted:
+            return folder.resolve()
     for n in range(files.MAX_REVISIONS + 1):
         folder = recordings / (stem if n == 0 else f"{stem}_R{n:02d}")
         if not os.path.lexists(folder):
@@ -351,15 +361,17 @@ def revisions_folder() -> str:
     return _("Previous revisions")
 
 
-def _previous_to_revisions(folder: Path, source: Path) -> list[str]:
+def _previous_to_revisions(folder: Path, source: Path, title_stem: str = "") -> list[str]:
     """A new transcript of the same audio takes the place of the one before
     in view; the one before (its automatic files, those with the names, its
     meeting files) goes to the folder of the previous revisions with
     `_R01`, `_R02`... Nothing is deleted or replaced. When a file cannot be
     moved (open in another program) the set stays where it is, the new one
     takes the next free name beside it, and that is said."""
+    edits.recover(folder)
     try:
-        files.to_revisions(folder, transcript_stem(source), ("", f"_{_('names')}", f"_{_('balanced')}"),
+        stem = f"{title_stem}_{_('transcript')}" if title_stem else transcript_stem(source)
+        files.to_revisions(folder, stem, ("", f"_{_('names')}", f"_{_('balanced')}"),
                            (".md", ".txt", ".srt", ".json"), revisions_folder())
     except OSError as e:
         return [_("The previous transcript could not be moved to “{folder}” ({reason}): the new one is next to "
@@ -474,7 +486,7 @@ def read_term_files(paths) -> list[TermsFile]:
     return out
 
 
-ECHO_INFORMATION = ("The microphone heard the computer's sound (loudspeakers) in {share} of the recording "
+ECHO_INFORMATION = N_("The microphone heard the computer's sound (loudspeakers) in {share} of the recording "
                     "({time}): there it was taken out of your track before transcribing, so the others' words "
                     "come from the computer's track only.")
 MUTE_INFORMATION = ("{time} of speech on your microphone fell where you were muted in the call: it was "
@@ -488,11 +500,12 @@ def recording_information(note: str) -> bool:
     Meetings save translated sentences. Match complete templates in both supported
     languages so reopening after a language change keeps the same severity.
     """
+    from scriba.app.engines.echo import ECHO_UNMUTED, ECHO_WHOLE
     from scriba.i18n import translation_for
 
     for language in ("en", "it"):
         translate = translation_for(language).gettext
-        for template in (ECHO_INFORMATION, MUTE_INFORMATION, TIMING_INFORMATION,
+        for template in (ECHO_INFORMATION, ECHO_UNMUTED, ECHO_WHOLE, MUTE_INFORMATION, TIMING_INFORMATION,
                          "Several different voices are heard from the same Teams participant.",
                          "Very similar voices share a Teams participant; you can give them the same name.",
                          "One voice appears under several Teams participants; no name was proposed."):
@@ -522,6 +535,7 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
     Failure (a sentence to show) when a model or a program is missing or an
     engine fails; Cancelled when `cancelled` is set. Either way the
     temporary folder is gone, and no file of the user's was touched."""
+    from scriba.app.engines import echo as canceller
     from scriba.app.engines import ffmpeg, whisper
 
     progress = progress or Progress()
@@ -535,6 +549,16 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
         raise Failure(_("Models to download first: {names}.").format(names=", ".join(m.filename for m in lacking)),
                       str(models.folder() if models_dir is None else models_dir))
     chosen, notes = given_terms(request)
+    check(cancelled)
+    folder_state = meeting_folders.find(source.resolve().parent)
+    if folder_state is not None:
+        root, state = folder_state
+        folder, notices = meeting_folders.place(root, state)
+        notes.extend(notices)
+        if folder.name != root.name:
+            source = meeting_folders.rebase(source.resolve(), root, folder)
+            out = meeting_folders.rebase(Path(request.out).resolve(), root, folder) if request.out is not None else None
+            request = replace(request, source=source, out=out)
     managed = request.home is not None and request.out is None
     if not managed:
         folder = output_folder(source, request.out)
@@ -561,8 +585,17 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
         if said:
             notes += said
             request = replace(request, tracks=tuple(part.track for part in parts))
+        for n, part in enumerate(parts):
+            if part.track.role == "me" and part.track.muted:
+                try:
+                    wavs[n] = canceller.silence_mutes(wavs[n], work / f"audio{n}-muted.wav",
+                                                      part.track.muted, cancelled)
+                except (OSError, EOFError, wave.Error) as e:
+                    raise Failure(_("The muted intervals could not be silenced: {reason}").format(reason=e),
+                                  str(e)) from e
+        balance_echo = None
         if echo_check:
-            wavs, said = _without_echo(parts, wavs, work, _within(progress, len(parts), slots), cancelled)
+            wavs, said, balance_echo = _without_echo(parts, wavs, work, _within(progress, len(parts), slots), cancelled)
             notes += said
         for part, wav in zip(parts, wavs, strict=True):
             _prepare(part, wav, request.normalise, cancelled)
@@ -589,18 +622,23 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
             options = whisper.Options(models.path_of(model, models_dir), request.language, chosen.terms,
                                       4 if device is not None else whisper.processor_threads(), device,
                                       precise=model is models.WHISPER_LARGE)
-            transcript = whisper.transcribe(work / f"speech{n}.wav", options, work, _within(progress, n, len(parts)),
-                                            cancelled, progress.say)
-            if transcript.fallback:
-                note = _("The graphics card did not work: the text was made on the processor (slower).")
-                if note not in notes:
-                    notes.append(note)
-                device = None           # the next track straight on the processor
-            used = transcript.device.label if transcript.device is not None else "cpu"
-            if language_probability is None:
-                language = transcript.language or request.language
-                language_probability = transcript.language_probability
-            part.lines = _brought_back(part, transcript.segments)
+            advance = _within(progress, n, len(parts))
+            inputs = [path for path, _pieces in part.runs]
+            if len(inputs) == 1:
+                transcripts = [whisper.transcribe(inputs[0], options, work, advance, cancelled, progress.say)]
+            else:
+                transcripts = whisper.transcribe_chunks(inputs, options, work, advance, cancelled, progress.say)
+            for (_path, pieces), transcript in zip(part.runs, transcripts, strict=True):
+                if transcript.fallback:
+                    note = _("The graphics card did not work: the text was made on the processor (slower).")
+                    if note not in notes:
+                        notes.append(note)
+                    device = None       # the next track straight on the processor
+                used = transcript.device.label if transcript.device is not None else "cpu"
+                if language_probability is None:
+                    language = transcript.language or request.language
+                    language_probability = transcript.language_probability
+                part.lines.extend(_brought_back(part, transcript.segments, pieces))
         if not any(part.pieces for part in parts):
             notes.append(_("No speech was found in the recording."))
         timings["transcribe"] = progress.finish()
@@ -618,18 +656,29 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
         check(cancelled)
         progress.begin("write")
         named_spans = tuple(dict.fromkeys(s for track in media.tracks for s in track.named_spans))
-        meeting_title = suggest_meeting_title(media.meeting_title, lines, chosen.terms)
+        meeting_title = (folder_state[1].title if folder_state is not None and folder_state[1].target
+                         else suggest_meeting_title(media.meeting_title, lines, chosen.terms))
         written_at = datetime.datetime.now()
         title_stem = titled_stem(meeting_title, source, written_at) if meeting_title else ""
         if managed:
             folder = home_folder(source, request.home, title_stem)
             folder.mkdir(parents=True, exist_ok=True)
+            if known := meeting_folders.read(folder):
+                folder, notices = meeting_folders.place(folder, known)
+                notes.extend(notices)
+                if known.target:
+                    meeting_title = known.title
+                title_stem = known.export_base
+            else:
+                date = titled_stem("meeting", source, written_at)[:19]
+                if re.fullmatch(meeting_folders.DATE, date) is None:
+                    date = written_at.strftime("%Y-%m-%d %H-%M-%S")
+                meeting_folders.MeetingFolder(date, meeting_title, external_source=full_path(source),
+                                              export_base=title_stem).save(folder)
             notes += link_to(source, folder)
-        elif request.titled_folder and title_stem:
-            folder = home_folder(source, folder, title_stem)
-            folder.mkdir(parents=True, exist_ok=True)
-            notes += link_to(source, folder)
-        notes += _previous_to_revisions(folder, source)
+        elif media.roles and folder.resolve() == source.resolve().parent:
+            title_stem = ""   # the files share the recording's base
+        notes += _previous_to_revisions(folder, source, title_stem)
         names = naming.automatic(lines, named_spans, me)
         if me:
             names[me] = " ".join(request.my_name.split()) or "Io"
@@ -651,14 +700,22 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
 
         timings["total"] = time.perf_counter() - began
         result = Result(outputs, folder / f"{stem}.json", lines, voices, duration, used, timings, notes,
-                        source, folder, stem, header, me, listening_copy(source), names)
+                        source, folder, stem, header, me, listening_copy(source, media, cancelled), names)
         result.named_spans = named_spans
         result.meeting_title = meeting_title
+        if _hears_and_plays(parts):
+            result.recorded_voice = me
+            result.balance_echo = balance_echo
+            if not lines:
+                result.balance_activity = tuple(balance_excerpt.Speech(piece.start, piece.end, part.track.role)
+                                                for part in parts for piece in part.pieces)
         from . import voices as voice_service
         result.diarization = voice_details.get("provenance", {"requested":request.diarization_backend,"used":"legacy"})
         result.diarization["normal_turns"] = voice_details.get("normal_turns", [])
         result.voice_centroids = voice_details.get("centroids", {})
-        result.proposals, proposal_notes = voice_service.proposals(lines,result.named_spans,result.voice_centroids,me)
+        result.voice_fingerprints = voice_details.get("fingerprints", {})
+        result.proposals, proposal_notes = voice_service.proposals(
+            lines, result.named_spans, result.voice_centroids, me, fingerprints=result.voice_fingerprints)
         result.notes.extend(proposal_notes)
         result.session = _save_session(result, request)
         measured = {}
@@ -683,6 +740,7 @@ class _Part:
         self.heard = None           # what the engines hear: the same, at the target loudness when asked
         self.gain = 0.0             # dB given to `heard`
         self.pieces: list = []      # the speech found, as timeline.Piece
+        self.runs: list[tuple[Path, list[timeline.Piece]]] = []
         self.left_out = 0.0         # seconds of the microphone's speech left out, muted in the call
         self.lines: list[seg.Segment] = []
 
@@ -737,42 +795,41 @@ def _one_of_each(parts: list[_Part], wavs: list[Path], work: Path,
 
 
 def _without_echo(parts: list[_Part], wavs: list[Path], work: Path, advance,
-                  cancelled: threading.Event | None) -> tuple[list[Path], list[str]]:
+                  cancelled: threading.Event | None
+                  ) -> tuple[list[Path], list[str], tuple[tuple[float, float], ...] | None]:
     """Each microphone's track with the computer's sound taken out where it
     heard it (core/echo.py says where, app/engines/echo.py takes it out),
     the raw track elsewhere; the decoded files to use, and what to tell the
     user. The others' lines then come from the computer's track only, and
     the microphone's stay the user's. Without the canceller, or when it
     fails, the raw track is used and that is said."""
-    from scriba.app.engines import audio, echo as canceller
-    from scriba.core import echo
+    from scriba.app.engines import echo as canceller
 
     mics = [n for n, part in enumerate(parts) if part.track.role == "me"]
-    computer = [audio.read(wav) for part, wav in zip(parts, wavs, strict=True) if part.track.role == "others"]
+    computer = [wav for part, wav in zip(parts, wavs, strict=True) if part.track.role == "others"]
     out, notes = list(wavs), []
+    strong = []
+    measured = True
+
+    def observed(windows):
+        strong.extend((w.start, w.end) for w in windows
+                      if w.correlation is not None and w.correlation >= echo_logic.STRONG_ABOVE)
+
     for k, n in enumerate(mics):
         def step(done, total, k=k):
             advance(k + (done / total if total else 0.0), len(mics))
         try:
-            pair = canceller.write_pair(work / f"echo{n}-pair.wav", audio.read(wavs[n]), computer, audio.RATE)
-            windows, duration = canceller.measure(pair, lambda done, total: step(done, 2 * total), cancelled)
-            stretches = echo.stretches(windows, duration)
-            heard = echo.echo_seconds(stretches)
-            if heard <= 0:
-                continue
-            cleaned = canceller.cancel(pair, work / f"echo{n}-cleaned.wav",
-                                       lambda done, total: step(total + done, 2 * total), cancelled)
-            out[n] = canceller.splice(pair, cleaned, stretches, work / f"audio{n}-without-echo.wav", cancelled)
+            out[n], note = canceller.remove(wavs[n], computer, work / f"audio{n}-without-echo.wav",
+                                            parts[n].track.muted, cancelled, progress=step, observed=observed)
         except (Failure, OSError, EOFError, wave.Error) as e:
+            measured = False
             notes.append(_("The computer's sound heard by the microphone could not be taken out: {reason} Your "
-                           "track was transcribed as recorded, and the others' words may be written as yours.").format(
+                           "track was transcribed without echo removal.").format(
                 reason=e))
             continue
-        notes.append(_("The microphone heard the computer's sound (loudspeakers) in {share} of the recording "
-                       "({time}): there it was taken out of your track before transcribing, so the others' words "
-                       "come from the computer's track only.").format(share=percent(echo.share(stretches)),
-                                                                       time=clock(heard)))
-    return out, notes
+        if note:
+            notes.append(note)
+    return out, notes, tuple(strong) if measured else None
 
 
 def _prepare(part: _Part, wav: Path, normalise: bool, cancelled: threading.Event | None) -> None:
@@ -794,7 +851,8 @@ def _prepare(part: _Part, wav: Path, normalise: bool, cancelled: threading.Event
 def _find_speech(part: _Part, dest: Path, settings: vad.Settings, models_dir, advance,
                  cancelled: threading.Event | None) -> None:
     """Where somebody speaks in the track, and that speech alone in `dest`
-    for whisper, the pieces apart by GAP seconds of silence. On the
+    for whisper, the pieces apart by GAP seconds of silence. The microphone
+    uses separate inputs across long jumps in the recording. On the
     microphone's track the stretches muted in the call are left out (the
     sound stays in the recording): what it heard there was not said in the
     call. A stretch switched off in Scriba needs nothing: it is digital
@@ -802,32 +860,38 @@ def _find_speech(part: _Part, dest: Path, settings: vad.Settings, models_dir, ad
     from scriba.app.engines import audio
     found = vad.detect(part.heard, models.path_of(models.SILERO_VAD, models_dir), settings, advance, cancelled)
     speech = vad.seconds(found, len(part.heard), settings)
-    if part.track.role == "me" and part.track.muted:
-        part.left_out = callmute.taken(speech, part.track.muted)
-        speech = callmute.outside(speech, part.track.muted)
+    if part.track.role == "me":
+        if part.track.muted:
+            part.left_out = callmute.taken(speech, part.track.muted)
+        speech = callmute.outside(speech, (*part.track.muted, *part.track.off))
     part.pieces = timeline.pack(speech, GAP)
     if part.pieces:
         import numpy as np
         rate = audio.RATE
         silence = np.zeros(round(GAP * rate), np.int16)
-        joined = []
-        for p in part.pieces:
-            joined += [part.heard[round(p.start * rate):round(p.end * rate)], silence]
-        audio.write(dest, np.concatenate(joined[:-1]))
+        runs = timeline.separate(part.pieces, timeline.FAR) if part.track.role == "me" else [part.pieces]
+        for index, pieces in enumerate(runs):
+            check(cancelled)
+            path = dest if len(runs) == 1 else dest.with_name(f"{dest.stem}-{index:04}.wav")
+            joined = []
+            for piece in pieces:
+                joined.extend((part.heard[round(piece.start * rate):round(piece.end * rate)], silence))
+            audio.write(path, np.concatenate(joined[:-1]))
+            part.runs.append((path, pieces))
 
 
-def _brought_back(part: _Part, segments) -> list[seg.Segment]:
+def _brought_back(part: _Part, segments, pieces) -> list[seg.Segment]:
     """whisper's lines with the recording's times, and the level each had
     as recorded (before any gain: QUIET is about the recording)."""
     from scriba.app.engines import audio
     segments = [seg.repair_times(line) for line in segments]
     lines = []
-    for s, (start, end) in zip(segments, timeline.spans(part.pieces, [(s.start, s.end) for s in segments]),
+    for s, (start, end) in zip(segments, timeline.spans(pieces, [(s.start, s.end) for s in segments]),
                                strict=True):
         # Even equal engine times can land on opposite sides of a seam.
         line = seg.repair_times(replace(s, start=start, end=end))
         lines.append(replace(line, level=audio.level(part.samples, line.start, line.end),
-                             words=timeline.words(part.pieces, line.words, line.start, line.end)))
+                             words=timeline.words(pieces, line.words, line.start, line.end)))
     return seg.spoken(lines)
 
 
@@ -853,10 +917,13 @@ def _voices(parts: list[_Part], request: Request, models_dir, progress: Progress
             details["notes"].append(note)
         if backend == "community":
             data = voice_service.run(part.samples,models_dir,count,request.diarization_backend,
-                                     callback or progress.advance,cancelled,force_cpu=request.cpu)
+                                     callback or progress.advance,cancelled,force_cpu=request.cpu,
+                                     named=part.track.named_spans)
             details["provenance"] = data["provenance"]
             details["normal_turns"].extend({**asdict(t),"track":part.track.index} for t in data["turns"])
             raw_centroids.update((prefix+k,v) for k,v in data["centroids"].items())
+            for name, vector in data.get("fingerprints", {}).items():
+                details.setdefault("fingerprints", {}).setdefault(name, []).append(vector)
             if data["provenance"].get("fallback"):
                 note = _("Voice acceleration is unavailable; the processor was used.")
                 if note not in details["notes"]:
@@ -866,7 +933,9 @@ def _voices(parts: list[_Part], request: Request, models_dir, progress: Progress
             from scriba.app.engines import diarize
             details["provenance"] = {"requested":request.diarization_backend,"used":"legacy","fallback":note}
             result = diarize.diarize(part.samples,models.path_of(models.SILERO_VAD,models_dir),
-                models.path_of(models.WESPEAKER,models_dir),count,progress=callback or progress.advance,cancelled=cancelled)
+                models.path_of(models.WESPEAKER,models_dir),count,progress=callback or progress.advance,
+                cancelled=cancelled, keep_centroids=bool(part.track.named_spans))
+            raw_centroids.update((prefix + label, vector) for label, vector in result.centroids.items())
             turns = result.turns
         return seg.prefix_speakers(seg.assign_speakers(part.lines,turns),prefix) if prefix else seg.assign_speakers(part.lines,turns)
 
@@ -904,13 +973,37 @@ def _voices(parts: list[_Part], request: Request, models_dir, progress: Progress
     return numbered, me
 
 
-def listening_copy(source: str | os.PathLike) -> Path:
-    """What to play of a recording: the mix of its tracks that the recorder
-    wrote next to it (app/recorder.py, "<name>_together.m4a" in the user's
-    language), or the recording itself."""
+def listening_copy(source: str | os.PathLike, media=None, cancelled=None, *, preferred: Path | None = None) -> Path:
+    """Find a listening mix. For call mute, require a copy made with silencing."""
+    from scriba.app.engines import ffmpeg
+    from scriba.i18n import translation_for
+
     source = Path(source)
     mix = source.with_name(f"{source.stem}_{_('together')}.m4a")
-    return mix if mix.is_file() else source
+    if media is None or not media.has_call_mute:
+        return preferred or (mix if mix.is_file() else source)
+
+    def silenced(path):
+        if path is None or path == source or not path.is_file():
+            return False
+        try:
+            return ffmpeg.probe(path, cancelled).call_mute_applied
+        except Failure:
+            return False
+
+    if silenced(preferred):
+        return preferred
+    names = {translation_for(language).gettext("together") for language in ("en", "it")}
+    suffixes = "|".join(re.escape(name) for name in sorted(names))
+    pattern = re.compile(rf"{re.escape(source.stem)}_(?:{suffixes})(?:_R(\d+))?\.m4a")
+    candidates = []
+    try:
+        for path in source.parent.iterdir():
+            if match := pattern.fullmatch(path.name):
+                candidates.append((int(match[1] or 0), source.with_name(path.name)))
+    except OSError:
+        return source
+    return next((path for _, path in sorted(candidates, reverse=True) if silenced(path)), source)
 
 
 def _write(request: Request, source: Path, folder: Path, duration: float, language: str,
@@ -947,7 +1040,9 @@ def _snapshot(result: Result) -> dict:
     header["when"] = result.header.when.isoformat() if result.header.when else None
     return {"segments": [asdict(s) for s in result.segments], "header": header, "me": result.me,
             "listen": full_path(result.listen) if result.listen else "", "stem": result.stem,
-            "notes": list(result.notes)}
+            "notes": list(result.notes), "recorded_voice": result.recorded_voice, "balance_echo": result.balance_echo,
+            "balance_activity": ([asdict(speech) for speech in result.balance_activity]
+                                 if result.balance_activity is not None else None)}
 
 
 def _save_session(result: Result, request: Request) -> Path:
@@ -959,6 +1054,8 @@ def _save_session(result: Result, request: Request) -> Path:
                "diarization": result.diarization, "voice_centroids": result.voice_centroids}
     if request.tracks:
         options["tracks"] = [{"index": t.index, "role": t.role, "title": t.title} for t in request.tracks]
+    if result.voice_fingerprints:
+        options["voice_fingerprints"] = result.voice_fingerprints
     meeting = sessions.Session(source=full_path(result.source), duration=result.duration,
                                created=datetime.datetime.now().isoformat(timespec="seconds"), options=options,
                                outputs=list(result.outputs), names=dict(result.names),
@@ -983,14 +1080,70 @@ def _saved_words(item: dict) -> tuple[tuple[float, float], ...]:
     return times
 
 
-def open_session(path: str | os.PathLike) -> tuple[Result, Request]:
+def _restore_balance(result: Result, snapshot: dict) -> None:
+    voice = snapshot.get("recorded_voice")
+    if isinstance(voice, str):
+        result.recorded_voice = voice
+    try:
+        echo = snapshot.get("balance_echo")
+        if isinstance(echo, list) and all(0 <= start < end and math.isfinite(end) for start, end in echo):
+            result.balance_echo = tuple((start, end) for start, end in echo)
+        activity = snapshot.get("balance_activity")
+        if isinstance(activity, list):
+            speech = tuple(balance_excerpt.Speech(**item) for item in activity)
+            if all(item.role in balance_excerpt.ROLES and 0 <= item.start < item.end and math.isfinite(item.end)
+                   and (item.level is None or math.isfinite(item.level)) for item in speech):
+                result.balance_activity = speech
+    except (TypeError, ValueError):
+        pass    # Older or partial snapshots can use the recording's levels.
+
+
+def open_session(path: str | os.PathLike, *, read_only: bool = False) -> tuple[Result, Request]:
     """Read a saved result without loading models or reading its recording.
 
     Sessions made before snapshots use their automatic subtitles. Names
     are never inverted: two engine voices may have the same human name.
     """
     path = Path(path).resolve()
+    if read_only:
+        if edits.pending(path.parent):
+            raise Failure(_("The meeting is being saved or has an unfinished edit."), str(path))
+    else:
+        edits.recover(path.parent)
     meeting = sessions.load(path)
+    notices = []
+    folder_state = meeting_folders.find(path.parent)
+    if folder_state is not None:
+        old, placement = folder_state
+        folder, notices = (old, []) if read_only else meeting_folders.place(old, placement)
+        path = meeting_folders.rebase(path, old, folder)
+
+        def located(value):
+            if not value or not isinstance(value, str):
+                return value
+            original = Path(value)
+            for previous in (*placement.former_paths, str(old)):
+                moved = meeting_folders.rebase(original, Path(previous), folder)
+                if str(moved) != str(original):
+                    return full_path(moved)
+            return value
+
+        meeting.source = located(meeting.source)
+        meeting.outputs = [replace(output, path=located(output.path)) for output in meeting.outputs]
+        snapshot = meeting.extra.get("transcript")
+        if isinstance(snapshot, dict):
+            snapshot["listen"] = located(snapshot.get("listen", ""))
+            if isinstance(snapshot.get("header"), dict) and "source" in snapshot["header"]:
+                snapshot["header"]["source"] = located(snapshot["header"]["source"])
+            stem = snapshot.get("stem")
+            if isinstance(stem, str) and re.fullmatch(re.escape(stem) + r"_R\d+", path.stem):
+                snapshot["stem"] = path.stem
+                for index, output in enumerate(meeting.outputs):
+                    output_path = Path(output.path)
+                    if output_path.name.startswith(stem):
+                        revision = path.with_name(path.stem + output_path.name[len(stem):])
+                        if revision.is_file():
+                            meeting.outputs[index] = replace(output, path=full_path(revision))
     options = meeting.options
     source = Path(meeting.source)
     request = Request(source, language=options.get("language", "it"), model=options.get("model", "turbo"),
@@ -1048,15 +1201,21 @@ def open_session(path: str | os.PathLike) -> tuple[Result, Request]:
     # the warning reflects the saved doubts and any repaired lines
     header = replace(header, doubtful_share=seg.doubt_warning(lines))
     result = Result(list(meeting.outputs), path, lines, len(seg.speakers_of(lines)), meeting.duration,
-                    options.get("device", "cpu"), dict(meeting.timings), notes, source, path.parent,
+                    options.get("device", "cpu"), dict(meeting.timings), notes + notices, source, path.parent,
                     stem, header, me, Path(listen) if listen else None, dict(meeting.names))
+    if snapshot is not None:
+        _restore_balance(result, snapshot)
     result.named_spans = meeting.named_spans
     title = meeting.extra.get("meeting_title", "")
+    if folder_state is not None and folder_state[1].target:
+        title = folder_state[1].title
     result.meeting_title = title if isinstance(title, str) else ""
     from . import voices as voice_service
     result.diarization = options.get("diarization", {"used":"legacy"})
     result.voice_centroids = options.get("voice_centroids", {})
-    result.proposals, _proposal_notes = voice_service.proposals(lines,result.named_spans,result.voice_centroids,me)
+    result.voice_fingerprints = options.get("voice_fingerprints", {})
+    result.proposals, _proposal_notes = voice_service.proposals(
+        lines, result.named_spans, result.voice_centroids, me, fingerprints=result.voice_fingerprints)
     return result, request
 
 
@@ -1083,59 +1242,113 @@ NAMED = ("md-named", "txt-named", "srt-named")
 def save_meeting_title(result: Result, title: str) -> str:
     title = " ".join(title.split())[:72].rstrip()
     meeting = sessions.load(result.session)
-    meeting.extra["meeting_title"] = title
-    sessions.save(meeting, result.session)
+    scope = meeting_folders.find(result.session.resolve().parent)
+    source = result.source
+    if scope is None and source is not None and source.suffix.lower() == ".mka" and source.is_file():
+        from scriba.app.engines import ffmpeg
+
+        root = source.resolve().parent
+        # A legacy nested result can be moved only after the user edits its title.
+        date = re.fullmatch(rf"({meeting_folders.DATE})(?:_R\d+)?", root.name)
+        origin = result.session.resolve().parent
+        if date and (origin == root or origin.parent == root):
+            try:
+                if ffmpeg.probe(source).roles:
+                    scope = root, meeting_folders.MeetingFolder(date[1])
+            except Failure:
+                pass
+    if scope is None:
+        meeting.extra["meeting_title"] = title
+        sessions.save(meeting, result.session)
+    else:
+        old, state = scope
+        folder, notices = meeting_folders.place(old, state, title=title)
+        result.notes.extend(notices)
+        if folder.name != old.name:
+            result.session = meeting_folders.rebase(result.session, old, folder)
+            result.folder = result.session.parent
+            if source is not None:
+                result.source = meeting_folders.rebase(source, old, folder)
+            if result.listen is not None:
+                result.listen = meeting_folders.rebase(result.listen, old, folder)
+            if result.header is not None and result.source is not None:
+                result.header = replace(result.header, source=full_path(result.source))
+            for index, output in enumerate(result.outputs):
+                path = Path(output.path)
+                moved = meeting_folders.rebase(path, old, folder)
+                if str(moved) != str(path):
+                    result.outputs[index] = replace(output, path=full_path(moved))
     result.meeting_title = title
     return title
 
 
-def save_names(result: Result, names: dict[str, str]) -> Named:
-    """The files with the names the user gave the voices (Markdown, plain
-    text, subtitles), `<transcript>_nomi`, next to the automatic ones, which
-    are never touched. Names are no new revision (13/11/2026): saved
-    again, the files with the names are rewritten whole (each atomically)
-    and the meeting file keeps the names in place. When the meeting file
-    cannot be written the files are there all the same, and that is said.
-    Failure when no voice was given a name."""
+def transcript_texts(result: Result, names: dict[str, str]) -> dict[str, str]:
+    header = replace(result.header, named=bool(names), doubtful_share=seg.doubt_warning(result.segments))
+    shown = speakers.display_names(seg.speakers_of(result.segments), names)
+    renamed = speakers.rename(result.segments, names)
+    return {"md": markdown.render(header, result.segments, shown, paragraphs),
+            "txt": txt.render(header, result.segments, shown, paragraphs),
+            "srt": srt.render(renamed, speakers=bool(result.speakers), cut=cut_subtitles)}
+
+
+def save_names(result: Result, names: dict[str, str], *, allow_unnamed: bool = False) -> Named:
+    """Replace the transcript and its session together, keeping the engine labels."""
     names = speakers.clean(names)
-    if not names and not result.names:
+    if not names and not result.names and not allow_unnamed:
         raise Failure(_("Give a name to at least one voice first."), "no names")
     if result.folder is None or result.header is None:
         raise Failure(_("This transcript cannot be saved again."), "no folder or header in the result")
     folder = Path(result.folder)
-    stem = f"{result.stem}_{_('names')}"
-    if result.meeting_title and result.header.when is not None:
-        base = titled_stem(result.meeting_title, result.source or result.session, result.header.when)
-        titled = f"{base}_{_('transcript')}"
-        if not (result.stem == titled or result.stem.startswith(titled + "_R")):
-            stem = files.free_stem(folder, f"{titled}_{_('names')}", (".md", ".txt", ".srt"))
-    header = replace(result.header, named=True, doubtful_share=seg.doubt_warning(result.segments))
-    shown = speakers.display_names(seg.speakers_of(result.segments), names)
-    renamed = speakers.rename(result.segments, names)
-    texts = (("md-named", ".md", markdown.render(header, result.segments, shown, paragraphs)),
-             ("txt-named", ".txt", txt.render(header, result.segments, shown, paragraphs)),
-             ("srt-named", ".srt", srt.render(renamed, speakers=True, cut=cut_subtitles)))
-    outputs = []
-    for kind, ext, text in texts:
-        files.replace(folder / f"{stem}{ext}", text)
-        outputs.append(sessions.Output(kind, full_path(folder / f"{stem}{ext}")))
-    notes = []
-    try:
+    texts = transcript_texts(result, names)
+    outputs = [sessions.Output(kind, full_path(folder / f"{result.stem}.{kind}")) for kind in texts]
+    legacy = _legacy_files(result, dict(zip(NAMED, (".md", ".txt", ".srt"), strict=True)))
+    with edits.prepare(folder) as stage:
         meeting = sessions.load(result.session)
+        if meeting.names != names:
+            meeting.extra["previous_names"] = meeting.names
         meeting.names = dict(names)
-        meeting.outputs = [*(o for o in meeting.outputs if o.kind not in NAMED), *outputs]
+        meeting.outputs = [*outputs, *(o for o in result.outputs if o.kind not in (*texts, *NAMED))]
         meeting.extra["transcript"] = _snapshot(result)
-        files.replace(result.session, sessions.dumps(meeting))
-        result.names = dict(names)
-    except (sessions.SessionError, OSError) as e:
-        notes.append(_("The files are written, but the meeting file could not keep the names: {reason}").format(
-            reason=e))
-    result.outputs = [*(o for o in result.outputs if o.kind not in NAMED), *outputs]
-    return Named(outputs, notes)
+        prepared = {Path(output.path): files.write_new(stage, output.kind, ".txt", texts[output.kind])
+                    for output in outputs}
+        prepared[result.session] = files.write_new(stage, "meeting", ".json", sessions.dumps(meeting))
+        edits.apply(stage, prepared, legacy - set(prepared))
+    result.names = dict(names)
+    result.outputs = meeting.outputs
+    return Named(outputs, [])
+
+
+def _legacy_files(result: Result, kinds: dict[str, str]) -> set[Path]:
+    folder = result.folder.resolve()
+    paths = set()
+    for output in result.outputs:
+        path = Path(output.path)
+        if output.kind in kinds and path.suffix.lower() == kinds[output.kind]:
+            path = folder / path if not path.is_absolute() else path
+            if path.parent.resolve() == folder and path.is_file() and not path.is_symlink():
+                paths.add(path.resolve())
+    return paths
+
+
+def _balance_state(path: Path) -> Path:
+    return path.with_name(f".{path.stem}.scriba-balance.json")
+
+
+def saved_listening_balance(path: Path) -> float | None:
+    try:
+        state, _warning = atomic.read_json(_balance_state(path))
+        value = state.get("balance")
+        if type(value) in (float, int) and math.isfinite(value) and -1 <= value <= 1:
+            return float(value)
+    except (OSError, ValueError, AttributeError):
+        pass
+    return None
 
 
 def listening_balance(result: Result) -> float:
     """The balance of the current listening file, or the automatic centre."""
+    if result.listen is not None and (saved := saved_listening_balance(result.listen)) is not None:
+        return saved
     for output in reversed(result.outputs):
         if output.kind == "audio-balanced" and Path(output.path) == result.listen:
             value = output.extra.get("balance", 0.0)
@@ -1145,26 +1358,39 @@ def listening_balance(result: Result) -> float:
 
 
 def save_balance(result: Result, balance: float) -> Named:
-    """A new listening file and meeting revision; the transcript is unchanged."""
+    """Replace the listening mix and remember the balance without a new revision."""
     from . import recording
+    from scriba.i18n import translation_for
 
     if result.source is None or result.folder is None:
         raise Failure(_("The original recording is missing: a new listening copy cannot be made."), "no source")
-    stem = (titled_stem(result.meeting_title, result.source, result.header.when)
-            if result.meeting_title and result.header and result.header.when else result.source.stem)
-    path = recording.rebalance(result.source, result.folder, stem, balance)
+    folder = result.folder.resolve()
+    source_stem = result.source.stem
+    suffixes = {translation_for(language).gettext("together") for language in ("en", "it")}
+    together = [folder / f"{source_stem}_{suffix}.m4a" for suffix in sorted(suffixes)]
+    default = folder / f"{source_stem}_{_('together')}.m4a"
+    if result.listen is not None and result.listen.resolve() in together:
+        path = result.listen.resolve()
+    else:
+        path = next((item for item in together if item.is_file()), default)
     output = sessions.Output("audio-balanced", full_path(path), {"balance": balance})
-    result.listen = path
-    notes = []
-    try:
+    legacy = _legacy_files(result, {"audio-balanced": ".m4a"})
+    revisions = "|".join(re.escape(suffix) for suffix in sorted(suffixes))
+    generated = re.compile(rf"{re.escape(source_stem)}_(?:{revisions})(?:_R\d+)?\.m4a")
+    legacy.update(file for file in folder.glob("*.m4a") if generated.fullmatch(file.name) and not file.is_symlink())
+    with edits.prepare(folder) as stage:
         meeting = sessions.load(result.session)
-        meeting.outputs = [*meeting.outputs, output]
-        meeting.extra["transcript"] = _snapshot(result)
-        result.session = files.write_new(result.folder, f"{result.stem}_{_('balanced')}", ".json", sessions.dumps(meeting))
-    except (sessions.SessionError, OSError) as e:
-        notes.append(_("The listening copy is written, but the meeting file could not keep it: {reason}").format(reason=e))
-    result.outputs = [*result.outputs, output]
-    return Named([output], notes)
+        audio = recording.rebalance(result.source, stage, source_stem, balance)
+        meeting.outputs = [*(o for o in result.outputs if o.kind != "audio-balanced"), output]
+        meeting.extra["transcript"] = _snapshot(replace(result, listen=path))
+        state = stage / "balance.json"
+        atomic.write_json(state, {"balance": balance}, keep_backup=False)
+        prepared = {path: audio, _balance_state(path): state,
+                    result.session: files.write_new(stage, "meeting", ".json", sessions.dumps(meeting))}
+        edits.apply(stage, prepared, legacy - {path})
+    result.listen = path
+    result.outputs = meeting.outputs
+    return Named([output], [])
 
 
 # The speech the app carries for the test of the cards (samples/SOURCES.md:

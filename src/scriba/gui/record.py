@@ -25,6 +25,7 @@ only while the page is on screen.
 from __future__ import annotations
 
 import datetime
+import math
 import sys
 import threading
 
@@ -37,11 +38,12 @@ from gi.repository import Adw, GLib, Gtk  # noqa: E402
 from scriba import APP_NAME, WINDOWS  # noqa: E402
 from scriba.app import finishing, jobs, recording  # noqa: E402
 from scriba.app.task import Cancelled, Failure  # noqa: E402
-from scriba.core import devices as dev, echo, levels, recording as rec  # noqa: E402
+from scriba.core import devices as dev, levels, recording as rec  # noqa: E402
 from scriba.data.timing import clock  # noqa: E402
 from scriba.i18n import _  # noqa: E402
 
 from .style_values import ICON_RECORD, SIZE_METER, SPACE_L, SPACE_XL, SPACE_XS  # noqa: E402
+from .trim_range import TrimRange  # noqa: E402
 from .ui import choose_folder, escape, open_path, recordings_folder, report, run_in_thread  # noqa: E402
 
 TICK_MS = 100
@@ -88,18 +90,12 @@ def device_tags(device: dev.Device) -> str:
     return " · ".join(tags)
 
 
-def alert_words(alert: levels.Alert, names: dict[str, str]) -> str:
+def alert_words(alert: levels.Alert) -> str:
     if alert.kind == levels.CLIPPING:
-        return _("The microphone is clipping (peaks at 0 dB): turn its level down in the system's sound "
-                 "settings.")
-    if alert.kind == echo.ECHO:
-        return _("The microphone hears the computer's sound: with earphones the transcript comes out better. "
-                 "Scriba will take that sound out of your track.")
+        return _("Microphone clipping (0 dB). Lower its level.")
     if alert.kind == levels.QUIET:
-        return _("The microphone hears you faintly ({level:.0f} dB): is it the one you speak into? A headset has "
-                 "its own.").format(level=alert.level)
-    return _("No sound from the computer for {seconds:.0f} s: if the others are speaking, the call plays on "
-             "another device.").format(seconds=alert.seconds)
+        return _("Low microphone level ({level:.0f} dB).").format(level=alert.level)
+    return _("No computer sound for {seconds:.0f} s.").format(seconds=alert.seconds)
 
 
 def event_words(event: recording.Event, minutes: int = 0) -> str:
@@ -125,7 +121,6 @@ def event_words(event: recording.Event, minutes: int = 0) -> str:
         recording.ADDED: _("{device} appeared at {time}: it is recorded on a track of its own."),
         recording.DISK_LOW: _("The disk is filling up: about {minutes} minutes are left."),
         recording.DISK_FULL: _("The disk is almost full: the recording was stopped at {time}."),
-        recording.TEAMS_ENDED: _("The Teams meeting appears to have ended. Scriba is still recording."),
         recording.FAILED: _("The recording stopped at {time}: {detail}"),
     }.get(event.kind, event.kind).format(device=event.device, time=at, detail=event.detail, minutes=minutes)
 
@@ -366,6 +361,9 @@ class RecordPage(Adw.Bin):
         self._withdraw_call_choice = None
         self.call_action = None
         self._call_prompt_at = None
+        self._call_dialog = None
+        self._call_dialog_dismissed = False
+        self._withdraw_call_end = None
         self._stop_requested = False
         self.last_error = ""
         self.last_finished: recording.Finished | None = None
@@ -402,7 +400,7 @@ class RecordPage(Adw.Bin):
     def _page(self) -> Gtk.Widget:
         view = Adw.ToolbarView()
         self.banner = Adw.Banner(use_markup=False, revealed=False)
-        view.add_bottom_bar(self.banner)
+        view.add_top_bar(self.banner)
         page = Adw.PreferencesPage()
 
         group = Adw.PreferencesGroup()
@@ -431,8 +429,11 @@ class RecordPage(Adw.Bin):
         self.skip_finish = Gtk.Button(label=_("Skip Finishing"), halign=Gtk.Align.CENTER)
         self.skip_finish.connect("clicked", lambda *_args: self.skip_finishing())
         finishing_controls.append(self.skip_finish)
+        self.choice_editor = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True, visible=False)
+        self.trim_control = None
+        finishing_controls.append(self.choice_editor)
         self.choice_buttons = Gtk.Box(spacing=SPACE_XS, halign=Gtk.Align.CENTER, visible=False)
-        for label, only_call in ((_("Only the Call"), True), (_("Whole Recording"), False)):
+        for label, only_call in ((_("Trim"), True), (_("Keep All"), False)):
             button = Gtk.Button(label=label)
             if only_call:
                 button.add_css_class("suggested-action")
@@ -742,12 +743,15 @@ class RecordPage(Adw.Bin):
 
     def _show_status(self, status: recording.Status) -> None:
         self.teams_row.set_visible(bool(status.teams_state))
-        self.teams_row.set_subtitle({
+        teams_state = {
             "ready": _("{n} people seen").format(n=status.teams_people),
             "minimized": _("Teams minimized: names are not read"),
             "no-meeting": _("No Teams meeting"),
             "unavailable": _("Teams picture unavailable: names are not read"),
-        }.get(status.teams_state, ""))
+        }.get(status.teams_state, "")
+        if status.teams_state == "ready" and status.teams_without_border >= 5:
+            teams_state += " · " + _("no one recognised for {minutes} min").format(minutes=status.teams_without_border)
+        self.teams_row.set_subtitle(teams_state)
         self.time_label.set_label(clock(status.elapsed))
         self._show_call_end(status)
         words = {"recording": _("Recording in progress"), "paused": _("Paused"), "stopping": _("Closing the files…"),
@@ -799,39 +803,70 @@ class RecordPage(Adw.Bin):
         for event in status.events[self._events:]:
             self.window.toast(event_words(event, max(int(status.seconds_left // 60), 0)))
         self._events = len(status.events)
-        names = {t.key: t.device for t in status.tracks}
-        order = {levels.CLIPPING: 0, levels.QUIET: 1, levels.SILENT: 2, echo.ECHO: 3}
-        alerts = sorted(status.alerts, key=lambda a: order.get(a.kind, 9))
+        order = {levels.CLIPPING: 0, levels.QUIET: 1, levels.SILENT: 2}
+        alerts = sorted((alert for alert in status.alerts if alert.kind in order), key=lambda a: order[a.kind])
         if status.error:
             self._remember_error(status.error)
             self._banner(status.error)
         elif alerts:
-            self._banner(alert_words(alerts[0], names))
+            self._banner(alert_words(alerts[0]))
         else:
             self.banner.set_revealed(False)
         if status.state in ("stopped", "failed") and not self._stopping:
             self.stop()             # stopped by itself (the disk, an error): the files are made whole
 
     def _show_call_end(self, status):
-        if self._stopping or not status.call_prompt:
-            self.call_action = self._call_prompt_at = None
+        if self._stopping or not status.call_prompt or status.state not in ("recording", "paused"):
+            self._clear_call_end()
             return
-        if status.state != "recording" or self._call_prompt_at == status.call_ended:
+        if self._call_prompt_at != status.call_ended:
+            self._clear_call_end()
+            recorder, ended = self.recorder, status.call_ended
+            self._call_prompt_at = ended
+
+            def answer(stop):
+                if (self.call_action is not answer or recorder is not self.recorder or self._stopping
+                        or not recorder.continue_after_call(ended)):
+                    return
+                self._clear_call_end()
+                if stop:
+                    self.stop()
+
+            self.call_action = answer
+            notify = getattr(self.app, "notify_call_ended", None)
+            if notify is not None:
+                self._withdraw_call_end = notify(lambda: answer(True), lambda: answer(False))
+
+        if self._call_dialog is None and not self._call_dialog_dismissed and self.window.on_screen():
+            dialog = self._call_dialog = Adw.AlertDialog(heading=_("The call has ended"))
+            dialog.add_response("continue", _("Continue"))
+            dialog.add_response("stop", _("Stop Now"))
+            dialog.set_response_appearance("stop", Adw.ResponseAppearance.SUGGESTED)
+            dialog.set_close_response("close")
+            dialog.connect("response", self._call_response)
+            dialog.present(self.window)
+        if self._call_dialog is not None and status.call_remaining is not None:
+            minutes, seconds = divmod(math.ceil(status.call_remaining), 60)
+            self._call_dialog.set_body(_("Stopping in {time}").format(time=f"{minutes}:{seconds:02d}"))
+
+    def _call_response(self, dialog, response):
+        if self._call_dialog is not dialog:
             return
-        recorder, ended = self.recorder, status.call_ended
-        self._call_prompt_at = ended
+        if response in ("stop", "continue") and self.call_action is not None:
+            self.call_action(response == "stop")
+        else:
+            self._call_dialog = None
+            self._call_dialog_dismissed = True
 
-        def answer(stop):
-            if recorder is not self.recorder or self._stopping or not recorder.continue_after_call(ended):
-                return
-            self.call_action = None
-            if stop:
-                self.stop()
-
-        self.call_action = answer
-        notify = getattr(self.app, "notify_call_ended", None)
-        if notify is not None:
-            notify(lambda: answer(True), lambda: answer(False))
+    def _clear_call_end(self):
+        self.call_action = self._call_prompt_at = None
+        dialog, self._call_dialog = self._call_dialog, None
+        if dialog is not None:
+            dialog.force_close()
+        self._call_dialog_dismissed = False
+        withdraw, self._withdraw_call_end = self._withdraw_call_end, None
+        if withdraw is not None:
+            withdraw()
 
     @property
     def finishing_progress(self):
@@ -864,26 +899,33 @@ class RecordPage(Adw.Bin):
         return f"{status.fraction:.0%} · {finishing_eta(status)}\n{finishing_words(status.step)}"
 
     def _call_choice_title(self):
-        start, end = self._call_choice.interval
-        return _("Call from {start} to {end}").format(start=clock(start), end=clock(end))
+        return _("Trim the Recording")
 
     def _call_choice_countdown(self):
-        return _("Only the call in {time}").format(time=clock(self._call_choice.left()))
+        return _("Automatic trim in {time}").format(time=clock(self._call_choice.left()))
 
     def _answer_call_choice(self, only_call):
+        if only_call and self.trim_control is not None and not self.trim_control.read_entries():
+            return
         if self._call_choice is not None and self._call_choice.answer(only_call):
             self.choice_buttons.set_sensitive(False)
+            self.choice_editor.set_sensitive(False)
 
     def _show_call_choice(self, choice):
         if not self._stopping or self._finish_cancel is None or self._finish_cancel.is_set():
             return
         self._call_choice = choice
         self.skip_finish.set_visible(False)
+        self.trim_control = TrimRange(choice.duration, choice.interval, choice.call,
+                                      editable=True, changed=choice.select)
+        self.choice_editor.append(self.trim_control)
+        self.choice_editor.set_sensitive(True)
+        self.choice_editor.set_visible(True)
         self.choice_buttons.set_sensitive(True)
         self.choice_buttons.set_visible(True)
         self._show_finishing()
         notify = getattr(self.app, "notify_recording_choice", None)
-        if notify is not None:
+        if notify is not None and not self._on_screen:
             self._withdraw_call_choice = notify(self._call_choice_title(), choice.answer)
 
     def _hide_call_choice(self):
@@ -892,19 +934,24 @@ class RecordPage(Adw.Bin):
             self._withdraw_call_choice()
             self._withdraw_call_choice = None
         self.choice_buttons.set_visible(False)
+        self.choice_editor.set_visible(False)
+        if self.trim_control is not None:
+            self.choice_editor.remove(self.trim_control)
+            self.trim_control = None
         self.skip_finish.set_visible(True)
 
-    def _choose_call(self, estimate, interval, cancelled):
+    def _choose_call(self, estimate, interval, cancelled, duration, call):
         if getattr(self.app, "closing", False):
             raise Cancelled()
-        choice = finishing.CallChoice(interval)
+        choice = finishing.CallChoice(interval, duration=duration, call=call)
         GLib.idle_add(self._show_call_choice, choice)
         try:
             only_call = choice.wait(cancelled)
             if only_call:
-                start, end = interval
+                start, end = choice.interval
                 estimate.use_excerpt(end - start)
-            return only_call
+                return start, end
+            return None
         finally:
             GLib.idle_add(self._hide_call_choice)
 
@@ -934,7 +981,8 @@ class RecordPage(Adw.Bin):
 
         def work():
             finished = self.backend.recover(item, cancel, estimate.step, fraction=estimate.report,
-                                            choose=lambda interval, event: self._choose_call(estimate, interval, event))
+                                            choose=lambda interval, event, duration, call:
+                                            self._choose_call(estimate, interval, event, duration, call))
             if not cancel.is_set():
                 estimate.complete()
             return finished, recording.Status("stopped", duration, (), {}, (), (), 0)
@@ -943,6 +991,7 @@ class RecordPage(Adw.Bin):
 
     def _prepare_finishing(self, duration, roles):
         self._stopping = True
+        self._clear_call_end()
         estimate = self._estimate = finishing.Estimate(
             getattr(self.backend, "speeds_file", None), duration, len(roles), roles.count("me"))
         cancel = self._finish_cancel = threading.Event()
@@ -983,7 +1032,8 @@ class RecordPage(Adw.Bin):
             finished = self.backend.finish(takes, recorder.folder, recorder.stem, cancelled=cancel,
                                            progress=estimate.step, elapsed=status.elapsed, fraction=estimate.report,
                                            journal=getattr(recorder, "journal", None),
-                                           choose=lambda interval, event: self._choose_call(estimate, interval, event))
+                                           choose=lambda interval, event, duration, call:
+                                           self._choose_call(estimate, interval, event, duration, call))
             if not cancel.is_set():
                 estimate.complete()
             return finished, status
@@ -992,8 +1042,11 @@ class RecordPage(Adw.Bin):
 
     def _stopped(self, result, error) -> None:
         self._hide_call_choice()
+        journal = getattr(self.recorder, "journal", None)
+        if journal is not None:
+            self.folder = journal.folder
         self.recorder, self._stopping = None, False
-        self.call_action = self._call_prompt_at = None
+        self._clear_call_end()
         self._finish_cancel = None
         self._stop_requested = False
         closing = getattr(self.app, "closing", False)
@@ -1015,6 +1068,7 @@ class RecordPage(Adw.Bin):
         else:
             finished, status = result
             self.last_finished = finished
+            self.folder = finished.recording.parent
             if status.error:
                 self._remember_error(status.error)
                 self.window.toast(status.error)

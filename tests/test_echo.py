@@ -293,9 +293,10 @@ class ChainTest(unittest.TestCase):
         mic_heard, computer_heard = self.heard
         self.assertGreater(db(self.mic[5 * RATE:]) - db(mic_heard[5 * RATE:]), 20.0)
         self.assertEqual(db(computer_heard), db(self.computer))
-        self.assertTrue(any("100 %" in note and "taken out" in note for note in result.notes), result.notes)
+        note = "The microphone heard the loudspeakers in 100 % of the recording. Echo removed there."
+        self.assertIn(note, result.notes)
         meeting = result.session.read_text(encoding="utf-8")
-        self.assertIn("taken out of your track", meeting)          # in the meeting's own file, for later
+        self.assertIn(note, meeting)
 
     def test_without_the_canceller_the_raw_track_is_transcribed_and_that_is_said(self):
         from scriba.app import jobs
@@ -361,7 +362,7 @@ class ListeningCopyTest(unittest.TestCase):
         takes = [Take("me-1", "me", "Microfono", self.write("r_mic.wav", mic), loudest=-10.0),
                  Take("others-2", "others", "Altoparlanti", self.write("r_out.wav", computer), loudest=-5.0)]
         done = recording.finish(takes, self.folder, "r")
-        self.assertTrue(any("(loudspeakers)" in note for note in done.notes), done.notes)
+        self.assertTrue(any("heard the loudspeakers" in note for note in done.notes), done.notes)
         raw, out, together = (sixteen(ffmpeg, source, self.folder / f"{n}.wav", stream) for n, (source, stream) in
                               enumerate(((done.recording, 0), (done.recording, 1), (done.together, 0))))
         # the joined recording keeps the microphone as recorded, echo and all
@@ -378,51 +379,6 @@ def sixteen(ffmpeg, source, dest, stream: int = 0):
     """A file's sound track at 16 kHz, as the engines read it."""
     from scriba.app.engines import audio
     return audio.read(ffmpeg.decode(source, dest, stream=stream))
-
-
-class LiveTest(unittest.TestCase):
-    """The check while recording (app/recorder.py feeds it), on samples
-    made up at the recorder's rate, in buffers of 10 ms as GStreamer gives
-    them."""
-
-    def feed(self, live, mic, computer, rate=48000):
-        step = rate // 100
-        for first in range(0, len(mic), step):
-            live.feed("me-1", first, mic[first:first + step])
-            live.feed("others-2", first, computer[first:first + step])
-
-    def signals(self, seconds, rate=48000, heard=True):
-        import numpy as np
-        rng = np.random.default_rng(3)
-        computer = (rng.standard_normal(int(seconds * rate)) * 0.1).astype(np.float32)
-        mic = room(computer * 32768, rate) / 32768 if heard else rng.standard_normal(len(computer)) * 0.1
-        return mic.astype(np.float32), computer
-
-    def test_the_loudspeakers_are_heard_after_one_window_and_earphones_after_several(self):
-        live = canceller.Live(48000)
-        mic, computer = self.signals(echo.WINDOW + 1)
-        self.assertFalse(live.look("me-1", ["others-2"]))           # nothing yet
-        self.feed(live, mic, computer)
-        self.assertTrue(live.look("me-1", ["others-2"]))
-        self.assertAlmostEqual(live.last.delay, DELAY, delta=0.002)
-        self.assertTrue(live.look("me-1", ["others-2"]))            # no new window: as it was
-        # earphones on: the microphone hears the user only; the warning stays a minute of the call, not 30 s
-        # (three windows without echo were seen in the middle of a real echo, 13/11/2026)
-        self.assertGreaterEqual(echo.LIVE_CLEAN_AFTER * echo.WINDOW, 2 * echo.CLEAN_AFTER * echo.WINDOW)
-        own, played = self.signals(echo.WINDOW * echo.LIVE_CLEAN_AFTER, heard=False)
-        size = int(echo.WINDOW * 48000)
-        for n in range(echo.LIVE_CLEAN_AFTER):
-            piece = slice(n * size, (n + 1) * size)
-            live.feed("me-1", len(mic) + piece.start, own[piece])
-            live.feed("others-2", len(mic) + piece.start, played[piece])
-            self.assertEqual(live.look("me-1", ["others-2"]), n < echo.LIVE_CLEAN_AFTER - 1, n)
-
-    def test_without_an_output_or_a_microphone_nothing_is_said(self):
-        live = canceller.Live(48000)
-        mic, computer = self.signals(echo.WINDOW + 1)
-        self.feed(live, mic, computer)
-        self.assertFalse(live.look("me-1", []))
-        self.assertFalse(live.look("me-9", ["others-2"]))
 
 
 class WithoutTheCancellerTest(unittest.TestCase):

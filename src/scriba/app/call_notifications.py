@@ -13,6 +13,11 @@ from scriba.app.log import complain
 # first method in windows.ui.notifications.h.
 _EVENT_ARGS = win._guid("e3bf92f3-c197-436f-8265-0625824f8dac")
 _GET_ARGUMENTS = 6
+# IToastNotificationManagerStatics2.History and
+# IToastNotificationHistory.RemoveGroupedTagWithId.
+_MANAGER_STATICS2 = win._guid("7ab93c52-0e48-4750-ba9d-1a4113981847")
+_HISTORY, _REMOVE_TAG_GROUP_APP = 6, 8
+_NOTIFIER_HIDE = 7
 _raw_buffer = win.combase.WindowsGetStringRawBuffer
 _raw_buffer.argtypes = [win.HSTRING, ctypes.POINTER(wintypes.UINT)]
 _raw_buffer.restype = ctypes.c_void_p
@@ -77,10 +82,33 @@ def show(toasts, title, actions, *, tag="call-ended"):
         win._call(toast, win.TOAST_ADD_ACTIVATED, handler.pointer, ctypes.byref(token),
                   argtypes=(ctypes.c_void_p, ctypes.POINTER(ctypes.c_int64)))
         win._call(toasts._notifier, win.NOTIFIER_SHOW, toast, argtypes=(ctypes.c_void_p,))
-        toasts._kept.append((toast, handler, token.value))
+        entry = toast, handler, token.value
+        toasts._kept.append(entry)
         toast = None
         while len(toasts._kept) > win.KEPT_TOASTS:
             toasts._let_go(*toasts._kept.pop(0))
     finally:
         for obj in properties, toast, doc_xml, doc_io, document:
             win._release(obj)
+    return lambda: _withdraw(toasts, tag, entry)
+
+
+def _withdraw(toasts, tag, entry):
+    """Dismiss the popup and remove its entry from Windows Notification Center."""
+    if entry in toasts._kept:
+        try:
+            win._call(toasts._notifier, _NOTIFIER_HIDE, entry[0], argtypes=(ctypes.c_void_p,))
+        except OSError as error:
+            complain("hiding the recording notification", error)
+    manager = None
+    history = ctypes.c_void_p()
+    try:
+        manager = win._factory("Windows.UI.Notifications.ToastNotificationManager", _MANAGER_STATICS2)
+        win._call(manager, _HISTORY, ctypes.byref(history), argtypes=(ctypes.POINTER(ctypes.c_void_p),))
+        with win._HString(tag) as name, win._HString(toasts.group) as group, win._HString(toasts.app_id) as app:
+            win._call(history, _REMOVE_TAG_GROUP_APP, name, group, app, argtypes=(win.HSTRING,) * 3)
+    except OSError as error:
+        complain("removing the recording notification", error)
+    finally:
+        win._release(history)
+        win._release(manager)

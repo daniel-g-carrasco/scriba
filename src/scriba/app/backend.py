@@ -86,6 +86,10 @@ class Backend:
         from dataclasses import replace
 
         from scriba.app.engines import ffmpeg
+        from scriba.data import edits
+
+        if Path(source).suffix.lower() == ".mka":
+            edits.recover(Path(source).parent)
         media = ffmpeg.probe(source, cancelled)
         if media.duration <= 0 and media.sound_tracks:
             media = replace(media, duration=ffmpeg.decoded_seconds(source, 0, cancelled))
@@ -160,6 +164,24 @@ class Backend:
         from . import preview
         return preview.prepare(source, start, end, cancelled)
 
+    def preview_listening_copy(self, original, heard, start: float, end: float, cancelled):
+        from scriba.app.engines import ffmpeg
+
+        from . import preview
+        from .task import Failure
+
+        original = Path(original) if original is not None else None
+        if original is not None and original.suffix.lower() == ".mka" and original.is_file():
+            try:
+                media = ffmpeg.probe(original, cancelled)
+            except Failure:
+                media = None
+            if media is not None and media.has_call_mute:
+                heard = jobs.listening_copy(original, media, cancelled, preferred=heard)
+                if heard == original:
+                    return preview.prepare(original, start, end, cancelled, tracks=media.roles)
+        return self.preview(heard, start, end, cancelled)
+
     def can_balance(self, result: jobs.Result) -> bool:
         from . import recording
         return recording.balance_available(result.source)
@@ -168,16 +190,9 @@ class Backend:
         return jobs.save_balance(result, balance)
 
     def balance_preview(self, result: jobs.Result, cancelled: threading.Event):
-        """A few seconds where the user and the others both speak."""
-        from scriba.core import speakers
-        from scriba.i18n import _
-
+        """One exchange for comparing the microphone and the others."""
         from . import preview
-        from .task import Failure
-        if result.source is None:
-            raise Failure(_("The original recording is missing: a new listening copy cannot be made."), "no source")
-        start, end = speakers.both_heard(result.segments, result.me, duration=result.duration)
-        return preview.balanced(result.source, start, end, cancelled)
+        return preview.for_meeting(result, cancelled)
 
     @staticmethod
     def about(seconds: float) -> str:
@@ -224,8 +239,8 @@ class Backend:
         return recording.trim_tail(source, end, revisions=jobs.revisions_folder(), cancelled=cancelled)
 
     def trim(self, source, start, end, cancelled=None):
-        from scriba.app import recording
-        return recording.trim(source, start, end, revisions=jobs.revisions_folder(), cancelled=cancelled)
+        from scriba.app import cuts
+        return cuts.change(source, start, end, cancelled)
 
     def listening_mix(self, source, cancelled=None):
         from scriba.app import recording

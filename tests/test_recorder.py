@@ -235,31 +235,6 @@ class SyntheticRecordingTest(unittest.TestCase):
         output = next(t for t in takes if t.role == "others")
         self.assertGreater(peak(output.path, begin + 0.25, end - begin - 0.5), 0)   # the other side went on
 
-    def test_a_microphone_that_hears_what_the_computer_plays_is_said_while_recording(self):
-        from unittest import mock
-
-        from scriba.core import echo
-        from scriba.core.devices import INPUT, OUTPUT, Device, Plan
-        # the same tone on both tracks: the microphone "hears" the output; windows of 1 s, to be quick
-        self.enterContext(mock.patch.object(echo, "WINDOW", 1.0))
-        plan = Plan(Device("mic", "Tone", INPUT), (Device("out", "Same tone", OUTPUT),), automatic_input=False,
-                    automatic_output=False)
-        made = self.recorder.Recorder(plan, self.folder, "eco", lister=lambda: [plan.input, *plan.outputs])
-        made.start()
-        try:
-            self.assertNotIn(echo.ECHO, [a.kind for a in made.snapshot().alerts])
-            end = time.monotonic() + 5
-            while echo.ECHO not in [a.kind for a in made.snapshot().alerts] and time.monotonic() < end:
-                time.sleep(0.2)
-                made._look_for_echo()
-            self.assertIn(echo.ECHO, [a.kind for a in made.snapshot().alerts])
-            self.assertGreater(made._echo.last.correlation, 0.9)
-            made.switch("others", False)        # nothing to hear: no warning
-            self.assertNotIn(echo.ECHO, [a.kind for a in made.snapshot().alerts])
-        finally:
-            made.stop()
-
-
 class DeviceWatchTest(unittest.TestCase):
     """Changing the available devices, with live synthetic sources and no hardware."""
 

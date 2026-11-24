@@ -18,7 +18,7 @@ from unittest import mock
 import _setup
 from test_engines import AUDIO, MODELS, real
 
-from scriba.app import jobs, models
+from scriba.app import jobs, meeting_folders, models
 from scriba.app.engines import audio, diarize, ffmpeg, vad, whisper
 from scriba.app.task import Cancelled, Failure
 from scriba.core import loudness
@@ -52,7 +52,8 @@ class StandIns:
                                                words=((0.5, 1.4), (1.5, 1.7), (1.8, 2.5))),
                                        Segment(3.3, 4.0, " Grazie.", avg_logprob=-1.6)], "it", None, None)
 
-        def voices(samples, vad_model, voice_model, speakers=None, threads=4, progress=None, cancelled=None):
+        def voices(samples, vad_model, voice_model, speakers=None, threads=4, progress=None, cancelled=None, *,
+                   keep_centroids=False):
             self.calls["speakers"] = speakers
             return diarize.Diarization([Turn(0.0, 6.0, "SPEAKER_03"), Turn(9.0, 13.0, "SPEAKER_00")], 2, [], 0)
 
@@ -73,6 +74,16 @@ class StandIns:
 
 
 class ChainTest(unittest.TestCase):
+    def test_reopened_recording_silences_the_microphone_before_speech_detection(self):
+        StandIns(self, tracks=(ffmpeg.Track(0, "Mic", "me", muted=((5, 10), (15, None))),))
+        with mock.patch.object(vad, "detect", wraps=vad.detect) as detect:
+            jobs.run(jobs.Request(self.source, self.out))
+        samples = detect.call_args.args[0]
+        self.assertTrue(samples[:RATE].any())
+        self.assertTrue(samples[10 * RATE:15 * RATE].any())
+        self.assertFalse(samples[5 * RATE:10 * RATE].any())
+        self.assertFalse(samples[15 * RATE:].any())
+
     def test_reversed_engine_times_are_repaired_before_writing_the_result(self):
         StandIns(self)
         transcript = whisper.Transcript([
@@ -99,9 +110,10 @@ class ChainTest(unittest.TestCase):
         named = (("Ada Example", 0.0, 20.0),)
         tracks = (ffmpeg.Track(0, "Microphone", "me"), ffmpeg.Track(1, "Output", "others", named_spans=named))
         StandIns(self, tracks=tracks)
-        transcript = whisper.Transcript([Segment(0, 3, "Good morning."), Segment(3.2, 5.2, "Thank you.")],
+        transcript = whisper.Transcript([Segment(0, 9, "Good morning."), Segment(9, 11, "Thank you.")],
                                         "en", None, None)
-        with mock.patch.object(whisper, "transcribe", return_value=transcript):
+        with mock.patch.object(whisper, "transcribe", return_value=transcript), \
+                mock.patch.object(vad, "detect", return_value=[(RATE, 12 * RATE)]):
             result = jobs.run(jobs.Request(self.source, self.out, speakers=True, speaker_count=1))
         self.assertEqual(len(result.proposals), 1)
         voice, proposal = next(iter(result.proposals.items()))
@@ -113,8 +125,8 @@ class ChainTest(unittest.TestCase):
         self.assertEqual(reopened.named_spans, named)
         self.assertEqual(reopened.proposals, result.proposals)
         jobs.save_names(result, {**result.names, voice: proposal.name})
-        self.assertTrue(all(Path(path).read_bytes() == value for path, value in original.items()))
-        self.assertTrue(any(b"Ada Example" in Path(o.path).read_bytes() for o in result.outputs if "named" in o.kind))
+        self.assertEqual({o.path for o in result.outputs}, set(original))
+        self.assertTrue(all(b"Ada Example" in Path(path).read_bytes() for path in original))
 
     def test_teams_proposals_survive_reopening_and_enter_files_only_when_saved(self):
         named = (("Ada Example", 0.0, 20.0),)
@@ -122,7 +134,8 @@ class ChainTest(unittest.TestCase):
                   ffmpeg.Track(1, "Output", "others", named_spans=named))
         StandIns(self, tracks=tracks)
         with mock.patch.object(whisper, "transcribe", return_value=whisper.Transcript(
-                [Segment(0, 3, "Hello there."), Segment(3.2, 5.2, "Thank you.")], "en", None, None)):
+                [Segment(0, 9, "Hello there."), Segment(9, 11, "Thank you.")], "en", None, None)), \
+                mock.patch.object(vad, "detect", return_value=[(RATE, 12 * RATE)]):
             result = jobs.run(jobs.Request(self.source, self.out, speakers=True, speaker_count=1, my_name="Me Example"))
         self.assertEqual(result.named_spans, named)
         self.assertNotIn(result.me, result.proposals)
@@ -134,7 +147,8 @@ class ChainTest(unittest.TestCase):
         self.assertEqual(reopened.proposals, result.proposals)
         self.assertEqual(reopened.names, {result.me: "Me Example"})
         jobs.save_names(result, {**result.names, voice: proposal.name})
-        self.assertEqual({p: Path(p).read_bytes() for p in originals}, originals)
+        self.assertEqual({o.path for o in result.outputs}, set(originals))
+        self.assertTrue(all(b"Ada Example" in Path(path).read_bytes() for path in originals))
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -218,6 +232,8 @@ class ChainTest(unittest.TestCase):
         self.assertEqual(opened.names, {"Speaker 1": "Daniel"})
         self.assertEqual(opened.segments, result.segments)
         self.assertEqual(opened.me, "Speaker 1")
+        self.assertEqual(opened.recorded_voice, "Speaker 1")
+        self.assertEqual(opened.balance_echo, ())
         self.assertEqual(request.source, self.source)
         # damaged times of the words cost only the words' times: the subtitles share the line's time
         raw = json.loads(result.session.read_text(encoding="utf-8"))
@@ -314,8 +330,7 @@ class ChainTest(unittest.TestCase):
 
 
 class NamesTest(unittest.TestCase):
-    """The names given to the voices: the files with the names brought up to date, the automatic ones untouched,
-    no revision."""
+    """Editing speaker names updates the original transcript set in place."""
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -327,54 +342,52 @@ class NamesTest(unittest.TestCase):
         self.result = jobs.run(jobs.Request(self.source, self.folder, speakers=True))
         self.before = {p.name: p.read_bytes() for p in self.folder.iterdir()}
 
-    def test_the_names_make_new_files_and_the_automatic_ones_stay_as_they_were(self):
+    def test_the_names_replace_the_transcript_in_place(self):
         named = jobs.save_names(self.result, {"Speaker 1": "  Anna  Rossi ", "Speaker 2": ""})
         self.assertEqual(sorted(Path(o.path).name for o in named.outputs),
-                         ["call_transcript_names.md", "call_transcript_names.srt", "call_transcript_names.txt"])
-        self.assertEqual({o.kind for o in named.outputs}, {"md-named", "txt-named", "srt-named"})
-        for name, content in self.before.items():
-            if name != self.result.session.name:    # the meeting file keeps the names, in place
-                self.assertEqual((self.folder / name).read_bytes(), content, name)
-        md = (self.folder / "call_transcript_names.md").read_text(encoding="utf-8")
+                         ["call_transcript.md", "call_transcript.srt", "call_transcript.txt"])
+        self.assertEqual({o.kind for o in named.outputs}, {"md", "txt", "srt"})
+        self.assertEqual(self.source.read_bytes(), self.before[self.source.name])
+        md = (self.folder / "call_transcript.md").read_text(encoding="utf-8")
         self.assertIn("**Anna Rossi** [00:02]", md)
         self.assertIn("**Speaker 2** [00:10]", md)
         self.assertIn("with the names given by hand", md)
-        srt = (self.folder / "call_transcript_names.srt").read_text(encoding="utf-8")
+        srt = (self.folder / "call_transcript.srt").read_text(encoding="utf-8")
         self.assertIn("Anna Rossi: Buongiorno a tutti.", srt)
         self.assertIn("P2: ", srt)
         meeting = json.loads(self.result.session.read_text(encoding="utf-8"))
         self.assertEqual(meeting["names"], {"Speaker 1": "Anna Rossi"})
-        self.assertIn("md-named", {o["kind"] for o in meeting["outputs"]})
+        self.assertIn("md", {o["kind"] for o in meeting["outputs"]})
         self.assertEqual(named.notes, [])
-        self.assertIn("md-named", {o.kind for o in self.result.outputs})
+        self.assertIn("md", {o.kind for o in self.result.outputs})
 
     def test_saved_twice_the_files_with_the_names_are_brought_up_to_date_and_no_revision_is_made(self):
-        automatic = {p.name: p.read_bytes() for p in self.folder.iterdir() if p.suffix in (".md", ".txt", ".srt")}
         jobs.save_names(self.result, {"Speaker 1": "Anna"})
         again = jobs.save_names(self.result, {"Speaker 1": "Anna Maria"})
         self.assertEqual(sorted(Path(o.path).name for o in again.outputs),
-                         ["call_transcript_names.md", "call_transcript_names.srt", "call_transcript_names.txt"])
-        self.assertIn("Anna Maria:", (self.folder / "call_transcript_names.srt").read_text(encoding="utf-8"))
-        self.assertEqual(sorted(p.name for p in self.folder.iterdir()),
-                         sorted([*self.before, "call_transcript_names.md", "call_transcript_names.srt",
-                                 "call_transcript_names.txt"]))
-        for name, content in automatic.items():
-            self.assertEqual((self.folder / name).read_bytes(), content, name)
+                         ["call_transcript.md", "call_transcript.srt", "call_transcript.txt"])
+        self.assertIn("Anna Maria:", (self.folder / "call_transcript.srt").read_text(encoding="utf-8"))
+        self.assertEqual(sorted(p.name for p in self.folder.iterdir() if not p.name.startswith(".")),
+                         sorted(self.before))
         meeting = json.loads(self.result.session.read_text(encoding="utf-8"))
         self.assertEqual(meeting["names"], {"Speaker 1": "Anna Maria"})
-        self.assertEqual([o["kind"] for o in meeting["outputs"]].count("md-named"), 1)
-        self.assertEqual([o.kind for o in self.result.outputs].count("md-named"), 1)
+        self.assertEqual([o["kind"] for o in meeting["outputs"]].count("md"), 1)
+        self.assertEqual([o.kind for o in self.result.outputs].count("md"), 1)
 
     def test_no_name_given_is_said_and_nothing_is_written(self):
         with self.assertRaises(Failure):
             jobs.save_names(self.result, {"Speaker 1": "  "})
         self.assertEqual(sorted(p.name for p in self.folder.iterdir()), sorted(self.before))
 
-    def test_a_meeting_file_that_cannot_be_updated_is_said_and_the_files_are_there(self):
+    def test_a_damaged_meeting_file_leaves_the_existing_transcripts_intact(self):
+        from scriba.data.session import SessionError
+
         self.result.session.write_text("damaged", encoding="utf-8")
-        named = jobs.save_names(self.result, {"Speaker 2": "Bob"})
-        self.assertEqual(len(named.notes), 1)
-        self.assertTrue(all(Path(o.path).is_file() for o in named.outputs))
+        with self.assertRaises(SessionError):
+            jobs.save_names(self.result, {"Speaker 2": "Bob"})
+        for output in self.result.outputs:
+            self.assertEqual(Path(output.path).read_bytes(), self.before[Path(output.path).name])
+
     def test_reopening_needs_neither_models_nor_audio_and_keeps_original_voices_and_doubts(self):
         original = self.result.session
         jobs.save_names(self.result, {"Speaker 1": "Anna", "Speaker 2": "Anna"})
@@ -445,7 +458,7 @@ class NamesTest(unittest.TestCase):
         jobs.save_names(self.result, {})
         self.assertEqual(self.result.session, previous)
         self.assertEqual(json.loads(self.result.session.read_text(encoding="utf-8"))["names"], {})
-        self.assertNotIn("Anna", (self.folder / "call_transcript_names.md").read_text(encoding="utf-8"))
+        self.assertNotIn("Anna", (self.folder / "call_transcript.md").read_text(encoding="utf-8"))
 
     def test_a_saved_stem_cannot_write_outside_the_meeting_folder(self):
         raw = json.loads(self.result.session.read_text(encoding="utf-8"))
@@ -476,7 +489,8 @@ class FoldersTest(unittest.TestCase):
         result = jobs.run(jobs.Request(self.source, home=self.recordings))
         home = self.recordings / "2026-11-12 10-00-00"
         self.assertEqual(result.folder, home)
-        self.assertEqual(sorted(p.name for p in home.iterdir() if p.suffix != ".lnk" and not p.is_symlink()),
+        self.assertEqual(sorted(p.name for p in home.iterdir()
+                                if p.name != meeting_folders.STATE and p.suffix != ".lnk" and not p.is_symlink()),
                          sorted(f"2026-11-12 10-00-00_transcript{ext}" for ext in (".json", ".md", ".srt", ".txt")))
         if _setup.WINDOWS:
             link = home / "2026-11-12 10-00-00.mkv.lnk"
@@ -496,12 +510,53 @@ class FoldersTest(unittest.TestCase):
         other.write_bytes(b"another video")
         self.assertEqual(jobs.home_folder(other, self.recordings), self.recordings / "2026-11-12 10-00-00_R01")
         self.assertFalse(jobs.elsewhere(home / "x.mka", self.recordings))
+        jobs.save_meeting_title(again, "Imported meeting")
+        self.assertFalse(home.exists())
+        self.assertEqual(again.folder.name, "2026-11-12 10-00-00 Imported meeting")
+        self.assertTrue((again.folder / link.name).is_file())
+        self.assertEqual(jobs.home_folder(self.source, self.recordings), again.folder)
+        third = jobs.run(jobs.Request(self.source, home=self.recordings))
+        self.assertEqual(third.folder, again.folder)
+        self.assertEqual(third.stem, again.stem)
+        revision = third.folder / jobs.revisions_folder() / f"{third.stem}_R02.json"
+        opened, _request = jobs.open_session(revision)
+        self.assertTrue(all(Path(output.path).parent == revision.parent for output in opened.outputs))
+        self.assertEqual(opened.meeting_title, "Imported meeting")
+
+    def test_recording_and_transcripts_share_one_folder_and_base(self):
+        track = ffmpeg.Track(0, "Laptop speakers", "others")
+        album = self.recordings / "2026-11-12 10-00-00 Plan"
+        album.mkdir()
+        source = album / f"{album.name}.mka"
+        source.write_bytes(b"recording")
+        meeting_folders.MeetingFolder(album.name[:19], "Plan", album.name).save(album)
+        with mock.patch.object(ffmpeg, "probe", return_value=ffmpeg.Media(20, 1, False, 0, tracks=(track,))):
+            result = jobs.run(jobs.Request(source))
+        saved = jobs.save_names(result, {"Speaker 1": "Ada"})
+        for file in (result.session, *(Path(o.path) for o in (*result.outputs, *saved.outputs))):
+            self.assertEqual(file.parent, album)
+            self.assertTrue(file.name.startswith(source.stem + "_transcript"))
+        self.assertEqual([p for p in album.iterdir() if p.is_dir()], [])
+        self.assertEqual(source.read_bytes(), b"recording")
+
+    def test_a_nested_transcript_from_a_previous_release_reopens_in_place(self):
+        album = self.recordings / "2026-11-12 10-00-00"
+        album.mkdir()
+        source = album / f"{album.name} recording.mka"
+        source.write_bytes(b"recording")
+        nested = album / f"{album.name} Plan"
+        previous = jobs.run(jobs.Request(source, out=nested))
+        before = {p.relative_to(album): p.read_bytes() for p in album.rglob("*") if p.is_file()}
+        opened, request = jobs.open_session(previous.session)
+        self.assertEqual(opened.folder, nested)
+        self.assertEqual(request.source, source)
+        self.assertEqual({p.relative_to(album): p.read_bytes() for p in album.rglob("*") if p.is_file()}, before)
 
     def test_a_second_transcription_moves_the_first_to_the_previous_revisions_and_loses_nothing(self):
         first = jobs.run(jobs.Request(self.source, self.recordings / "meeting", speakers=True))
         jobs.save_names(first, {"Speaker 1": "Anna"})
         meeting = self.recordings / "meeting"
-        before = {p.name: p.read_bytes() for p in meeting.iterdir() if p.is_file()}
+        before = {p.name: p.read_bytes() for p in meeting.iterdir() if p.is_file() and not p.name.startswith(".")}
         second = jobs.run(jobs.Request(self.source, meeting, speakers=True))
         stem = "2026-11-12 10-00-00_transcript"
         self.assertEqual(sorted(Path(o.path).name for o in second.outputs),

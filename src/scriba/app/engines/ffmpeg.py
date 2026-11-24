@@ -48,13 +48,18 @@ LANGUAGE_CODES = {"it": "ita", "en": "eng"}
 ROLE_TAG = "SCRIBA_ROLE"
 ROLES = ("me", "others")
 # the stretches the user was muted in the call, on the microphone's track
-# (core/callmute.py, write_spans): its speech there is not transcribed
+# (core/callmute.py, write_spans): its sound is silenced in derived audio
 MUTED_TAG = "SCRIBA_CALL_MUTED"
+OFF_TAG = "SCRIBA_SWITCHED_OFF"
+MUTE_APPLIED_TAG = "SCRIBA_CALL_MUTE_APPLIED"
 NAMED_TAG = "SCRIBA_NAMED_SPANS"
 CUT_TAG = "SCRIBA_SUGGESTED_CUT"
 CALL_RANGE_TAG = "SCRIBA_CALL_RANGE"
 TRIMMED_TAG = "SCRIBA_TRIMMED"
+TRIM_SELECTION_TAG = "SCRIBA_TRIM_SELECTION"
+TRIM_ORIGINAL_TAG = "SCRIBA_TRIM_ORIGINAL"
 JOIN_ID_TAG = "SCRIBA_JOIN_ID"
+TEAMS_PEOPLE_TAG = "SCRIBA_TEAMS_PEOPLE"
 
 
 @dataclass(frozen=True)
@@ -64,6 +69,7 @@ class Track:
     role: str = ""          # one of ROLES, or "" when the file does not say
     muted: tuple = ()       # (from, to) seconds muted in the call (MUTED_TAG); to None: to the end
     named_spans: tuple = ()
+    off: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -77,6 +83,11 @@ class Media:
     suggested_cut: tuple[str, float] | None = None
     join_id: str = ""
     suggested_range: tuple[float, float] | None = None
+    teams_people: int = 0
+    call_mute_applied: bool = False
+    trimmed: bool = False
+    trim_selection: tuple[float, float, float] | None = None
+    trim_original: str = ""
 
     @property
     def roles(self) -> tuple[Track, ...]:
@@ -85,6 +96,10 @@ class Media:
         if self.tracks and all(t.role in ROLES for t in self.tracks):
             return self.tracks
         return ()
+
+    @property
+    def has_call_mute(self) -> bool:
+        return any(track.role == "me" and track.muted for track in self.roles)
 
 
 def find(program: str = "ffmpeg") -> Path | None:
@@ -151,7 +166,7 @@ def parse_probe(text: str) -> Media:
         role = tags.get(ROLE_TAG, "").lower()
         tracks.append(Track(len(tracks), tags.get("TITLE", ""), role if role in ROLES else "",
                             callmute.read_spans(tags.get(MUTED_TAG)),
-                            spans.read_spans(tags.get(NAMED_TAG))))
+                            spans.read_spans(tags.get(NAMED_TAG)), callmute.read_spans(tags.get(OFF_TAG))))
     tags = {str(k).upper(): str(v) for k, v in (container.get("tags") or {}).items()}
     reason, _, value = tags.get(CUT_TAG, "").partition(":")
     cut = None
@@ -170,11 +185,26 @@ def parse_probe(text: str) -> Media:
                 interval = start, min(end, duration)
         except ValueError:
             pass
+    try:
+        teams_people = max(0, int(tags.get(TEAMS_PEOPLE_TAG, "")))
+    except ValueError:
+        teams_people = 0
+    trimmed = tags.get(TRIMMED_TAG) == "1"
+    selection = None
+    if trimmed:
+        try:
+            start, end, total = map(float, tags.get(TRIM_SELECTION_TAG, "").split(":"))
+            if 0 <= start < end <= total and total < float("inf"):
+                selection = start, end, total
+        except ValueError:
+            pass
     return Media(duration=duration, sound_tracks=len(tracks),
                  video=any(k == "video" and not p for k, p in kinds),
                  subtitle_tracks=sum(1 for k, _p in kinds if k == "subtitle"), tracks=tuple(tracks),
                  meeting_title=tags.get("SCRIBA_MEETING_TITLE", ""), suggested_cut=cut,
-                 join_id=tags.get(JOIN_ID_TAG, ""), suggested_range=interval)
+                 join_id=tags.get(JOIN_ID_TAG, ""), suggested_range=interval, teams_people=teams_people,
+                 trimmed=trimmed, trim_selection=selection, trim_original=tags.get(TRIM_ORIGINAL_TAG, ""),
+                 call_mute_applied=tags.get(MUTE_APPLIED_TAG) == "1")
 
 
 def probe(source: str | os.PathLike, cancelled: threading.Event | None = None) -> Media:

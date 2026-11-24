@@ -45,17 +45,14 @@ REPEAT_WINDOW = 60.0
 REPEAT_MIN_WORDS = 3
 QUIET_BELOW = -40.0
 QUIET_LOGPROB_BELOW = -0.2
-# Characters a second (spaces counted once) above which a line holds more
-# text than anyone says in its time: what whisper writes when it invents or
-# loops ("sì sì sì..." for a whole window). On the real meetings of 12 and
-# 13/11/2026 it catches 97 % of the line where one word came back thousands
-# of times, while good lines reach 22-24 at the 99th centile. A line is
-# judged on at least DENSE_MIN_SECONDS: whisper's times are rounded and a
-# short "Sì, va bene, grazie." squeezed into half a second is not an
-# invention (measured on the same two meetings: 16 such lines under 1 s
-# would have been marked with no floor, none with 2 s; above 25 with the
-# floor, 4 and 3 lines of 1859 and 824, 0.2-0.4 %).
-DENSE_ABOVE = 25.0
+# The density doubt is for extreme amounts of text, such as Whisper loops.
+# Good lines in two Italian meetings (12 and 13 November 2026) reached
+# 22–24 characters/s at the 99th centile. Ten correct fast-English lines
+# in the 24 November measurement reached 25.0–32.0 characters/s in 1.8–3.9 s.
+# At 39 characters/s the ten synthetic lines at those rates pass, while a
+# 30 s synthetic loop of 400 "allora" still reaches 93.3. Keep the 2 s floor
+# for rounded short lines. REPEATED still catches repeated whole lines.
+DENSE_ABOVE = 39.0
 DENSE_MIN_SECONDS = 2.0
 # The share of a transcript's text in doubtful lines above which the files
 # and the Result page warn that it is to be heard again (doubt_warning).
@@ -203,7 +200,7 @@ def flag_doubtful(segments: Iterable[Segment], *, no_speech_above: float = NO_SP
       lines one was QUIET in one run of two (a good line of that speaker:
       a false alarm, harmless since the line is kept). Two recordings are
       what these numbers rest on [I: to be checked on more].
-    - DENSE: more than `dense_above` characters a second (25) over the
+    - DENSE: more than `dense_above` characters a second (39) over the
       line's time, or over `dense_min_seconds` (2) when it is shorter:
       more text than was said there (see DENSE_ABOVE for the measures).
 

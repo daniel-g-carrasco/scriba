@@ -150,9 +150,8 @@ class PreferencesDialog(Adw.PreferencesDialog):
         if WINDOWS:
             self.call_mute_row = Adw.SwitchRow(
                 use_markup=False, title=_("Follow the Call’s Mute"), subtitle_lines=3,
-                subtitle=_("While you are muted in the call, what your microphone hears is recorded but not "
-                           "transcribed as yours. Windows 11, for apps that tell Windows, such as Teams; it reads "
-                           "Windows’ own words, so it depends on Windows’ language."),
+                subtitle=_("On Windows 11, mute from apps such as Teams silences your microphone in listening "
+                           "copies and transcripts. The original track keeps the sound."),
                 active=cfg.follow_call_mute)
             self.call_mute_row.connect("notify::active", lambda r, _p: self._set("follow_call_mute", r.get_active()))
             group.add(self.call_mute_row)

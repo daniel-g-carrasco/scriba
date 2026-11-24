@@ -42,14 +42,8 @@ REACH = 0.5                 # seconds of delay looked at, either way
 PLAYING_ABOVE = -55.0       # dBFS (RMS over the window) of the computer's sound: below, nothing to hear back
 MIC_ABOVE = -70.0           # dBFS of the microphone: below, it is switched off (digital silence)
 ECHO_ABOVE = 0.15           # normalised correlation (see the docstring)
+STRONG_ABOVE = 0.45         # avoid these windows when choosing a comparison excerpt
 CLEAN_AFTER = 3             # windows in a row without echo before a recording is taken as clean again
-# the same for the warning while recording: a minute of the computer playing
-# without echo heard. On the real meeting the echo went unseen for three
-# windows in a row (30 s of the user speaking over a quiet call) and the
-# warning, at CLEAN_AFTER, went away for 10 s and came back; twice that
-# leaves room for such a stretch, and earphones put on still clear it in a
-# minute of the call (windows where the computer is silent do not count)
-LIVE_CLEAN_AFTER = 6
 CROSSFADE = 0.05            # seconds over which the cleaned track takes over from the raw one, and back
 
 ECHO, CLEAN, UNKNOWN = "echo", "clean", "unknown"
@@ -79,8 +73,7 @@ def verdict(correlation: float | None, mic: float, output: float) -> str:
 class Follow:
     """The state as the windows come: echo from the first window with echo,
     clean again after CLEAN_AFTER windows in a row without; UNKNOWN changes
-    nothing. The recorder feeds it live (with LIVE_CLEAN_AFTER: its warning
-    should not come and go), stretches() a whole track."""
+    nothing. The echo check feeds it the windows of a track."""
 
     def __init__(self, clean_after: int = CLEAN_AFTER) -> None:
         self.echo = False

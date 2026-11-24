@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import threading
+from dataclasses import replace
 from pathlib import Path
 
 import gi
@@ -27,9 +28,9 @@ from gi.repository import Adw, GLib, Gtk, Pango  # noqa: E402
 from scriba.app import jobs  # noqa: E402
 from scriba.app.preview import BalanceClip, Clip  # noqa: E402
 from scriba.app.task import Cancelled  # noqa: E402
-from scriba.core import estimate, segments, speakers  # noqa: E402
+from scriba.core import balance_excerpt, estimate, segments, speakers  # noqa: E402
 from scriba.core.paragraphs import paragraphs  # noqa: E402
-from scriba.data import markdown  # noqa: E402
+from scriba.data import edits, markdown  # noqa: E402
 from scriba.data.timing import clock  # noqa: E402
 from scriba.i18n import _, count, ngettext  # noqa: E402
 
@@ -74,6 +75,8 @@ class ResultPage(Adw.NavigationPage):
         self.window = window
         self._writes = 0
         self.result: jobs.Result | None = None
+        self._draft_lease = None
+        self._saved_voice_fields = None
         self.media = None                   # Gtk.MediaFile of the recording, made on the first Listen
         self.muted = False                  # the tests listen without a sound
         self._playing: str | None = None    # the voice being played
@@ -112,6 +115,8 @@ class ResultPage(Adw.NavigationPage):
 
     def show(self, result: jobs.Result, request: jobs.Request) -> None:
         self._reset_media()
+        self.release_name_draft()
+        self._saved_voice_fields = None
         self.result, self.request = result, request
         self._saving = False
         self.title.set_subtitle(result.meeting_title or Path(result.source or request.source).name)
@@ -127,6 +132,7 @@ class ResultPage(Adw.NavigationPage):
                                           description=escape(_("Written in {folder}").format(
                                               folder=jobs.full_path(result.folder) if result.folder else "")))
         self._shown_outputs: set[str] = set()
+        self._output_rows: dict[str, Adw.ActionRow] = {}
         self.meeting_title_entry = Adw.EntryRow(use_markup=False, title=_("Meeting Title"), text=result.meeting_title)
         self.meeting_title_entry.set_max_length(72)
         self.meeting_title_button = Gtk.Button(label=_("Save Title"), valign=Gtk.Align.CENTER)
@@ -144,6 +150,7 @@ class ResultPage(Adw.NavigationPage):
         self.files.add(self.session_row)
         page.add(self.files)
         self.entries: dict[str, Adw.EntryRow] = {}
+        self._committed_names: dict[str, str] = {}
         self.headings: dict[str, list[Gtk.Label]] = {}
         self.transcript = None              # the whole text's page, made when first asked
         self.listen_buttons: dict[str, Gtk.Button] = {}
@@ -160,6 +167,8 @@ class ResultPage(Adw.NavigationPage):
         page.add(group)
         self.page = page
         self.view.set_content(page)
+        self._saved_voice_fields = (speakers.clean(self.names()), result.me)
+        self._loaded_session = self._session_stamp()
         self._saving_changed(self.busy)
 
     def save_meeting_title(self) -> None:
@@ -167,6 +176,9 @@ class ResultPage(Adw.NavigationPage):
             return
         result, request = self.result, self.request
         title = self.meeting_title_entry.get_text()
+        old_folder, old_source = result.folder, result.source
+        notes_before = len(result.notes)
+        self.stop()
         self._writes += 1
         self._saving_changed(True)
         self.window.app.work_changed()
@@ -174,8 +186,20 @@ class ResultPage(Adw.NavigationPage):
         def done(saved, error):
             self._write_finished(error, "saving a meeting title")
             if error is None and self.result is result:
-                self.meeting_title_entry.set_text(saved)
-                self.title.set_subtitle(saved or Path(result.source or request.source).name)
+                if str(result.folder) != str(old_folder):
+                    names = self.names()
+                    balance = self.balance_scale.get_value()
+                    self.window.transcribe.update_moved_source(old_source, result.source)
+                    self.show(result, replace(request, source=result.source or request.source))
+                    for label, name in names.items():
+                        self.entries[label].set_text(name)
+                    self.balance_scale.set_value(balance)
+                else:
+                    self.meeting_title_entry.set_text(saved)
+                    self.title.set_subtitle(saved or Path(result.source or request.source).name)
+                    self._loaded_session = self._session_stamp()
+                for note in result.notes[notes_before:]:
+                    self.window.toast(note)
 
         try:
             run_in_thread(lambda: jobs.save_meeting_title(result, title), done)
@@ -248,20 +272,23 @@ class ResultPage(Adw.NavigationPage):
         row.add_suffix(folder)
         row.connect("activated", lambda *_: open_path(self.window, output.path))
         self.files.add(row)
+        self._output_rows[output.path] = row
+
+    def _sync_outputs(self) -> None:
+        current = {output.path for output in self.result.outputs}
+        for path in self._shown_outputs - current:
+            self.files.remove(self._output_rows.pop(path))
+            self._shown_outputs.remove(path)
+        for output in self.result.outputs:
+            self._add_output(output)
 
     # -- the listening copy ---------------------------------------------------------
 
     def _balance(self, result: jobs.Result) -> Adw.PreferencesGroup:
-        # what it changes, verified in the code: rebalance() writes a new
-        # _balanced.m4a from the original tracks; the recording, the
-        # transcript and the earlier copies are only read
         group = Adw.PreferencesGroup(title=escape(_("Balance of the Listening Copy")), visible=False,
-                                     description=escape(_("Only the copy to listen to changes: the recording and the "
-                                                   "transcript stay as they are. “Listen to a Preview” plays "
-                                                   "{seconds} seconds where you and the others both speak, with the "
-                                                   "balance chosen; then save a new listening file from the original "
-                                                   "tracks. The centre repeats the automatic balance.").format(
-                                         seconds=round(speakers.PREVIEW_SECONDS))))
+                                     description=escape(_("Preview up to {seconds} seconds. Save updates the listening "
+                                                          "copy. The centre restores the automatic balance.").format(
+                                         seconds=round(balance_excerpt.SECONDS))))
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=SPACE_M, margin_top=SPACE_L,
                       margin_bottom=SPACE_L, margin_start=SPACE_L, margin_end=SPACE_L)
         ends = Gtk.Box(spacing=SPACE_M)
@@ -357,11 +384,11 @@ class ResultPage(Adw.NavigationPage):
                 return
             self._reset_media()
             self.session_row.set_subtitle(result.session.name)
-            for output in saved.outputs:
-                self._add_output(output)
+            self._loaded_session = self._session_stamp()
+            self._sync_outputs()
             for note in saved.notes:
                 self.window.toast(note)
-            self.window.toast(_("A new listening copy was saved."))
+            self.window.toast(_("Listening copy updated"))
 
         try:
             run_in_thread(lambda: self.window.backend.save_balance(result, balance), done)
@@ -372,9 +399,7 @@ class ResultPage(Adw.NavigationPage):
 
     def _voices(self, found) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup(title=escape(_("Voices")),
-                                     description=escape(_("Give each voice the name of who speaks: “Save with the "
-                                                          "Names” writes the files with the names, and the automatic "
-                                                          "ones stay as they are.")))
+                                     description=escape(_("Name the voices, then save to update the transcript files.")))
         self._voice_labels = [voice.label for voice in found]
         self.my_voice = Adw.ComboRow(use_markup=False, title=_("My Voice"), subtitle=_("Choose which voice is yours"),
                                      model=Gtk.StringList.new([_("Not Chosen"),
@@ -388,6 +413,10 @@ class ResultPage(Adw.NavigationPage):
             entry = Adw.EntryRow(use_markup=False, title=title.format(voice=speakers.shown_label(voice.label), n=voice.lines,
                                                            time=clock(voice.first)))
             entry.connect("changed", lambda e, label=voice.label: self._renamed(label, e.get_text()))
+            entry.connect("entry-activated", lambda e, label=voice.label: self._save_edited_my_name(label, e))
+            focus = Gtk.EventControllerFocus.new()
+            focus.connect("leave", lambda c, label=voice.label: self._save_edited_my_name(label, c.get_widget()))
+            entry.add_controller(focus)
             listen = Gtk.Button(icon_name="media-playback-start-symbolic", valign=Gtk.Align.CENTER,
                                 css_classes=["flat"],
                                 tooltip_text=_("Listen from {time}").format(time=clock(voice.listen[0])))
@@ -395,7 +424,11 @@ class ResultPage(Adw.NavigationPage):
             entry.add_suffix(listen)
             proposal = self.result.proposals.get(voice.label)
             if proposal and voice.label not in self.result.names:
-                reason = _("from Teams, {share}% of speech").format(share=round(proposal.share * 100))
+                if proposal.source == "voice":
+                    reason = _("from Teams, voice match")
+                else:
+                    reason = _("from Teams, {heard} of {total}").format(
+                        heard=estimate.span(proposal.seconds), total=estimate.span(proposal.seconds / proposal.share))
                 badge = Gtk.Label(label=reason, css_classes=["dim-label"], tooltip_text=reason)
                 entry.add_suffix(badge)
                 entry.connect("changed", lambda e, b=badge, name=proposal.name: b.set_visible(e.get_text() == name))
@@ -409,6 +442,7 @@ class ResultPage(Adw.NavigationPage):
         for label, entry in self.entries.items():
             proposal = self.result.proposals.get(label)
             entry.set_text(self.result.names.get(label, proposal.name if proposal else ""))
+            self._committed_names[label] = " ".join(entry.get_text().split())
         return group
 
     def names(self) -> dict[str, str]:
@@ -422,12 +456,70 @@ class ResultPage(Adw.NavigationPage):
             self.transcript.rename(label, shown)
         if hasattr(self, "save_button"):
             self.save_button.set_sensitive(not self._saving and bool(speakers.clean(self.names()) or self.result.names))
+        self._refresh_draft()
+
+    def _session_stamp(self):
+        try:
+            info = self.result.session.stat()
+            return info.st_ino, info.st_size, info.st_mtime_ns
+        except OSError:
+            return None
+
+    def release_name_draft(self) -> None:
+        if self._draft_lease is not None:
+            self._draft_lease.__exit__(None, None, None)
+            self._draft_lease = None
+
+    def _refresh_draft(self, *, force: bool = False) -> bool:
+        if self._saved_voice_fields is None:
+            return True
+        current = speakers.clean(self.names()), self.result.me
+        if current == self._saved_voice_fields and not force:
+            if not self.busy:
+                self.release_name_draft()
+            return True
+        if self._draft_lease is None:
+            lease = edits.draft_lease(self.window.app.paths.state, self.result.source or self.result.session)
+            try:
+                lease.__enter__()
+            except OSError:
+                return False
+            self._draft_lease = lease
+        return True
+
+    def _save_edited_my_name(self, label: str, entry: Adw.EntryRow) -> None:
+        app = self.window.app
+        if self.busy or app.closing or label != self.result.me or self.entries.get(label) is not entry:
+            return
+        name = " ".join(entry.get_text().split())
+        if self._committed_names.get(label) == name:
+            return
+        self._committed_names[label] = name
+        previous = app.cfg.my_name
+        name = speakers.name_to_remember(previous, name)
+        if not name:
+            return
+        app.cfg.my_name = name
+        if not app.save_config():
+            app.cfg.my_name = previous
+            self._committed_names.pop(label)
+            return
+
+        def undo(_toast):
+            if app.cfg.my_name == name:
+                app.cfg.my_name = previous
+                if not app.save_config():
+                    app.cfg.my_name = name
+
+        toast = Adw.Toast(use_markup=False, title=_("Name saved in Preferences"), button_label=_("Undo"), timeout=5)
+        toast.connect("button-clicked", undo)
+        self.window.toasts.add_toast(toast)
 
     def _chose_my_voice(self) -> None:
         selected = self.my_voice.get_selected()
         label = self._voice_labels[selected - 1] if 0 < selected <= len(self._voice_labels) else ""
         name = " ".join(self.window.app.cfg.my_name.split()) or "Io"
-        if label and name == "Io":
+        if label and speakers.is_default_name(name):
             self._ask_my_name(label)
         else:
             self._assign_my_voice(label, name, name)
@@ -460,7 +552,7 @@ class ResultPage(Adw.NavigationPage):
                 previous_name = app.cfg.my_name
                 app.cfg.my_name = name
                 if app.save_config():
-                    self._assign_my_voice(label, name, "Io")
+                    self._assign_my_voice(label, name, " ".join(previous_name.split()) or "Io")
                     return
                 app.cfg.my_name = previous_name
             with row.handler_block(self._my_voice_handler):
@@ -476,10 +568,21 @@ class ResultPage(Adw.NavigationPage):
         self.result.me = label
         if label:
             self.entries[label].set_text(name)
+            self._committed_names[label] = name
+        self._refresh_draft()
 
     def save_names(self) -> None:
         if self.busy or self.window.app.closing:
             return
+        if not self._refresh_draft(force=True):
+            self.window.toast(_("This meeting is being edited in Scriba."))
+            return
+        if self._loaded_session != self._session_stamp():
+            self.window.toast(_("This meeting changed. Reopen it before saving."))
+            return
+        label = self.result.me
+        if label in self.entries:
+            self._save_edited_my_name(label, self.entries[label])
         result, names = self.result, self.names()
         self._writes += 1
         self._saving_changed(True)
@@ -491,12 +594,14 @@ class ResultPage(Adw.NavigationPage):
                 return
             if error is not None:
                 return
+            self._loaded_session = self._session_stamp()
+            self._saved_voice_fields = speakers.clean(names), result.me
+            self._refresh_draft()
             self.session_row.set_subtitle(Path(result.session).name)
-            for output in named.outputs:
-                self._add_output(output)
+            self._sync_outputs()
             for note in named.notes:
                 self.window.toast(note)
-            self.window.toast(_("Saved with the names: the automatic transcript stays as it is."))
+            self.window.toast(_("Transcript updated"))
 
         try:
             run_in_thread(lambda: self.window.backend.save_names(result, names), done)
@@ -506,8 +611,10 @@ class ResultPage(Adw.NavigationPage):
     # -- listening to a voice -------------------------------------------------------
 
     def listen(self, voice: speakers.Voice) -> None:
-        heard = self.result.listen or self.result.source or self.request.source
-        self._play(voice.label, lambda cancel: self.window.backend.preview(heard, *voice.listen, cancel))
+        source = self.result.source or self.request.source
+        heard = self.result.listen or source
+        self._play(voice.label, lambda cancel: self.window.backend.preview_listening_copy(
+            source, heard, *voice.listen, cancel))
 
     def listen_balance(self) -> None:
         result = self.result

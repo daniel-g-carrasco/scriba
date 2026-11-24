@@ -94,10 +94,11 @@ class Take:
     # (digital silence on the track); to None: off until the end
     off: tuple[tuple[float, float | None], ...] = ()
     # (from, to) while the user was muted in the call (Windows' indicator):
-    # the sound is kept, the transcript leaves the microphone's speech out
+    # the original keeps the sound; derived audio has silence here
     muted: tuple[tuple[float, float | None], ...] = ()
     named_spans: tuple[spans.Span, ...] = ()
     meeting_title: str = ""
+    teams_people: int = 0
 
 
 @dataclass
@@ -129,7 +130,6 @@ GONE, SWITCHED, ADDED, DISK_LOW, DISK_FULL, FAILED = "gone", "switched", "added"
 # only said (a microphone chosen by hand); the event's detail is the program
 FOLLOWED, CALL_ELSEWHERE = "followed", "call-elsewhere"
 OFF, ON = "off", "on"       # Scriba's switch for a side; the event's detail is the role ("me", "others")
-TEAMS_ENDED = "teams-ended"
 
 
 @dataclass(frozen=True)
@@ -158,6 +158,8 @@ class Status:
     call_ended: float | None = None
     call_prompt: bool = False
     output_silent_since: float | None = None
+    call_remaining: float | None = None
+    teams_without_border: int = 0
 
 
 def file_words() -> dict[str, str]:
@@ -187,10 +189,15 @@ def join_arguments(ffmpeg_path: str, takes: list[Take], dest: str, cut=None, joi
         argv += ["-metadata", f"{ffmpeg.CALL_RANGE_TAG}={start:.6f}:{end:.6f}"]
     if meeting_title:
         argv += ["-metadata", f"SCRIBA_MEETING_TITLE={meeting_title}"]
+    teams_people = max((take.teams_people for take in takes), default=0)
+    if teams_people:
+        argv += ["-metadata", f"{ffmpeg.TEAMS_PEOPLE_TAG}={teams_people}"]
     for n, take in enumerate(takes):
         argv += [f"-metadata:s:a:{n}", f"title={title(take)}", f"-metadata:s:a:{n}", f"{ffmpeg.ROLE_TAG}={take.role}"]
         if take.muted:
             argv += [f"-metadata:s:a:{n}", f"{ffmpeg.MUTED_TAG}={callmute.write_spans(take.muted)}"]
+        if take.off:
+            argv += [f"-metadata:s:a:{n}", f"{ffmpeg.OFF_TAG}={callmute.write_spans(take.off)}"]
         if take.named_spans:
             argv += [f"-metadata:s:a:{n}", f"{ffmpeg.NAMED_TAG}={spans.write_spans(take.named_spans)}"]
     return argv + ["-f", "matroska", "-y", dest]
@@ -226,7 +233,8 @@ def mix_arguments(ffmpeg_path: str, takes: list[Take], measures: list[loudness.L
     else:
         chains.append(f"{joined}alimiter=limit={LIMIT}:level=false[mix]")
     return argv + ["-filter_complex", ";".join(chains), "-map", "[mix]", "-ac", "1", "-c:a", "aac",
-                   "-aac_coder", "fast", "-b:a", MIX_BITRATE, "-movflags", "+faststart", "-f", "ipod", "-y", dest]
+                   "-aac_coder", "fast", "-b:a", MIX_BITRATE, "-movflags", "+faststart+use_metadata_tags",
+                   "-metadata", f"{ffmpeg.MUTE_APPLIED_TAG}=1", "-f", "ipod", "-y", dest]
 
 
 def _run(argv: list[str], what: str, cancelled: threading.Event | None, *, on_stdout=None) -> None:
@@ -305,7 +313,8 @@ def _clip_spans(intervals, start, end):
                  if (clipped := clip_interval(left, right, start, end)) is not None)
 
 
-def copy_excerpt(source: Path, start: float, end: float, cancelled=None, *, join_id=None) -> Path:
+def copy_excerpt(source: Path, start: float, end: float, cancelled=None, *, join_id=None,
+                 destination: Path | None = None) -> Path:
     """Publish a checked lossless excerpt; leave its source available to the caller."""
     if source.is_symlink():
         raise Failure(_("The recording could not be trimmed."), "symbolic link")
@@ -314,7 +323,7 @@ def copy_excerpt(source: Path, start: float, end: float, cancelled=None, *, join
     if (source.suffix.lower() != ".mka" or not media.roles or not 0 <= start < end <= media.duration
             or (start == 0 and end == media.duration)):
         raise Failure(_("Choose an interval inside the recording."), f"{start}–{end}")
-    folder = source.parent
+    folder = destination.parent if destination is not None else source.parent
     tmp = files.temporary_name(folder, ".mka")
     try:
         check(cancelled)
@@ -323,24 +332,32 @@ def copy_excerpt(source: Path, start: float, end: float, cancelled=None, *, join
                 "-map_metadata", "0", "-c", "copy", "-ss", f"{start:.6f}", "-t", f"{duration:.6f}",
                 "-avoid_negative_ts", "disabled",
                 "-metadata", f"{ffmpeg.TRIMMED_TAG}=1", "-metadata", f"{ffmpeg.CUT_TAG}=",
+                "-metadata", f"{ffmpeg.TRIM_SELECTION_TAG}={start:.6f}:{end:.6f}:{media.duration:.6f}",
+                "-metadata", f"{ffmpeg.TRIM_ORIGINAL_TAG}={source.name}",
                 "-metadata", f"{ffmpeg.CALL_RANGE_TAG}=", "-metadata", f"{ffmpeg.JOIN_ID_TAG}={join_id or ''}"]
         expected = []
         for track in media.roles:
             muted = callmute.write_spans(_clip_spans(track.muted, start, end))
+            off = callmute.write_spans(_clip_spans(track.off, start, end))
             named = tuple((name, *clipped) for name, left, right in track.named_spans
                           if (clipped := clip_interval(left, right, start, end)) is not None)
             meta = f"-metadata:s:a:{track.index}"
             argv += [meta, f"{ffmpeg.MUTED_TAG}={muted}", meta, f"{ffmpeg.NAMED_TAG}={spans.write_spans(named)}"]
-            expected.append(replace(track, muted=callmute.read_spans(muted), named_spans=named))
+            argv += [meta, f"{ffmpeg.OFF_TAG}={off}"]
+            expected.append(replace(track, muted=callmute.read_spans(muted), named_spans=named,
+                                    off=callmute.read_spans(off)))
         _run(argv + ["-f", "matroska", "-y", str(tmp)], _("The recording could not be trimmed."), cancelled)
         cut = ffmpeg.probe(tmp, cancelled)
         if (cut.tracks != tuple(expected) or cut.meeting_title != media.meeting_title
+                or cut.teams_people != media.teams_people
+                or cut.trim_selection is None or cut.trim_original != source.name
                 or cut.duration <= 0 or abs(cut.duration - duration) > DURATION_SLACK):
             raise Failure(_("The recording could not be trimmed."), "stream tags or cut duration did not match")
         with tmp.open("r+b") as handle:
             os.fsync(handle.fileno())
         check(cancelled)
-        return files.claim(tmp, folder, f"{source.stem}_{_('trimmed')}", ".mka")
+        stem = destination.stem if destination is not None else f"{source.stem}_{_('trimmed')}"
+        return files.claim(tmp, folder, stem, ".mka")
     finally:
         tmp.unlink(missing_ok=True)
 
@@ -382,29 +399,17 @@ def hears_and_plays(takes: list[Take]) -> bool:
 def without_echo(takes: list[Take], work: Path, streams: list[int] | None = None,
                  cancelled: threading.Event | None = None, *, elapsed: float = 0.0,
                  fraction: Fraction | None = None) -> tuple[list[Take], list[int] | None, list[str]]:
-    """The takes to mix, each microphone's with the computer's sound taken
-    out where it heard it (core/echo.py, app/engines/echo.py) and the raw
-    track elsewhere, as a WAV in `work`; the streams to go with them (as
-    mix_arguments takes them); what to tell the user.
+    """Prepare listening tracks with call mute and echo applied to the microphone.
 
-    At 16 kHz, as in transcription. References are decoded once and
-    correlation is limited to the device's live interval. Only audible
-    stretches with echo reach the canceller. Failure falls back to the
-    raw microphone and adds a note. Cancellation stops the work.
-
-    Windows, 30 synthetic minutes with two microphones and an output
-    audible for 7.5 minutes, wall seconds before/after: decoding 3.66/2.99,
-    pairing 0.88/1.11, measuring 2.24/2.22, cancelling 212.13/10.15,
-    splicing 1.80/0.49, mixing 109.41/58.89 (including loudness).
-    The entire save took 333.29/79.93 seconds. Times vary with the tracks
-    and with load on the machine."""
+    References are decoded once. If echo removal fails, use the microphone with
+    its muted intervals still silenced. Return the tracks, stream indices and notes.
+    """
     from scriba.app.engines import echo as canceller
-    from scriba.core import echo
 
     where = [(take.path, streams[n] if streams is not None else 0) for n, take in enumerate(takes)]
     outputs = [where[n] for n, take in enumerate(takes) if take.role == "others"]
     out, used, notes = list(takes), list(streams) if streams is not None else None, []
-    microphones = [(n, take) for n, take in enumerate(takes) if take.role == "me" and outputs]
+    microphones = [(n, take) for n, take in enumerate(takes) if take.role == "me" and (outputs or take.muted)]
     report = fraction or (lambda _value: None)
     references = []
     for microphone, (n, take) in enumerate(microphones):
@@ -419,9 +424,15 @@ def without_echo(takes: list[Take], work: Path, streams: list[int] | None = None
             check(cancelled)
             path, stream = where[n]
             mic = work / f"track{n}.wav"
-            pair = work / f"pair{n}.wav"
-            mono.extend((mic, pair))
+            mono.append(mic)
             ffmpeg.decode(path, mic, elapsed, phase(0, .075), cancelled, stream=stream)
+            masked = canceller.silence_mutes(mic, work / f"muted{n}.wav", take.muted, cancelled)
+            if masked != mic:
+                out[n] = replace(take, path=masked)
+                if used is not None:
+                    used[n] = 0
+            if not outputs:
+                continue
             if not references:
                 for k, (path, stream) in enumerate(outputs):
                     scale = .075 / len(outputs)
@@ -430,14 +441,14 @@ def without_echo(takes: list[Take], work: Path, streams: list[int] | None = None
                     ffmpeg.decode(path, wav, elapsed, decoding, cancelled, stream=stream)
                     references.append(wav)
                     decoding(1, 1)
-            canceller.pair_files(mic, references, pair, cancelled, progress=phase(.15, .2))
-            windows, duration = canceller.measure(pair, phase(.2, .4), cancelled, began=take.began, ended=take.ended)
-            ranges = echo.clean_ranges(windows)
-            if not ranges:
+            spliced, note = canceller.remove(masked, references, work / f"microphone{n}.wav", take.muted, cancelled,
+                                             began=take.began, ended=take.ended, progress=phase(.15, 1))
+            if spliced == masked:
                 continue
-            spliced = canceller.refine(pair, mic, ranges, work / f"microphone{n}.wav", cancelled,
-                                       progress=phase(.4, 1))
         except (Failure, OSError, EOFError, wave.Error) as e:
+            if take.muted and out[n] is take:
+                raise Failure(_("The muted intervals could not be silenced: {reason}").format(reason=e),
+                              str(e)) from e
             if len(references) != len(outputs):
                 references.clear()
             notes.append(_("The computer's sound heard by the microphone could not be taken out of the copy to "
@@ -450,9 +461,7 @@ def without_echo(takes: list[Take], work: Path, streams: list[int] | None = None
         out[n] = replace(take, path=spliced)
         if used is not None:
             used[n] = 0
-        notes.append(_("The microphone heard the computer's sound (loudspeakers) in {share} of the recording: "
-                       "in the copy to listen to it was taken out there, so the others are not heard twice.").format(
-            share=f"{sum(end - start for start, end in ranges) / duration:.0%}"))
+        notes.append(note)
     return out, used, notes
 
 
@@ -478,6 +487,8 @@ def mix(takes: list[Take], folder: Path, stem: str, cancelled: threading.Event |
             if progress is not None else None, start=begin, length=length)
         measured.append((take, measure, index))
     audible = [(t, m, i) for t, m, i in measured if not loudness.silent(m)]
+    if not audible:
+        audible = [entry for entry in measured if entry[0].role == "me" and entry[0].muted][:1]
     if not audible:
         return None
     check(cancelled)
@@ -523,7 +534,7 @@ def rebalance(source: str | os.PathLike, folder: Path, stem: str, balance: float
     The same filters as mix() preserve the automatic balance at zero. The
     joined source and every earlier mix remain untouched, also on failure.
     """
-    tracks = _balance_tracks(Path(source), cancelled)
+    tracks = balance_media(Path(source), cancelled).roles
     return _mix_from_source(Path(source), tracks, folder, f"{stem}_{_('balanced')}", balance, cancelled)
 
 
@@ -542,7 +553,8 @@ def _mix_from_source(source, tracks, folder, stem, balance, cancelled):
     try:
         tmp = files.temporary_name(folder, ".m4a")
         try:
-            _balanced_mix([Take(str(t.index), t.role, t.title, source) for t in tracks], [t.index for t in tracks],
+            _balanced_mix([Take(str(t.index), t.role, t.title, source, muted=t.muted) for t in tracks],
+                          [t.index for t in tracks],
                           work, tmp, balance, cancelled)
             if ffmpeg.probe(tmp, cancelled).duration <= 0:
                 raise Failure(_("The mix to listen to could not be made."), "the mix has no length")
@@ -558,17 +570,20 @@ PREVIEW_RATE = 48000        # the mix's own (aresample=48000 in mix_arguments)
 
 
 def balance_preview(source: str | os.PathLike, start: float, length: float, folder: Path,
-                    cancelled: threading.Event | None = None) -> tuple[np.ndarray, np.ndarray]:
+                    cancelled: threading.Event | None = None, *,
+                    tracks: tuple[ffmpeg.Track, ...] | None = None) -> tuple[np.ndarray, np.ndarray]:
     """Prepare the two roles independently in a temporary folder. Measure
     loudness on this excerpt and remove its echo just as for the saved
     copy. The player applies the balance to the resulting mono PCM."""
     import numpy as np
 
     source = Path(source)
-    tracks = _balance_tracks(source, cancelled)
+    if tracks is None:
+        tracks = balance_media(source, cancelled).roles
     cut = [Take(str(t.index), t.role, t.title,
                 ffmpeg.decode(source, folder / f"track{t.index}.wav", cancelled=cancelled, start=start,
-                              length=length, stream=t.index, rate=PREVIEW_RATE))
+                              length=length, stream=t.index, rate=PREVIEW_RATE),
+                muted=_clip_spans(t.muted, start, start + length))
            for t in tracks]
     work = folder / "work"
     work.mkdir()
@@ -591,13 +606,13 @@ def balance_preview(source: str | os.PathLike, start: float, length: float, fold
     return me[:frames], others[:frames]
 
 
-def _balance_tracks(source: Path, cancelled: threading.Event | None) -> tuple[ffmpeg.Track, ...]:
+def balance_media(source: Path, cancelled: threading.Event | None) -> ffmpeg.Media:
     if not source.is_file():
         raise Failure(_("The original recording is missing: a new listening copy cannot be made."), str(source))
-    tracks = ffmpeg.probe(source, cancelled).roles
-    if {t.role for t in tracks} != {"me", "others"}:
+    media = ffmpeg.probe(source, cancelled)
+    if {t.role for t in media.roles} != {"me", "others"}:
         raise Failure(_("A listening balance needs separate microphone and output tracks."), "no independent roles")
-    return tracks
+    return media
 
 
 def _balanced_mix(takes: list[Take], streams: list[int] | None, work: Path, dest: Path, balance: float,
@@ -616,11 +631,16 @@ def _audible_tracks(takes: list[Take], streams: list[int] | None, work: Path,
     takes, streams, _notes = without_echo(takes, work, streams, cancelled)
     indexes = streams if streams is not None else [0] * len(takes)
     audible = []
+    muted = None
     for take, index in zip(takes, indexes, strict=True):
         check(cancelled)
         measure = ffmpeg.measure_loudness(take.path, index, cancelled)
         if not loudness.silent(measure):
             audible.append((take, measure, index))
+        elif muted is None and take.role == "me" and take.muted:
+            muted = (take, measure, index)
+    if not audible and muted is not None:
+        return [muted]
     if not audible:
         raise Failure(_("Nothing was heard on any track: a new listening copy cannot be made."), "silent tracks")
     return audible
@@ -648,8 +668,8 @@ def muted_notes(takes: list[Take]) -> list[str]:
     """Where the user was muted in the call, in words: the sound is there,
     the transcript leaves the microphone's speech out."""
     return [
-        _("{track}: muted in the call {intervals}. What the microphone heard there stays in the recording but "
-          "not in the transcript.").format(track=title(take), intervals=_interval_words(take.muted))
+        _("{track}: muted in the call {intervals}. The original track keeps the sound.").format(
+            track=title(take), intervals=_interval_words(take.muted))
         for take in takes if take.muted
     ]
 
@@ -707,6 +727,7 @@ def finish(takes: list[Take], folder: Path, stem: str, cancelled: threading.Even
     call_range = previous.get("call_range")
     join_id = previous.get("join_id") or (uuid.uuid4().hex if journal is not None else None)
     prepared = journal.takes(previous, "mix_takes") if journal and joined else []
+    reuse_mix = previous.get("mix_mute_applied") or not any(take.muted for take in kept)
     retained = {journal.local(path) for path in previous.get("retained", ())} if journal else set()
     work = Path(tempfile.mkdtemp(prefix=".scriba-work-" if journal else "scriba-echo-",
                                  dir=folder if journal else None))
@@ -722,7 +743,7 @@ def finish(takes: list[Take], folder: Path, stem: str, cancelled: threading.Even
             said(JOINING)
             if journal is not None:
                 journal.save("finishing:joining", takes, elapsed, cut=cut, join_id=join_id, call_range=call_range)
-        if prepared and all(take.path.is_file() for take in prepared):
+        if reuse_mix and prepared and all(take.path.is_file() for take in prepared):
             heard = prepared
             streams = previous.get("mix_streams")
             if excerpt:
@@ -741,7 +762,7 @@ def finish(takes: list[Take], folder: Path, stem: str, cancelled: threading.Even
                 notes.append(_("{reason} The tracks are kept as separate files.").format(reason=e))
                 return Finished(first.path, None, kept, dropped, notes + off_notes(kept) + muted_notes(kept),
                                 pending=journal is not None)
-            if journal is not None and (call_range or excerpt):
+            if journal is not None and (choose is not None or call_range or excerpt):
                 selecting = True
                 joined, excerpt = journal.keep_excerpt(joined, takes, elapsed, previous, choose, said, cancelled,
                                                        retained=retained, cut=cut, call_range=call_range)
@@ -755,14 +776,14 @@ def finish(takes: list[Take], folder: Path, stem: str, cancelled: threading.Even
                 journal.save("finishing:excerpt" if excerpt else "finishing:cleaning", takes, elapsed, joined=joined,
                              retained=retained, cut=cut, excerpt=excerpt)
             check(cancelled)
-            if hears_and_plays(bounded) or sum(t.role == "others" for t in bounded) > 1:
+            if hears_and_plays(bounded) or any(t.muted for t in bounded) or sum(t.role == "others" for t in bounded) > 1:
                 said(CLEANING)
             heard, same_notes = one_of_each(bounded, work, cancelled, streams=streams)
             if streams is not None:
                 indexes = {take.key: index for take, index in zip(bounded, streams, strict=True)}
                 streams = [indexes[take.key] for take in heard]
             notes += same_notes
-            if hears_and_plays(heard):
+            if hears_and_plays(heard) or any(t.muted for t in heard):
                 heard, streams, cleaned = without_echo(heard, work, streams, cancelled=cancelled,
                                                        elapsed=excerpt[1] - excerpt[0] if excerpt else elapsed,
                                                        fraction=fraction)
@@ -787,7 +808,7 @@ def finish(takes: list[Take], folder: Path, stem: str, cancelled: threading.Even
             if journal is not None:
                 return Finished(joined, None, kept, dropped, notes)
         if journal is not None:
-            journal.save("done", takes, elapsed, joined=joined, together=together, cut=cut)
+            journal.save("done", takes, elapsed, joined=joined, together=together, cut=cut, excerpt=excerpt)
         keep_work = False
     except Cancelled:
         if joined is None:
@@ -798,7 +819,7 @@ def finish(takes: list[Take], folder: Path, stem: str, cancelled: threading.Even
             return Finished(joined, None, kept, dropped, notes, pending=True)
         notes.append(_("Listening copy skipped. You can create it from the recording."))
         if journal is not None:
-            journal.save("done", takes, elapsed, joined=joined, cut=cut)
+            journal.save("done", takes, elapsed, joined=joined, cut=cut, excerpt=excerpt)
         keep_work = False
     finally:
         if not keep_work:

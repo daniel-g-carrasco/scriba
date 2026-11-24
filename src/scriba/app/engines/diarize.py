@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import os
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from scriba.app.task import Progress, check, tell
 from scriba.core.segments import Turn
@@ -42,6 +42,7 @@ class Diarization:
     speakers: int               # how many voices
     speech: list[tuple[float, float]]   # the stretches of speech, seconds
     windows: int                # embeddings computed
+    centroids: dict = field(default_factory=dict)
 
 
 _mel_cache: dict = {}
@@ -150,7 +151,7 @@ def embeddings(samples, speech: list[tuple[float, float]], session, progress: Pr
 
 def diarize(samples, vad_model: str | os.PathLike, voice_model: str | os.PathLike, speakers: int | None = None,
             threads: int = 4, progress: Progress | None = None,
-            cancelled: threading.Event | None = None) -> Diarization:
+            cancelled: threading.Event | None = None, *, keep_centroids: bool = False) -> Diarization:
     """The turns of the voices in int16 samples at 16 kHz. `speakers`
     fixes how many voices there are; None lets the grouping find out."""
     # scikit-learn's joblib counts the physical cores with wmic, which
@@ -173,4 +174,9 @@ def diarize(samples, vad_model: str | os.PathLike, voice_model: str | os.PathLik
         [clustering.SpeechSegment(start=s, end=e) for s, e in speech], kept, labels, vectors)
     tell(progress, 1.0, 1.0)
     turns = [Turn(s.start, s.end, s.speaker) for s in segments]
-    return Diarization(turns, len({t.label for t in turns}), speech, len(kept))
+    centroids = {}
+    if keep_centroids:
+        ids, centres = clustering._speaker_centroids(vectors, labels)
+        centroids = {f"SPEAKER_{label:02d}": vector.tolist()
+                     for label, vector in zip(ids, centres, strict=True)}
+    return Diarization(turns, len({t.label for t in turns}), speech, len(kept), centroids)

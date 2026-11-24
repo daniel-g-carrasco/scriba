@@ -29,14 +29,14 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
 from scriba import APP_NAME  # noqa: E402
-from scriba.app import jobs, models  # noqa: E402
+from scriba.app import cuts, jobs, meeting_folders, models  # noqa: E402
 from scriba.app.task import Cancelled, Failure  # noqa: E402
 from scriba.core import estimate  # noqa: E402
-from scriba.core.recording import cut_seconds  # noqa: E402
 from scriba.data.timing import clock  # noqa: E402
 from scriba.i18n import _  # noqa: E402
 
 from .style_values import SPACE_XL  # noqa: E402
+from .trim_range import TrimRange  # noqa: E402
 from .ui import choose_folder, documents_folder, escape, recordings_folder, report, run_in_thread  # noqa: E402
 
 CLAMP = 520
@@ -65,6 +65,7 @@ class TranscribePage(Adw.Bin):
         self.backend = window.backend
         self.source: Path | None = None
         self.media = None                   # ffmpeg.Media of the source, once read
+        self._speaker_count_override: int | None = None
         self.out_override: Path | None = None
         self._reading = 0                   # which reading of a file is the current one
         self._inspect_cancel: threading.Event | None = None
@@ -140,6 +141,7 @@ class TranscribePage(Adw.Bin):
         """Back to the empty page, for a new recording."""
         self.cancel_inspection()
         self.source, self.media, self.out_override = None, None, None
+        self._speaker_count_override = None
         self.show_start()
 
     def settings_changed(self) -> None:
@@ -206,19 +208,15 @@ class TranscribePage(Adw.Bin):
         self.file_row.add_suffix(self.listening_button)
         self._listening_cancel = None
         group.add(self.file_row)
-        self.trim_row = Adw.ActionRow(title=_("Keep only from… to…"), use_markup=False, visible=False)
-        self.trim_times = []
-        self._trim_range = (0, 0)
-        for label in (_("Start (mm:ss or h:mm:ss)"), _("End (mm:ss or h:mm:ss)")):
-            entry = Gtk.Entry(width_chars=7, max_width_chars=11, valign=Gtk.Align.CENTER, tooltip_text=label)
-            entry.update_property([Gtk.AccessibleProperty.LABEL], [label])
-            entry.connect("activate", lambda *_args: self._trim())
-            self.trim_row.add_suffix(entry)
-            self.trim_times.append(entry)
-        self.trim_button = Gtk.Button(label=_("Trim"), valign=Gtk.Align.CENTER)
-        self.trim_button.connect("clicked", lambda *_args: self._trim())
+        self.trim_row = Adw.ActionRow(use_markup=False, visible=False)
+        self.trim_button = Gtk.Button(label=_("Edit Trim…"), valign=Gtk.Align.CENTER)
+        self.trim_button.connect("clicked", lambda *_args: self._edit_trim())
         self.trim_row.add_suffix(self.trim_button)
         group.add(self.trim_row)
+        self.trim_preview = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, visible=False)
+        self.trim_control = None
+        self.cut = None
+        group.add(self.trim_preview)
         self._trim_cancel = None
         self.device_row = Adw.ActionRow(use_markup=False, title=_("Graphics Card"), subtitle_lines=5)
         self.device_icon = Gtk.Image(icon_name="video-display-symbolic")
@@ -313,9 +311,7 @@ class TranscribePage(Adw.Bin):
             self.quality_row.set_visible(True)
             self.quality_row.set_selected(QUALITIES.index(cfg.quality) if cfg.quality in QUALITIES else 0)
             self.voices_row.set_active(cfg.speakers)
-            self.automatic_row.set_active(cfg.speaker_count < 1)
-            self.count_row.set_value(min(cfg.speaker_count, MAX_SPEAKERS) if cfg.speaker_count >= 1 else 2)
-            self._show_count()
+            self._load_count()
             self.video_row.set_active(cfg.subtitled_video)
             self.terms_row.set_text(cfg.terms)
         finally:
@@ -325,6 +321,8 @@ class TranscribePage(Adw.Bin):
         if getattr(self, "_loading", False):
             return
         setattr(self.cfg, name, value)
+        if name == "speaker_count":
+            self._speaker_count_override = value
         self._show_count()
         self._update_model_gate()
         self.refresh_estimate()
@@ -332,6 +330,22 @@ class TranscribePage(Adw.Bin):
     def _counted(self, people: int) -> None:
         if not self.automatic_row.get_active():
             self._chose("speaker_count", people)
+
+    def _speaker_count(self) -> int:
+        if self._speaker_count_override is not None:
+            return self._speaker_count_override
+        people = self.media.teams_people if self.media is not None else 0
+        return min(self.cfg.speaker_count or people, MAX_SPEAKERS)
+
+    def _load_count(self) -> None:
+        loading, self._loading = getattr(self, "_loading", False), True
+        try:
+            count = self._speaker_count()
+            self.automatic_row.set_active(count < 1)
+            self.count_row.set_value(count or 2)
+            self._show_count()
+        finally:
+            self._loading = loading
 
     def _show_count(self) -> None:
         """The number counts only when the voices are told apart, and is
@@ -378,6 +392,20 @@ class TranscribePage(Adw.Bin):
 
     # -- a recording ---------------------------------------------------------------
 
+    def update_moved_source(self, old: Path | None, new: Path | None) -> None:
+        if (old is None or new is None or self.source is None
+                or old.resolve() != self.source.resolve() or str(old) == str(new)):
+            return
+        self.source = new
+        if self.out_override is not None:
+            self.out_override = meeting_folders.rebase(self.out_override.resolve(), old.resolve().parent, new.parent)
+        self.cfg.last_folder = str(new.parent)
+        self.app.save_config()
+        self.file_row.set_title(new.name)
+        facts, separator, _old_folder = self.file_row.get_subtitle().rpartition(" · ")
+        self.file_row.set_subtitle(facts + separator + jobs.full_path(new.parent))
+        self._show_out()
+
     def open(self, path: str) -> None:
         """A recording chosen, dropped or given on the command line."""
         if getattr(self.app, "closing", False):
@@ -398,6 +426,9 @@ class TranscribePage(Adw.Bin):
             self._listening_cancel = None
         self.listening_button.set_visible(False)
         self.trim_row.set_visible(False)
+        self.trim_preview.set_visible(False)
+        if source != self.source:
+            self._speaker_count_override = None
         self.source, self.media, self.out_override = source, None, None
         self.cfg.last_folder = str(source.parent)
         self._load_choices()
@@ -413,13 +444,18 @@ class TranscribePage(Adw.Bin):
         self.show_start()
         reading = self._reading
         cancel = self._inspect_cancel = threading.Event()
+
+        def inspect():
+            media = self.backend.inspect(source, cancelled=cancel)
+            cut = cuts.inspect(source, media, cancel) if source.suffix.lower() == ".mka" and media.roles else None
+            return media, jobs.listening_copy(source, media, cancel), cut
+
         try:
-            run_in_thread(lambda: self.backend.inspect(source, cancelled=cancel),
-                          lambda media, error: self._read(reading, media, error))
+            run_in_thread(inspect, lambda result, error: self._read(reading, result, error))
         except Exception as error:
             self._read(reading, None, error)
 
-    def _read(self, reading: int, media, error) -> None:
+    def _read(self, reading: int, result, error) -> None:
         if reading != self._reading or getattr(self.app, "closing", False):
             return                          # another recording was opened meanwhile
         self._inspect_cancel = None
@@ -432,11 +468,13 @@ class TranscribePage(Adw.Bin):
             self.file_row.add_css_class("error")
             self.estimate_row.set_subtitle("")
             return
+        media, listening, self.cut = result
         self.media = media
+        self._load_count()
         self.listening_button.set_sensitive(True)
         self.listening_button.set_visible(bool(media.roles and self.source.suffix.lower() == ".mka"
-                                               and jobs.listening_copy(self.source) == self.source))
-        self._show_trim(media)
+                                               and listening == self.source))
+        self._show_trim()
         kind = _("video") if media.video else _("audio")
         self.file_icon.set_from_icon_name("video-x-generic-symbolic" if media.video else "audio-x-generic-symbolic")
         facts = [clock(media.duration), kind]
@@ -450,26 +488,52 @@ class TranscribePage(Adw.Bin):
         self._update_model_gate()
         self.refresh_estimate()
 
-    def _show_trim(self, media):
-        available = self.source.suffix.lower() == ".mka" and bool(media.roles) and media.duration > 0
-        self.trim_row.set_visible(available)
-        if available:
-            end = media.suggested_cut[1] if media.suggested_cut else media.duration
-            self._trim_range = media.suggested_range or (0, end)
-            for entry, point in zip(self.trim_times, self._trim_range, strict=True):
-                entry.set_text(clock(point))
+    def _show_trim(self):
+        if self.trim_control is not None:
+            self.trim_preview.remove(self.trim_control)
+            self.trim_control = None
+        cut = self.cut
+        self.trim_row.set_visible(bool(cut and cut.duration > 0))
+        self.trim_preview.set_visible(False)
+        if cut is None:
+            return
+        self.trim_row.set_title(_("Trimmed Recording") if cut.trimmed else _("Whole Recording"))
+        self.trim_row.set_subtitle(
+            _("Original in Previous revisions") if cut.trimmed and cut.original is not None else
+            _("The exact trim times are unavailable.") if cut.trimmed and cut.selection is None else "")
+        self.trim_button.set_sensitive(cut.original is not None)
+        if cut.trimmed and cut.selection is not None:
+            self.trim_control = TrimRange(cut.duration, cut.selection, cut.call)
+            self.trim_preview.append(self.trim_control)
+            self.trim_preview.set_visible(True)
 
-    def _trim(self):
+    def _edit_trim(self):
+        cut = self.cut
+        if cut is None or cut.original is None or self._trim_cancel is not None:
+            return
+        dialog = Adw.AlertDialog(heading=_("Trim the Recording"))
+        control = TrimRange(cut.duration, cut.proposal, cut.call, editable=True)
+        dialog.set_extra_child(control)
+        dialog.add_response("cancel", _("Cancel"))
+        dialog.add_response("trim", _("Trim"))
+        dialog.set_close_response("cancel")
+        dialog.set_response_appearance("trim", Adw.ResponseAppearance.SUGGESTED)
+
+        def choose(_dialog, response):
+            if response == "trim" and self.cut is cut:
+                if control.read_entries():
+                    self._trim(*control.selection.interval)
+                else:
+                    self.window.toast(_("Choose an interval inside the recording."))
+
+        dialog.connect("response", choose)
+        dialog.present(self.window)
+
+    def _trim(self, start, end):
         if (self.source is None or self.media is None or self.busy or getattr(self.app, "closing", False)
                 or self._trim_cancel is not None or self._listening_cancel is not None):
             return
-        try:
-            start, end = (point if entry.get_text() == clock(point) else cut_seconds(entry.get_text())
-                          for entry, point in zip(self.trim_times, self._trim_range, strict=True))
-        except ValueError:
-            start = end = -1
-        if not 0 <= start < end <= self.media.duration or (start == 0 and end == self.media.duration):
-            self.window.toast(_("Choose an interval inside the recording."))
+        if self.cut is None or self.cut.selection == (start, end):
             return
         source = self.source
         cancel = self._trim_cancel = threading.Event()
@@ -478,32 +542,21 @@ class TranscribePage(Adw.Bin):
         self.listening_button.set_sensitive(False)
         self.start_button.set_sensitive(False)
 
-        def work():
-            cut = self.backend.trim(source, start, end, cancel)
-            try:
-                self.backend.listening_mix(cut, cancel)
-            except (Failure, OSError, Cancelled) as error:
-                return cut, error
-            return cut, None
-
-        def done(result, error):
+        def done(cut, error):
             self._trim_cancel = None
             if getattr(self.app, "closing", False):
                 return
             self.trim_row.set_sensitive(True)
-            self.trim_button.set_label(_("Trim"))
+            self.trim_button.set_label(_("Edit Trim…"))
             self.listening_button.set_sensitive(True)
             if error is None:
-                cut, mix_error = result
                 self.open(str(cut))
-                if mix_error is not None and not isinstance(mix_error, Cancelled):
-                    self.window.toast(str(mix_error))
             else:
                 self._update_model_gate()
                 if not isinstance(error, Cancelled):
                     self.window.toast(str(error))
 
-        run_in_thread(work, done)
+        run_in_thread(lambda: self.backend.trim(source, start, end, cancel), done)
 
     def _create_listening_copy(self):
         source = self.source
@@ -529,9 +582,7 @@ class TranscribePage(Adw.Bin):
         home = self._home()
         request = self.backend.request(self.cfg, self.source, None if home else self.out_folder(),
                                        bool(self.media and self.media.video))
-        own_recording = bool(getattr(self.media, "roles", ()))
-        titled_folder = own_recording and self.out_override is None and not self.cfg.output_folder
-        return replace(request, home=home, titled_folder=titled_folder)
+        return replace(request, home=home, speaker_count=self._speaker_count() or None)
 
     def refresh_estimate(self) -> None:
         if self.source is None or self.media is None:
@@ -750,6 +801,8 @@ class TranscribePage(Adw.Bin):
             self.stack.set_visible_child_name("failed")
             self._tell(_("Could Not Transcribe"), text)
         else:
+            self.update_moved_source(Path(request.source), result.source)
+            request = replace(request, source=result.source or request.source)
             self.refresh_estimate()         # the speed just measured
             self.window.show_result(result, request)
             self._tell(_("Transcript Ready"), request.source.name)

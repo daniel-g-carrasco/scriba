@@ -5,20 +5,19 @@ from __future__ import annotations
 import math
 import re
 import uuid
-from contextlib import contextmanager
-from dataclasses import asdict
+from contextlib import ExitStack, contextmanager
+from dataclasses import asdict, replace
 from datetime import datetime
 from pathlib import Path
 
-from scriba.app import recording
+from scriba.app import meeting_folders, recording
 from scriba.app.engines import ffmpeg
 from scriba.app.task import Failure, check
-from scriba.core.callend import MIN_OUTSIDE
 from scriba.data import atomic
 from scriba.i18n import _
 
 SUFFIX = ".scriba-recording.json"
-DATE = r"\d{4}-\d\d-\d\d \d\d-\d\d-\d\d"
+DATE = meeting_folders.DATE
 ORPHAN = re.compile(
     rf"(?P<stem>{DATE} (?:recording|registrazione)(?:_R\d+)?)_"
     r"(?:(?P<mic>microphone|microfono)(?: \d+)?|(?:output|uscita) \d+ (?P<device>.+?))(?:_R\d+)?\.flac",
@@ -31,21 +30,26 @@ class Busy(Failure):
 
 class Journal:
     def __init__(self, folder: Path, stem: str, *, orphan=False):
-        self.folder = folder.resolve()
         self.stem = stem
-        self.path = self.folder / f".{stem}{SUFFIX}"
+        self.bind_folder(folder)
         try:
             self.when = datetime.strptime(stem[:19], "%Y-%m-%d %H-%M-%S")
         except ValueError:
             self.when = datetime.fromtimestamp(folder.stat().st_mtime)
         self.orphan = orphan
         self.summary = (0.0, [])
+        self.teams_minutes: list[dict] = []
+        self.choice_done = False
+
+    def bind_folder(self, folder: Path) -> None:
+        self.folder = folder.resolve()
+        self.path = self.folder / f".{self.stem}{SUFFIX}"
 
     @contextmanager
-    def lock(self):
+    def lock(self, path=None):
         """The OS releases the lock if the writer dies, including on Windows."""
         import os
-        with self.path.with_suffix(".lock").open("a+b") as handle:
+        with (path or self.path.with_suffix(".lock")).open("a+b") as handle:
             handle.seek(0)
             try:
                 if os.name == "nt":
@@ -62,6 +66,7 @@ class Journal:
         output = []
         for take in takes:
             data = asdict(take)
+            data.pop("teams_people", None)    # one maximum for the whole recording
             data["path"] = take.path.resolve().relative_to(self.folder).as_posix()
             if not math.isfinite(take.loudest):
                 data["loudest"] = None
@@ -71,6 +76,13 @@ class Journal:
     def save(self, phase, takes, elapsed, *, joined=None, mix_takes=None, together=None, retained=(), cut=None,
              join_id=None, call_range=None, excerpt=None, original=None, mix_streams=None):
         data = {"version": 1, "phase": phase, "elapsed": elapsed, "takes": self._encoded(takes)}
+        people = max((take.teams_people for take in takes), default=0)
+        if people:
+            data["teams_people"] = people
+        if self.teams_minutes:
+            data["teams_minutes"] = self.teams_minutes
+        if self.choice_done:
+            data["choice_done"] = True
         if cut is not None:
             data["cut"] = cut
         if call_range is not None:
@@ -85,6 +97,7 @@ class Journal:
             data["joined"] = [joined.name, joined.stat().st_size]
         if mix_takes is not None:
             data["mix_takes"] = self._encoded(mix_takes)
+            data["mix_mute_applied"] = True
         if mix_streams is not None:
             data["mix_streams"] = mix_streams
         if retained:
@@ -97,6 +110,8 @@ class Journal:
         data, _warning = atomic.read_json(self.path)
         if not isinstance(data, dict) or data.get("version") != 1:
             raise ValueError("unknown recording checkpoint")
+        self.teams_minutes = data.get("teams_minutes", [])
+        self.choice_done = bool(data.get("choice_done"))
         return data
 
     def local(self, name):
@@ -118,6 +133,7 @@ class Journal:
         takes = []
         for saved in data.get(key, ()):
             values = dict(saved)
+            values["teams_people"] = data.get("teams_people", 0)
             values["path"] = self.local(values["path"])
             for field in "off", "muted", "named_spans":
                 values[field] = tuple(map(tuple, values.get(field, ())))
@@ -148,7 +164,7 @@ class Journal:
             takes.append(recording.Take(f"orphan-{len(takes)}", track.role if track else role,
                                         track.title if track and track.title else device, path, 0.0,
                                         muted=track.muted if track else (), named_spans=track.named_spans if track else (),
-                                        meeting_title=media.meeting_title))
+                                        meeting_title=media.meeting_title, teams_people=media.teams_people))
         return takes
 
     def verified_join(self, data):
@@ -169,7 +185,7 @@ class Journal:
         if not join_id:
             return None
         for path in self.folder.glob("*.mka"):
-            if path.is_symlink() or not path.stem.startswith(self.stem):
+            if path.is_symlink():
                 continue
             try:
                 media = ffmpeg.probe(path)
@@ -184,19 +200,30 @@ class Journal:
         excerpt = previous.get("excerpt")
         original = previous.get("original")
         call_range = metadata.get("call_range")
-        if excerpt is None and choose is not None and call_range:
+        before_cut = previous.get("phase", "recording") in (
+            "recording", "finishing:closing", "finishing:joining", "finishing:waiting")
+        if excerpt is None and choose is not None and not self.choice_done and before_cut:
             media = ffmpeg.probe(joined, cancelled)
-            start, end = call_range
-            end = min(end, media.duration)
-            if 0 <= start < end and start + media.duration - end >= MIN_OUTSIDE:
+            duration = media.duration
+            tail = metadata.get("cut")
+            proposal = (0, tail[1]) if tail and 0 < tail[1] < duration else (0, duration)
+            call = None
+            if call_range:
+                start, end = call_range[0], min(call_range[1], duration)
+                if 0 <= start < end:
+                    call = proposal = start, end
+            if duration > 0:
                 self.save("finishing:waiting", takes, elapsed, joined=joined, **metadata)
                 progress(recording.WAITING)
                 check(cancelled)
-                if choose((start, end), cancelled):
-                    excerpt = start, end
-                else:
-                    self.save("finishing:cleaning", takes, elapsed, joined=joined,
-                              retained=metadata["retained"], cut=metadata["cut"])
+                selection = choose(proposal, cancelled, duration, call)
+                self.choice_done = True
+                if selection:
+                    left, right = selection if isinstance(selection, tuple) else proposal
+                    if 0 <= left < right <= duration and (left, right) != (0, duration):
+                        excerpt = left, right
+                if excerpt is None:
+                    self.save("finishing:cleaning", takes, elapsed, joined=joined, **metadata)
         if excerpt is None:
             return joined, None
         if previous.get("phase") == "finishing:excerpt":
@@ -223,7 +250,7 @@ def pending(root: Path) -> list[Journal]:
         return []
     out = []
     for folder in root.iterdir():
-        if not folder.is_dir() or folder.is_symlink() or not re.fullmatch(DATE + r"(?:_R\d+)?", folder.name):
+        if not folder.is_dir() or folder.is_symlink() or not re.fullmatch(DATE + r"(?:_R\d+| .+)?", folder.name):
             continue
         states = {p.name.removesuffix(".bak") for p in folder.glob(f".*{SUFFIX}*")
                   if p.name.endswith((SUFFIX, SUFFIX + ".bak"))}
@@ -261,23 +288,63 @@ def pending(root: Path) -> list[Journal]:
     return sorted(out, key=lambda item: (item.when, item.stem))
 
 
+@contextmanager
+def _finishing_folder(journal, takes=None, elapsed=0.0):
+    """Lock by directory during work and by parent while the address changes."""
+    old = journal.folder
+    with ExitStack() as lease:
+        with journal.lock(old.parent / ".scriba-finishing.lock"):
+            with journal.lock():
+                try:
+                    data = journal.read()
+                    orphan = False
+                except (OSError, ValueError):
+                    if takes is None and not journal.orphan:
+                        raise
+                    data, orphan = {"phase": "recording", "elapsed": 0.0}, takes is None
+                date = journal.when.strftime("%Y-%m-%d %H-%M-%S")
+                if takes is not None and "takes" not in data and takes:
+                    journal.save("finishing:closing", takes, elapsed)
+                    data = journal.read()
+                state = meeting_folders.read(old)
+                saved = takes if takes is not None else journal.takes(None if orphan else data)
+                title = next((take.meeting_title for take in saved if take.meeting_title), "")
+            # Windows needs all file handles inside the directory closed for the rename.
+            notes = []
+            stem = journal.stem
+            if state is not None:
+                folder, notes = meeting_folders.place(old, state)
+            elif saved and re.fullmatch(DATE + r"(?:_R\d+)?", old.name):
+                state = meeting_folders.MeetingFolder(date)
+                if title:
+                    folder, notes = meeting_folders.place(old, state, title=title)
+                else:
+                    folder = old
+                    try:
+                        state.save(folder)
+                    except OSError:
+                        pass    # An untitled recording can stay in its dated folder.
+            else:
+                folder = old
+            if state is not None and folder.name.startswith(f"{date} "):
+                stem = folder.name
+            if folder.name != old.name:
+                journal.bind_folder(folder)
+                saved = [replace(take, path=meeting_folders.rebase(take.path, old, journal.folder))
+                         for take in saved]
+            lease.enter_context(journal.lock())
+        yield data, saved, orphan, stem, notes
+
+
 def resume(journal, cancelled=None, progress=None, *, fraction=None, choose=None):
-    with journal.lock():
-        try:
-            data = journal.read()
-            orphan = False
-        except (OSError, ValueError):
-            if not journal.orphan:
-                raise
-            data, orphan = {"phase": "recording", "elapsed": 0.0}, True
+    with _finishing_folder(journal) as (data, saved, orphan, stem, notes):
         joined = journal.verified_join(data)
         if data["phase"] == "done":
             if joined is None:
                 raise Failure(_("The saved recording could not be read."), str(journal.path))
-            return recording.Finished(joined, None)
+            return recording.Finished(joined, None, notes=notes)
         if data.get("excerpt") and joined is None:
             raise Failure(_("The saved recording could not be read."), str(journal.path))
-        saved = journal.takes(None if orphan else data)
         takes = [take for take in saved if take.path.is_file() and take.path.stat().st_size > 4]
         elapsed = data.get("elapsed", 0.0) if data["phase"] != "recording" else 0.0
         if joined is not None and (data.get("call_range") or data.get("excerpt")):
@@ -286,10 +353,11 @@ def resume(journal, cancelled=None, progress=None, *, fraction=None, choose=None
             if progress is not None:
                 progress(recording.MIXING)
             together = recording.listening_mix(joined, cancelled)
-            journal.save("done", takes, elapsed, joined=joined, together=together)
-            return recording.Finished(joined, together)
-        finished = recording.finish(takes, journal.folder, journal.stem, cancelled, progress, elapsed=elapsed,
+            journal.save("done", saved, elapsed, joined=joined, together=together, excerpt=data.get("excerpt"))
+            return recording.Finished(joined, together, notes=notes)
+        finished = recording.finish(takes, journal.folder, stem, cancelled, progress, elapsed=elapsed,
                                     fraction=fraction, journal=journal, previous=data, joined=joined, choose=choose)
+        finished.notes[:0] = notes
         if orphan:
             finished.notes.insert(0, _("Recovered tracks from their filenames and tags. Device changes and intervals "
                                        "without tags could not be restored."))
@@ -298,14 +366,12 @@ def resume(journal, cancelled=None, progress=None, *, fraction=None, choose=None
 
 def finalize(journal, takes, cancelled=None, progress=None, *, elapsed=0.0, mix_progress=None, fraction=None,
              choose=None):
-    with journal.lock():
-        try:
-            data = journal.read()
-        except (OSError, ValueError):
-            data = {}
+    with _finishing_folder(journal, takes, elapsed) as (data, saved, _orphan, stem, notes):
         joined = journal.verified_join(data)
         if data.get("phase") == "done" and joined is not None:
-            return recording.Finished(joined, None)
-        return recording.finish(takes, journal.folder, journal.stem, cancelled, progress, elapsed=elapsed,
-                                mix_progress=mix_progress, fraction=fraction, journal=journal,
-                                previous=data, joined=joined, choose=choose)
+            return recording.Finished(joined, None, notes=notes)
+        finished = recording.finish(saved, journal.folder, stem, cancelled, progress, elapsed=elapsed,
+                                    mix_progress=mix_progress, fraction=fraction, journal=journal,
+                                    previous=data, joined=joined, choose=choose)
+        finished.notes[:0] = notes
+        return finished

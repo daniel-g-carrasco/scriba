@@ -141,6 +141,15 @@ def both_heard(segments: Iterable[Segment], me: str, length: float = PREVIEW_SEC
     return start, min(start + length, duration) if duration > 0 else start + length
 
 
+def is_default_name(name: str) -> bool:
+    return not name.strip() or name.strip().casefold() in {"io", "me", _("Me").casefold()}
+
+
+def name_to_remember(previous: str, edited: str) -> str:
+    name = " ".join(edited.split())
+    return name if is_default_name(previous) and not is_default_name(name) else ""
+
+
 def rename(segments: Iterable[Segment], names: Mapping[str, str]) -> list[Segment]:
     """New segments with each voice under its name; a voice with no name
     keeps its label. The segments given are not changed (they are frozen,

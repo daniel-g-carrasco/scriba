@@ -45,6 +45,25 @@ class Integration(unittest.TestCase):
 
 
 class VoiceSafety(unittest.TestCase):
+    def test_named_embedding_uses_observed_speech_instead_of_the_full_voice_centroid(self):
+        import numpy as np
+
+        from scriba.app.engines import community
+
+        activity = np.zeros((2, 10, 2), dtype=np.float32)
+        activity[0, :, 0] = 1
+        activity[1, :, 1] = 1
+        embeddings = np.array([[[1, 0], [0, 0]], [[0, 0], [0, 1]]], dtype=np.float32)
+        diarized = community.CommunityResult([], [], 2, 2, "fixture",
+            intermediates={"segmentation": activity, "embeddings": embeddings})
+        recipe = {"frame": {"start": 0, "duration": 1, "step": 1}, "step": 10,
+                  "exclude_overlap": False}
+        found = community.named_fingerprints(diarized, [("Ada", 0, 10)], recipe)
+        self.assertEqual(set(found), {"Ada"})
+        vector = np.array(found["Ada"])
+        np.testing.assert_allclose(vector / np.linalg.norm(vector), [1, 0])
+        self.assertEqual(community.named_fingerprints(diarized, [("Ada", 0, 10), ("Bob", 0, 10)], recipe), {})
+
     def test_cancelled_selection_never_substitutes_legacy(self):
         from scriba.app import voices
         with patch.object(models,'community_set',return_value=object()), patch.object(models,'community_files',side_effect=Cancelled):
@@ -122,23 +141,43 @@ class VoiceSafety(unittest.TestCase):
             self.assertEqual(path.read_bytes(),before)
             self.assertEqual([p.name for p in reopened.proposals.values()],['Ada, voice 1','Ada, voice 2'])
 
+    def test_saved_teams_fingerprints_restore_a_proposal_without_rerunning_models(self):
+        from scriba.data import markdown
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "sample.mka"
+            lines = [Segment(0, 40, "hello", "A"), Segment(40, 60, "again", "B")]
+            result = jobs.Result([], root / "fake.json", lines, 2, 60, "cpu", {}, source=source,
+                                 folder=root, stem="fake", header=markdown.Header("fake", 60),
+                                 named_spans=(("Ada", 0, 10),), voice_centroids={"A": [0, 1], "B": [1, 0]},
+                                 voice_fingerprints={"Ada": [[1, 0]]})
+            path = jobs._save_session(result, jobs.Request(source))
+            reopened, _ = jobs.open_session(path)
+            self.assertEqual(reopened.voice_fingerprints, result.voice_fingerprints)
+            self.assertEqual(reopened.proposals["B"].source, "voice")
+
 
     def test_remote_count_excludes_microphone_and_text_uses_exclusive(self):
         from scriba.app import voices
         from scriba.core.segments import Turn
         import numpy as np
         mine=jobs._Part(jobs.Track(0,'mic','me'))
-        remote=jobs._Part(jobs.Track(1,'computer','others'))
+        named = (("Ada", 1, 10),)
+        remote=jobs._Part(jobs.Track(1,'computer','others', named_spans=named))
         mine.samples=remote.samples=np.zeros(160000,np.int16)
         mine.lines=[Segment(0,2,'microphone words')]
         remote.lines=[Segment(3,5,'remote words')]
         data=dict(turns=[Turn(0,10,'A'),Turn(0,10,'B')],exclusive=[Turn(0,10,'A')],
-            centroids={'A':[1.,0.]},provenance={'used':'community','accelerator':'webgpu-vulkan'})
+            centroids={'A':[1.,0.]},fingerprints={"Ada": [1., 0.]},
+            provenance={'used':'community','accelerator':'webgpu-vulkan'})
         details={}
         with patch.object(voices,'select',return_value=('community','')),patch.object(voices,'run',return_value=data) as engine:
             lines,me=jobs._voices([mine,remote],jobs.Request(Path('fake'),speakers=True,speaker_count=3),
                                   Path('fake'),jobs.Progress(),None,details)
         self.assertEqual(engine.call_args.args[2],2)
+        self.assertEqual(engine.call_args.kwargs["named"], named)
+        self.assertEqual(details["fingerprints"], {"Ada": [[1., 0.]]})
         self.assertEqual(me,'Speaker 1')
         self.assertEqual([s.text for s in lines],['microphone words','remote words'])
         self.assertEqual(len(details['normal_turns']),2)

@@ -20,13 +20,14 @@ The window has two tabs, **Record** and **Transcribe**, and that is most of it.
 </p>
 
 - **Two tracks, kept apart**: your voice from the microphone, the others from the computer's sound. Each has its own level meter, so you see that both are coming in before the meeting starts. Nothing starts by itself: recording begins when you press the button.
-- **The right devices**, chosen from the system's own information on call devices and sound levels. On Windows, with automatic selection, Scriba switches to the microphone a call program opens after recording has started; on Windows 11 it also follows the call's mute (speech while muted is recorded but not transcribed as yours; this can be switched off in Preferences). When a detected call ends, Scriba can stop after five minutes of silence unless you choose **Continue**. Adjust the timeout in Preferences. Check the microphone and output and their meters before recording: a real call with a Bluetooth headset still needs validation, and automatic selection is not a guarantee that every call setup is captured.
-- **Names from Teams.** On Windows, during a Microsoft Teams meeting, Scriba can read who is speaking from the coloured border Teams draws around the speaker's tile, also when the Teams window is behind others (not when it is minimized). Only names and times are kept, never images. The recording page says when Teams cannot be read; **Names from Teams** in Preferences switches it off.
-- **No echo of the loudspeakers.** When the microphone picks up the computer's loudspeakers, Scriba removes that echo from the microphone's track before transcribing and in the copy to listen to; the original recording is kept unchanged. Headphones still give the best transcript.
+- **The right devices**, chosen from the system's own information on call devices and sound levels. On Windows, with automatic selection, Scriba switches to the microphone a call program opens after recording has started; on Windows 11 it also follows the call's mute (muted intervals are silent in the listening copy and transcript, and the original microphone track retains the sound. Change this in Preferences). When a detected call ends, Scriba can stop after five minutes of silence unless you choose **Continue**. Adjust the timeout in Preferences. Check the microphone and output and their meters before recording: a real call with a Bluetooth headset still needs validation, and automatic selection is not a guarantee that every call setup is captured.
+- **Names from Teams.** On Windows, Scriba can read the coloured border around a Teams speaker's tile, including one-pixel borders on high-resolution screens. The largest number of people seen, including your own tile, is suggested in Transcribe. The recording page reports when names are unavailable or when no speaker has been recognised for five minutes. Its state file keeps minute-by-minute counts and the peak coverage of each border side. Scriba keeps names and times for speaker suggestions and discards captured images. **Names from Teams** in Preferences switches off reading tiles.
+- **No echo of the loudspeakers.** Scriba removes echo from the microphone before transcribing and in the listening copy. The original keeps its sound. Open an old recording in Transcribe to make a new listening copy that honours call mute.
 - **Progress after stopping.** The Record tab, notification area and quit dialog show the estimated finish time while Scriba saves the recording. You can skip finishing and create the listening copy later from the Transcribe tab.
-- **Only the call.** On Windows, after stopping, Scriba offers to keep just the call when at least a minute falls outside the detected interval. With several calls it keeps from the first start to the last end, plus up to ten seconds on each side. Choose in the Record tab or in the notification. After two minutes Scriba keeps the call by default. It saves the complete recording before asking, puts it in Previous revisions if you keep only the call, and then makes the listening copy from the excerpt.
-- **Trim a recording.** In the Transcribe tab, edit the start and end of the part to keep. When Scriba knows the call interval or detects a long silence at the end, it fills in a suggestion. Trimming keeps the tracks without re-encoding and moves the original to Previous revisions.
-- **Every recording has a folder of its own.** Recording uses progressive FLAC tracks; once the joined recording is checked, those intermediate files are removed and their original tracks remain in the MKA. When a recording or save was interrupted, Scriba offers to finish it when it opens again.
+- **End of the call.** On Windows, Scriba sends a notification with **Stop** and **Continue**, including while Scriba is in the tray. The visible window also shows the time left before the automatic stop.
+- **Choose a cut.** At stop the timeline proposes the call interval when available. Drag either handle, use the arrow keys (Shift for ten seconds), or type the two times. Choose **Trim** or **Keep All**. After two minutes Scriba applies the selection shown on the bar.
+- **See or edit a cut.** Transcribe shows the saved part of the whole recording. **Edit Trim** lets you choose again from the complete recording in Previous revisions. Trimming keeps the tracks without re-encoding and refreshes the listening copy. Transcribe the new selection when you need its text.
+- **Every recording has a folder of its own.** It starts with the date and time. Scriba adds the meeting title at stop if it knows it. The folder also follows changes to the title on the Result page. Recording uses progressive FLAC tracks. Once the joined recording is checked, the intermediate files are removed and their original tracks remain in the MKA. When a recording or save was interrupted, Scriba offers to finish it when it opens again.
 
 ## Transcribe
 
@@ -35,10 +36,10 @@ The window has two tabs, **Record** and **Transcribe**, and that is most of it.
 </p>
 
 - **Any recording**: a Teams mp4, an OBS mkv, a phone's m4a, an mp3 or a wav, opened or dropped on the window, or the one just recorded. You choose the language, the quality, how many people speak, and the words that must be written right (names, acronyms, the client, the project's code); files of terms chosen in Preferences, one term a line, are read at every transcription too.
-- **Who said what.** The voices are told apart and the transcript is written in paragraphs per speaker. Your microphone's voice takes the **My Name** preference (initially **Io**); the others can be named on the Result page, with a short excerpt of each voice to listen to. After a Teams meeting the names read from Teams are proposed, with the share of speech that matched; they stay editable, and enter the files with **Save with the Names**. A meeting JSON can be reopened to correct names without transcribing again.
-- **The files**: Markdown, plain text, subtitles (at most two lines of 42 characters and 7 seconds), and a copy of the video with the subtitles inside. A new transcription of the same audio keeps the previous transcripts in a folder of previous revisions.
+- **Who said what.** Scriba writes the transcript in paragraphs per speaker. Your microphone's voice takes the **My Name** preference (initially **Io**). The Result page has an excerpt for each voice. A name read by Teams in part of the meeting can be proposed for the whole voice and for other matching voices. The proposal shows the time observed or the voice match. **Save with the Names** updates the transcript files in place. Reopen the meeting JSON to correct or clear names.
+- **The files.** Markdown, plain text, subtitles (at most two lines of 42 characters and 7 seconds), and the meeting JSON go next to the recording by default. A video can also get a copy with subtitles. A meeting folder for an external file keeps a link to the source. A new transcription of the same audio moves the earlier files to Previous revisions.
 - **Honest about doubts.** Doubtful lines stay in the text, marked `(?)`; when more than a quarter of the text is doubtful, the files and the Result page say so and advise listening again.
-- **A copy to listen to**, with the balance between the microphone and the other participants when their original tracks are there, and a short preview before saving.
+- **A copy to listen to.** Hear a short preview of the balance between the microphone and the other participants. Saving updates the same listening copy from the original tracks.
 - **On your graphics card when it helps.** The app benchmarks the graphics cards and processor on a bundled public-domain speech sample, checking the words as well as the speed, and says how long the work should take. Actual processing time depends on the computer and the recording.
 
 ## Gallery
@@ -78,7 +79,23 @@ The first start downloads the checked speech models: about 600 MB for the fast t
 
 By default, closing the window keeps Scriba running in the notification area when the desktop has one. Its icon shows recording, pause, transcription, download and error states. Reopen the window from the icon, or choose Quit to finish saving and exit. This can be switched off in Preferences. On Linux desktops without a supported notification area, closing the window quits as usual.
 
-## Command line
+## Command line and assistants
+
+Use `scriba-cli.exe` from the Windows ZIP or installer. With the Flatpak, use
+`flatpak run --command=scriba io.github.daniel_g_carrasco.scriba`.
+
+```console
+scriba list --since 2026-11-01 --json
+scriba show "Project Alpha" --format md
+scriba voices "Project Alpha" --json
+scriba search "estimate" --meeting "Project Alpha" --json
+scriba names "Project Alpha" --set "Speaker 1=Ada" --json
+```
+
+The meeting commands use the recordings folder in Preferences. Use
+`--folder` to point them elsewhere. See [the command and JSON reference](docs/cli.md).
+
+From a source checkout, the existing recording and transcription commands also run from the terminal.
 
 ```bash
 python bin/scriba transcribe recording.mkv --speakers
