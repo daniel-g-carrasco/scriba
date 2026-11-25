@@ -613,15 +613,19 @@ class WindowTest(unittest.TestCase):
         from scriba.core.naming import Proposal
         window = self.result_window()
         result = window.result.result
-        result.proposals = {"Speaker 2": Proposal("Ada Example", 8.2, 0.82)}
         before = dict(result.names)
-        window.show_result(result, window.result.request)
-        entry = window.result.entries["Speaker 2"]
-        self.assertEqual(entry.get_text(), "Ada Example")
-        self.assertIn("from Teams, 8 s of 10 s", label_texts(entry))
-        self.assertEqual(result.names, before)
-        entry.set_text("Bob Example")
-        self.assertEqual(window.result.names()["Speaker 2"], "Bob Example")
+        for proposal, reason in (
+                (Proposal("Ada Example", 8.2, 0.82), "from Teams, 8 s of 10 s"),
+                (Proposal("Vela Example", 0, 0, "two-person"), "from Teams, two-person call")):
+            with self.subTest(source=proposal.source):
+                result.proposals = {"Speaker 2": proposal}
+                window.show_result(result, window.result.request)
+                entry = window.result.entries["Speaker 2"]
+                self.assertEqual(entry.get_text(), proposal.name)
+                self.assertIn(reason, label_texts(entry))
+                self.assertEqual(result.names, before)
+                entry.set_text("Bob Example")
+                self.assertEqual(window.result.names()["Speaker 2"], "Bob Example")
 
     def test_the_whole_text_is_a_page_of_its_own_with_one_scrolling_area(self):
         from scriba.core.paragraphs import paragraphs

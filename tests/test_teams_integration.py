@@ -1,14 +1,15 @@
 """Recording tags and session compatibility with invented named intervals."""
 import json
 import threading
+import tempfile
 import unittest
 from pathlib import Path
 
 import _setup  # noqa: F401
-from scriba.app import recording
+from scriba.app import recording, recovery
 from scriba.app.config import Config
 from scriba.app.engines import ffmpeg
-from scriba.core import callend, spans, teams
+from scriba.core import callend, devices, spans, teams
 from scriba.data import session
 
 
@@ -22,6 +23,7 @@ class PersistenceTest(unittest.TestCase):
         recorder._named, recorder._state, recorder._off = Builder(), "recording", set()
         recorder._call_end = callend.CallEnd()
         recorder._teams_people = 0
+        recorder._teams_remotes = {}
         recorder._teams_summary = teams.ReadingSummary()
         recorder.teams_names = True
         at = [0.0]
@@ -35,6 +37,54 @@ class PersistenceTest(unittest.TestCase):
         recorder.teams_reading(Reading("ready", ("Ada Example",), 2))
         self.assertEqual(recorder._named.finish(9), (("Ada Example", 0, 4), ("Ada Example", 5, 7)))
         self.assertEqual(recorder._teams_people, 8)
+
+    def test_two_person_peer_is_gated_by_all_readings_and_drives_the_title(self):
+        from test_recorder import gstreamer
+
+        from scriba.app.teams import Reading
+
+        with tempfile.TemporaryDirectory() as folder:
+            plan = devices.Plan(None, (devices.Device("out", "Headset", devices.OUTPUT),))
+            recorder = gstreamer().Recorder(plan, Path(folder), "invented")
+            recorder._state = "recording"
+            recorder.teams_names = True
+            name = "Vela Example - Fictional Studio"
+            recorder.teams_reading(Reading("unavailable", people=2, title=name, remote_names=(name,)))
+            self.assertEqual(recorder._teams_metadata(), ("Call with Vela Example", name))
+            recorder.teams_reading(Reading("ready", people=2, title="Planning", remote_names=(name,)))
+            self.assertEqual(recorder._teams_metadata(), ("Planning", name))
+            recorder.teams_reading(Reading("ready", people=2, title=name, remote_names=("Timo Example",)))
+            self.assertEqual(recorder._teams_metadata(), (name, ""))
+
+    def test_a_third_seen_person_rules_out_the_two_person_peer_even_after_leaving(self):
+        from test_recorder import gstreamer
+
+        from scriba.app.teams import Reading
+
+        with tempfile.TemporaryDirectory() as folder:
+            plan = devices.Plan(None, (devices.Device("out", "Headset", devices.OUTPUT),))
+            recorder = gstreamer().Recorder(plan, Path(folder), "invented")
+            recorder._state = "recording"
+            recorder.teams_names = True
+            name = "Vela Example"
+            recorder.teams_reading(Reading("ready", people=3))
+            recorder.teams_reading(Reading("ready", people=2, title=name, remote_names=(name,)))
+            self.assertEqual(recorder._teams_metadata(), (name, ""))
+
+    def test_two_person_peer_survives_checkpoint_and_matroska_tags(self):
+        with tempfile.TemporaryDirectory() as folder:
+            journal = recovery.Journal(Path(folder), "invented")
+            take = recording.Take("out", "others", "Headset", Path(folder) / "invented.flac",
+                                  teams_people=2, teams_peer="Vela Example", meeting_title="Call with Vela Example")
+            journal.save("recording", [take], 1)
+            restored, = journal.takes()
+            self.assertEqual(restored.teams_peer, take.teams_peer)
+            args = recording.join_arguments("ffmpeg", [restored], "invented.mka")
+            tags = dict(arg.split("=", 1) for arg in args if arg.startswith("SCRIBA_") and "=" in arg)
+            media = ffmpeg.parse_probe(json.dumps({"format": {"tags": tags}}))
+            self.assertEqual(media.teams_people, 2)
+            self.assertEqual(media.teams_peer, take.teams_peer)
+            self.assertEqual(media.meeting_title, take.meeting_title)
 
     def test_old_settings_and_sessions_take_optional_defaults(self):
         self.assertTrue(Config.from_json({}).teams_names)
@@ -74,3 +124,16 @@ class PersistenceTest(unittest.TestCase):
         self.assertEqual(media.tracks[0].named_spans, named)
         saved = session.Session(named_spans=named)
         self.assertEqual(session.from_json(json.loads(session.dumps(saved))).named_spans, named)
+
+    def test_minute_keeps_offset_and_thickness_of_strongest_valid_band_on_each_side(self):
+        summary = teams.ReadingSummary()
+        first = (teams.Band(.90, -1, 1), teams.Band(.80, 3, 4), None, None)
+        second = (teams.Band(.80, 2, 4), teams.Band(.95, 4, 3), None, teams.Band(.96, 3, 4))
+        summary.observe(0, "ready", 5, False, "screen", False, (.90, .80, 0, 0), first)
+        summary.observe(1, "ready", 5, False, "screen", False, (.99, .95, 0, .96), second)
+        summary.observe(60, "ready", 5, False, "screen", False, (0, 0, 0, 0), (None,) * 4)
+        self.assertEqual(summary.minutes[0]["border_side_max"], [.99, .95, 0, .96])
+        self.assertEqual(summary.minutes[0]["border_side_offset"], [-1, 4, None, 3])
+        self.assertEqual(summary.minutes[0]["border_side_thickness"], [1, 3, None, 4])
+        self.assertEqual(summary.minutes[1]["border_side_offset"], [None] * 4)
+        self.assertEqual(summary.minutes[1]["border_side_thickness"], [None] * 4)

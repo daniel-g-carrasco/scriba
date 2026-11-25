@@ -75,8 +75,8 @@ def run(samples, where, speakers=None, requested='auto', progress=None, cancelle
         return data
 
 
-def proposals(lines, named, centroids, microphone='', *, fingerprints=None):
-    from scriba.core import naming
+def proposals(lines, named, centroids, microphone='', *, fingerprints=None, teams_peer=""):
+    from scriba.core import naming, segments
     found, reasons = naming.propose_with_voices(lines,named,centroids,microphone,fingerprints=fingerprints)
     # Keep core independent of gettext; localise the editable display proposals here.
     from dataclasses import replace
@@ -84,6 +84,10 @@ def proposals(lines, named, centroids, microphone='', *, fingerprints=None):
         if ', voice ' in proposal.name:
             name, number = proposal.name.rsplit(', voice ',1)
             found[key] = replace(proposal,name=_("{name}, voice {number}").format(name=name,number=number))
+    if teams_peer and not found:
+        remote = [voice for voice in segments.speakers_of(lines) if voice and voice != microphone]
+        if len(remote) == 1:
+            found[remote[0]] = naming.Proposal(teams_peer, 0, 0, "two-person")
     messages = {
         'multiple_voices': _("Several different voices are heard from the same Teams participant."),
         'merge_voices': _("Very similar voices share a Teams participant; you can give them the same name."),

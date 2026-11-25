@@ -36,6 +36,8 @@ class Reading:
     covered: bool | None = None
     error: bool = False
     border_sides: tuple[float, float, float, float] | None = None
+    border_bands: teams.Bands | None = None
+    remote_names: tuple[str, ...] = ()
 
 
 class CapturePolicy:
@@ -92,6 +94,7 @@ class Reader(com.Indicator):
             (self._user32, "IsWindowVisible", [w.HWND], w.BOOL),
             (self._user32, "IsIconic", [w.HWND], w.BOOL),
             (self._user32, "GetWindowRect", [w.HWND, ctypes.POINTER(w.RECT)], w.BOOL),
+            (self._user32, "GetDpiForWindow", [w.HWND], w.UINT),
             (self._user32, "GetWindow", [w.HWND, w.UINT], w.HWND),
             (self._user32, "GetDC", [w.HWND], w.HDC),
             (self._user32, "ReleaseDC", [w.HWND, w.HDC], ctypes.c_int),
@@ -241,7 +244,9 @@ class Reader(com.Indicator):
                 return Reading("minimized", title=title)
             if not self._user32.IsWindowVisible(hwnd) or not tiles:
                 return Reading("unavailable", title=title, meeting=True)
-            people = sum(not person.own for person, _rect in tiles) + any(person.own for person, _rect in tiles)
+            remotes = tuple(person.name for person, _rect in tiles if not person.own)
+            people = len(remotes) + any(person.own for person, _rect in tiles)
+            remote_names = tuple(dict.fromkeys(remotes))
             rect = self._rect(hwnd)
             printed = self._capture(hwnd, rect)
             self.covered = not self._uncovered(hwnd, rect)
@@ -249,22 +254,26 @@ class Reader(com.Indicator):
             pixels = self._policy.choose(printed, screen)
             if pixels is None:
                 return Reading("unavailable", people=people, title=title, meeting=True,
-                               tiles=len(tiles), covered=self.covered)
+                               tiles=len(tiles), covered=self.covered, remote_names=remote_names)
             self.capture_source = "print-window" if pixels is printed else "screen"
             left, top, right, bottom = rect
+            dpi = self._user32.GetDpiForWindow(hwnd)
             active = []
             best_sides = None
+            best_bands = teams.NO_BANDS
             for person, (a, b, c, d) in tiles:
                 if person.own:
                     continue
                 tile = (math.floor(a - left), math.floor(b - top), math.ceil(c - left), math.ceil(d - top))
-                border = teams.border(pixels, right - left, bottom - top, (right - left) * 4, tile)
+                border = teams.border(pixels, right - left, bottom - top, (right - left) * 4, tile, dpi=dpi)
                 best_sides = (border.sides if best_sides is None else
                               tuple(map(max, best_sides, border.sides)))
+                best_bands = teams.strongest_bands(best_bands, border.bands)
                 if border.active:
                     active.append(person.name)
             return Reading("ready", tuple(dict.fromkeys(active)), people, title, tiles=len(tiles),
-                           capture_source=self.capture_source, covered=self.covered, border_sides=best_sides)
+                           capture_source=self.capture_source, covered=self.covered, border_sides=best_sides,
+                           border_bands=best_bands if best_sides is not None else None, remote_names=remote_names)
         self._policy, self._window = CapturePolicy(), None
         return Reading("no-meeting")
 

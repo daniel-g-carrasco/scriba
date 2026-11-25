@@ -50,6 +50,11 @@
   </requires>
 
   <releases>
+    <release version="0.1.15" date="2026-11-25" type="stable">
+      <description>
+        <p>Teams speaker names are read from the thicker borders of current Teams, and two-person calls name the other voice. On Windows, Scriba follows the main screen's scale like the other apps.</p>
+      </description>
+    </release>
     <release version="0.1.14" date="2026-11-24" type="stable">
       <description>
         <p>Teams speaker names are read on high-resolution screens and from a single part of the call. The recording cut is chosen on one timeline, each meeting has one titled folder, and names and balance update the files in place.</p>

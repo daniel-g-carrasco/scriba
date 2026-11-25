@@ -57,8 +57,6 @@ def main(argv=None) -> int:
     os.environ["LANGUAGE"] = args.lang
     if os.name == "nt":
         os.environ.setdefault("GTK_CSD", "0")       # as the app: the system's title bar, not GTK's
-        from scriba.app import win32
-        win32.per_monitor_dpi()                     # as the app: each screen's dpi, before GTK starts
 
     from scriba import PACKAGE_DIR, TEXTDOMAIN, i18n
     i18n.setup(TEXTDOMAIN, PACKAGE_DIR.parent.parent, args.lang)

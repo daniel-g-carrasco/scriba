@@ -434,6 +434,8 @@ class ResultPage(Adw.NavigationPage):
             if proposal and voice.label not in self.result.names:
                 if proposal.source == "voice":
                     reason = _("from Teams, voice match")
+                elif proposal.source == "two-person":
+                    reason = _("from Teams, two-person call")
                 else:
                     reason = _("from Teams, {heard} of {total}").format(
                         heard=estimate.span(proposal.seconds), total=estimate.span(proposal.seconds / proposal.share))

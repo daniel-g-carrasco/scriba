@@ -67,6 +67,7 @@ class Journal:
         for take in takes:
             data = asdict(take)
             data.pop("teams_people", None)    # one maximum for the whole recording
+            data.pop("teams_peer", None)
             data["path"] = take.path.resolve().relative_to(self.folder).as_posix()
             if not math.isfinite(take.loudest):
                 data["loudest"] = None
@@ -79,6 +80,8 @@ class Journal:
         people = max((take.teams_people for take in takes), default=0)
         if people:
             data["teams_people"] = people
+        if peer := next((take.teams_peer for take in takes if take.teams_peer), ""):
+            data["teams_peer"] = peer
         if self.teams_minutes:
             data["teams_minutes"] = self.teams_minutes
         if self.choice_done:
@@ -134,6 +137,7 @@ class Journal:
         for saved in data.get(key, ()):
             values = dict(saved)
             values["teams_people"] = data.get("teams_people", 0)
+            values["teams_peer"] = data.get("teams_peer", "")
             values["path"] = self.local(values["path"])
             for field in "off", "muted", "named_spans":
                 values[field] = tuple(map(tuple, values.get(field, ())))
@@ -164,7 +168,8 @@ class Journal:
             takes.append(recording.Take(f"orphan-{len(takes)}", track.role if track else role,
                                         track.title if track and track.title else device, path, 0.0,
                                         muted=track.muted if track else (), named_spans=track.named_spans if track else (),
-                                        meeting_title=media.meeting_title, teams_people=media.teams_people))
+                                        meeting_title=media.meeting_title, teams_people=media.teams_people,
+                                        teams_peer=media.teams_peer))
         return takes
 
     def verified_join(self, data):

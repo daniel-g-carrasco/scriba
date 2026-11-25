@@ -73,6 +73,50 @@ class BorderTest(unittest.TestCase):
                 self.draw_border(pixels, stride, tile, thickness, corners=corners)
                 self.assertTrue(teams.border(pixels, width, height, stride, tile).active)
 
+    def test_inset_border_at_192_dpi_does_not_light_touching_tiles(self):
+        width, height, stride = 1650, 910, 6608
+        tile = (346, 536, 996, 902)
+        pixels = bytearray(stride * height)
+        self.draw_border(pixels, stride, (349, 539, 993, 899), 4, corners=12)
+
+        measured = teams.border(pixels, width, height, stride, tile, dpi=192)
+
+        self.assertTrue(measured.active)
+        self.assertEqual([(band.offset, band.thickness) for band in measured.bands], [(3, 4)] * 4)
+        for neighbor in ((349, 173, 993, 534), (996, 536, 1646, 902)):
+            with self.subTest(neighbor=neighbor):
+                other = teams.border(pixels, width, height, stride, neighbor, dpi=192)
+                self.assertFalse(other.active)
+                self.assertEqual(other.bands, (None,) * 4)
+
+    def test_seven_pixel_border_ending_near_the_search_limit_at_192_dpi(self):
+        # Measured on real Teams frames at 192 dpi: the speaking border runs
+        # from 3 to 8 or 9 pixels inside the tile; the drop after it falls on
+        # the last line searched.
+        width, height, stride = 1300, 800, 5200
+        tile = (254, 113, 1074, 743)
+        pixels = bytearray(stride * height)
+        self.draw_border(pixels, stride, (257, 116, 1071, 740), 7, corners=12)
+
+        measured = teams.border(pixels, width, height, stride, tile, dpi=192)
+
+        self.assertTrue(measured.active)
+        self.assertEqual([(band.offset, band.thickness) for band in measured.bands], [(3, 7)] * 4)
+
+    def test_border_can_start_outside_the_tile_at_100_percent(self):
+        width, height, stride = 120, 100, 496
+        pixels = bytearray(stride * height)
+        self.draw_border(pixels, stride, (9, 9, 111, 91))
+        measured = teams.border(pixels, width, height, stride, (10, 10, 110, 90))
+        self.assertTrue(measured.active)
+        self.assertEqual([(band.offset, band.thickness) for band in measured.bands], [(-1, 1)] * 4)
+
+    def test_inside_border_is_read_at_the_frame_edge(self):
+        width, height, stride = 120, 100, 496
+        pixels = bytearray(stride * height)
+        self.draw_border(pixels, stride, (0, 0, width, height))
+        self.assertTrue(teams.border(pixels, width, height, stride, (0, 0, width, height)).active)
+
     def test_extensive_blue_video_at_two_edges_or_all_edges_is_not_a_border(self):
         width, height, stride = 120, 100, 496
         tile = (10, 10, 110, 90)

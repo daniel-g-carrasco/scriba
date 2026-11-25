@@ -2,14 +2,12 @@
 import re
 from dataclasses import dataclass
 
-BAND = 5
-OUTSET = 1
+INSET_AT_96_DPI = 5
+MAX_OUTSET = 2
 BLUE_MIN = 170
 BLUE_EXCESS = 50
 SIDE_SHARE = 0.60
 EDGE_CONTRAST = 0.20
-# A one-pixel line on three sides was measured on a 4K Teams window.
-# The interior comparison rejects blue video filling several edges.
 
 # Localized accessibility fragments live here alone. English is covered by
 # synthetic tests, not yet verified in a live English Teams meeting.
@@ -29,19 +27,37 @@ class Person:
     own: bool = False
 
 
+@dataclass(frozen=True)
+class Band:
+    share: float
+    offset: int
+    thickness: int
+
+
+Bands = tuple[Band | None, Band | None, Band | None, Band | None]
+NO_BANDS: Bands = (None, None, None, None)
+
+
+def strongest_bands(previous: Bands, current: Bands) -> Bands:
+    return tuple(new if old is None or (new is not None and new.share > old.share) else old
+                 for old, new in zip(previous, current, strict=True))
+
+
 class ReadingSummary:
     """Counts by minute on the recording timeline, with no names or images."""
 
     def __init__(self):
         self.minutes: list[dict] = []
+        self._bands = NO_BANDS
         self._no_border_since = None
         self.without_border = 0
 
-    def observe(self, at, state, tiles, active, source, covered, border_sides=None):
+    def observe(self, at, state, tiles, active, source, covered, border_sides=None, border_bands=None):
         minute = int(at // 60)
         if not self.minutes or self.minutes[-1]["minute"] != minute:
             self.minutes.append({"minute": minute, "states": {}, "max_tiles": 0, "with_border": 0,
                                  "sources": {}, "covered": 0, "uncovered": 0})
+            self._bands = NO_BANDS
         row = self.minutes[-1]
         states = row["states"]
         states[state] = states.get(state, 0) + 1
@@ -55,6 +71,10 @@ class ReadingSummary:
         if border_sides is not None:
             previous = row.get("border_side_max", (0.0, 0.0, 0.0, 0.0))
             row["border_side_max"] = [round(max(old, new), 4) for old, new in zip(previous, border_sides, strict=True)]
+        if border_bands is not None:
+            self._bands = strongest_bands(self._bands, border_bands)
+            row["border_side_offset"] = [band.offset if band else None for band in self._bands]
+            row["border_side_thickness"] = [band.thickness if band else None for band in self._bands]
 
         if state != "ready" or not tiles or active:
             self.interrupt()
@@ -93,22 +113,41 @@ def tile_name(text: str) -> Person | None:
 class Border:
     sides: tuple[float, float, float, float]
     active: bool
+    bands: Bands = NO_BANDS
+
+
+def _strongest_band(shares: list[float], first_offset: int) -> Band | None:
+    best = None
+    start, peak = 0, 0.0
+    for offset, share in enumerate(shares, start=first_offset):
+        if share >= SIDE_SHARE:
+            if not peak:
+                start = offset
+            peak = max(peak, share)
+            continue
+        if peak - share >= EDGE_CONTRAST and (best is None or peak > best.share):
+            best = Band(peak, start, offset - start)
+        peak = 0.0
+    return best
 
 
 def border(pixels: bytes, width: int, height: int, stride: int,
-           rectangle: tuple[int, int, int, int]) -> Border:
+           rectangle: tuple[int, int, int, int], *, dpi: int = 96) -> Border:
     """Top-down BGRA pixels, rectangle in physical pixels (left, top, right, bottom).
 
     A clipped tile cannot supply three reliable sides, so is never active.
-    Each side reports its strongest line. A distinct edge also has substantially
-    less blue on the line just inside the band.
+    Side order is top, bottom, left, right. Offsets are signed physical pixels
+    from the tile's outermost row or column, positive toward its interior.
+    A band must end with a sharp drop in blue before it can count as an edge.
     """
     if width <= 0 or height <= 0 or stride < width * 4 or len(pixels) < stride * height:
         raise ValueError("Invalid BGRA frame dimensions")
     left, top, right, bottom = rectangle
-    left, top, right, bottom = left - OUTSET, top - OUTSET, right + OUTSET, bottom + OUTSET
+    dpi = max(96, dpi)
+    inset = round(INSET_AT_96_DPI * dpi / 96)
+    outset = min(MAX_OUTSET, round(dpi / 96))
     if (left < 0 or top < 0 or right > width or bottom > height
-            or right - left <= 2 * BAND or bottom - top <= 2 * BAND):
+            or min(right - left, bottom - top) <= 2 * inset):
         return Border((0.0, 0.0, 0.0, 0.0), False)
 
     def blue_share(start, length, step):
@@ -122,16 +161,19 @@ def border(pixels: bytes, width: int, height: int, stride: int,
         return blue_share(y * stride + left * 4, right - left, 4)
 
     def vertical(x):
-        return blue_share((top + BAND) * stride + x * 4, bottom - top - 2 * BAND, stride)
+        return blue_share(top * stride + x * 4, bottom - top, stride)
 
-    shares = (
-        max(map(horizontal, range(top, top + BAND))),
-        max(map(horizontal, range(bottom - BAND, bottom))),
-        max(map(vertical, range(left, left + BAND))),
-        max(map(vertical, range(right - BAND, right))),
+    def side(sample, origin, direction, available_outside):
+        first_offset = -min(outset, available_outside)
+        # One extra sample lets a band end at the last searched position.
+        shares = [sample(origin + direction * offset) for offset in range(first_offset, inset + 2)]
+        return max(shares[:-1]), _strongest_band(shares, first_offset)
+
+    measures = (
+        side(horizontal, top, 1, top),
+        side(horizontal, bottom - 1, -1, height - bottom),
+        side(vertical, left, 1, left),
+        side(vertical, right - 1, -1, width - right),
     )
-    inside = (horizontal(top + BAND), horizontal(bottom - BAND - 1),
-              vertical(left + BAND), vertical(right - BAND - 1))
-    edges = sum(share >= SIDE_SHARE and share - inner >= EDGE_CONTRAST
-                for share, inner in zip(shares, inside, strict=True))
-    return Border(shares, edges >= 3)
+    shares, bands = zip(*measures, strict=True)
+    return Border(shares, sum(band is not None for band in bands) >= 3, bands)

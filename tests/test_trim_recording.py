@@ -43,7 +43,8 @@ class TailCutTest(unittest.TestCase):
     def test_editing_a_cut_replaces_the_working_mka_and_mix_but_keeps_the_original(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            takes = [recording.Take("m", "me", "Mic", flac(root / "m.flac", 9, .1)),
+            takes = [recording.Take("m", "me", "Mic", flac(root / "m.flac", 9, .1),
+                                    teams_people=2, teams_peer="Vela Example"),
                      recording.Take("o", "others", "Out", flac(root / "o.flac", 9, .2, 660))]
             source = recording.join(takes, root, "recording", call_range=(2, 7))
             whole = source.read_bytes()
@@ -59,6 +60,7 @@ class TailCutTest(unittest.TestCase):
             self.assertEqual(second.selection, (1, 8))
             self.assertEqual(second.original, first.original)
             self.assertEqual(second.original.read_bytes(), whole)
+            self.assertEqual(ffmpeg.probe(source).teams_peer, "Vela Example")
             self.assertEqual(len(list(root.glob("*.mka"))), 1)
             self.assertEqual(len(list(root.glob("*.m4a"))), 1)
             self.assertAlmostEqual(ffmpeg.probe(next(root.glob("*.m4a"))).duration, 7, delta=.2)

@@ -60,6 +60,7 @@ TRIM_SELECTION_TAG = "SCRIBA_TRIM_SELECTION"
 TRIM_ORIGINAL_TAG = "SCRIBA_TRIM_ORIGINAL"
 JOIN_ID_TAG = "SCRIBA_JOIN_ID"
 TEAMS_PEOPLE_TAG = "SCRIBA_TEAMS_PEOPLE"
+TEAMS_PEER_TAG = "SCRIBA_TEAMS_PEER"
 
 
 @dataclass(frozen=True)
@@ -88,6 +89,7 @@ class Media:
     trimmed: bool = False
     trim_selection: tuple[float, float, float] | None = None
     trim_original: str = ""
+    teams_peer: str = ""
 
     @property
     def roles(self) -> tuple[Track, ...]:
@@ -204,7 +206,7 @@ def parse_probe(text: str) -> Media:
                  meeting_title=tags.get("SCRIBA_MEETING_TITLE", ""), suggested_cut=cut,
                  join_id=tags.get(JOIN_ID_TAG, ""), suggested_range=interval, teams_people=teams_people,
                  trimmed=trimmed, trim_selection=selection, trim_original=tags.get(TRIM_ORIGINAL_TAG, ""),
-                 call_mute_applied=tags.get(MUTE_APPLIED_TAG) == "1")
+                 call_mute_applied=tags.get(MUTE_APPLIED_TAG) == "1", teams_peer=tags.get(TEAMS_PEER_TAG, ""))
 
 
 def probe(source: str | os.PathLike, cancelled: threading.Event | None = None) -> Media:

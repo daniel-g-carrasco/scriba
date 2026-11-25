@@ -234,6 +234,7 @@ class Result:
     recorded_voice: str | None = None   # microphone label before any manual assignment
     balance_echo: tuple[tuple[float, float], ...] | None = None
     balance_activity: tuple[balance_excerpt.Speech, ...] | None = None
+    teams_peer: str = ""
 
 
 def full_path(path: str | os.PathLike) -> str:
@@ -646,9 +647,14 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
         if request.speakers:
             progress.begin("speakers")
         voice_details = {}
-        lines, me = _voices(parts, request, models_dir, progress, cancelled, voice_details)
+        teams_peer = ""
+        if (media.teams_people in (1, 2) and any(part.track.role == "others" for part in parts)
+                and all(part.track.role in ffmpeg.ROLES for part in parts)):
+            teams_peer = media.teams_peer
+        lines, me = _voices(parts, request, models_dir, progress, cancelled, voice_details,
+                            label_remote=bool(teams_peer))
         notes.extend(voice_details.get("notes", []))
-        voices = len(seg.speakers_of(lines)) if request.speakers or len(parts) > 1 else 0
+        voices = len(seg.speakers_of(lines)) if request.speakers or len(parts) > 1 or teams_peer else 0
         if request.speakers:
             timings["speakers"] = progress.finish()
         lines = seg.flag_doubtful(lines)
@@ -703,6 +709,7 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
                         source, folder, stem, header, me, listening_copy(source, media, cancelled), names)
         result.named_spans = named_spans
         result.meeting_title = meeting_title
+        result.teams_peer = teams_peer
         if _hears_and_plays(parts):
             result.recorded_voice = me
             result.balance_echo = balance_echo
@@ -715,7 +722,8 @@ def run(request: Request, progress: Progress | None = None, cancelled: threading
         result.voice_centroids = voice_details.get("centroids", {})
         result.voice_fingerprints = voice_details.get("fingerprints", {})
         result.proposals, proposal_notes = voice_service.proposals(
-            lines, result.named_spans, result.voice_centroids, me, fingerprints=result.voice_fingerprints)
+            lines, result.named_spans, result.voice_centroids, me, fingerprints=result.voice_fingerprints,
+            teams_peer=result.teams_peer)
         result.notes.extend(proposal_notes)
         result.session = _save_session(result, request)
         measured = {}
@@ -896,7 +904,7 @@ def _brought_back(part: _Part, segments, pieces) -> list[seg.Segment]:
 
 
 def _voices(parts: list[_Part], request: Request, models_dir, progress: Progress,
-            cancelled: threading.Event | None, details=None) -> tuple[list[seg.Segment], str]:
+            cancelled: threading.Event | None, details=None, *, label_remote=False) -> tuple[list[seg.Segment], str]:
     """All the lines, in the order of time, with their voices numbered, and
     the label the user's voice got ("" when no track is the user's).
 
@@ -951,6 +959,8 @@ def _voices(parts: list[_Part], request: Request, models_dir, progress: Progress
         lines = parts[0].lines
         if request.speakers:
             lines = numbered_with_centroids(assign(parts[0], request.speaker_count))
+        elif label_remote:
+            lines = [replace(s, speaker="Speaker 1") for s in lines]
         return lines, ""
     mine = any(part.track.role == "me" for part in parts)
     others = [part for part in parts if part.track.role != "me"]
@@ -1056,6 +1066,8 @@ def _save_session(result: Result, request: Request) -> Path:
         options["tracks"] = [{"index": t.index, "role": t.role, "title": t.title} for t in request.tracks]
     if result.voice_fingerprints:
         options["voice_fingerprints"] = result.voice_fingerprints
+    if result.teams_peer:
+        options["teams_peer"] = result.teams_peer
     meeting = sessions.Session(source=full_path(result.source), duration=result.duration,
                                created=datetime.datetime.now().isoformat(timespec="seconds"), options=options,
                                outputs=list(result.outputs), names=dict(result.names),
@@ -1214,8 +1226,11 @@ def open_session(path: str | os.PathLike, *, read_only: bool = False) -> tuple[R
     result.diarization = options.get("diarization", {"used":"legacy"})
     result.voice_centroids = options.get("voice_centroids", {})
     result.voice_fingerprints = options.get("voice_fingerprints", {})
+    peer = options.get("teams_peer")
+    result.teams_peer = peer if isinstance(peer, str) else ""
     result.proposals, _proposal_notes = voice_service.proposals(
-        lines, result.named_spans, result.voice_centroids, me, fingerprints=result.voice_fingerprints)
+        lines, result.named_spans, result.voice_centroids, me, fingerprints=result.voice_fingerprints,
+        teams_peer=result.teams_peer)
     return result, request
 
 

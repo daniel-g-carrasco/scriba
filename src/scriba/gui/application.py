@@ -900,9 +900,9 @@ def main(argv=None) -> int:
         # the system title bar on the main window, before GTK starts (see
         # gui/window.py): with GTK's own, Windows does not snap the window
         os.environ.setdefault("GTK_CSD", "0")
-        # each screen's own dpi, sharp everywhere: the manifest asks it for
-        # the exe, this call for a run from the sources (it fails, harmless,
-        # when the manifest did it); before GDK opens the display
-        from scriba.app import win32
-        win32.per_monitor_dpi()
+        # The DPI follows the main screen, as in the other apps (the manifest,
+        # system DPI aware; a run from the sources gets the same from GDK):
+        # GTK has whole scales only on Windows, and one text size for the
+        # whole app, so following each screen made every window's text jump
+        # when one window moved to a screen at another scale.
     return App().run(sys.argv if argv is None else argv)

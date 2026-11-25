@@ -13,6 +13,7 @@ class CaptureTest(unittest.TestCase):
         reader = teams.Reader.__new__(teams.Reader)
         reader._user32 = Mock()
         reader._user32.IsIconic.return_value = False
+        reader._user32.GetDpiForWindow.return_value = 192
         reader._teams_windows = lambda: [123]
         bounds = (0, 0, 80, 60)
         own = tile_name("Video personale, Ada Example, Microfono disattivato")
@@ -24,13 +25,20 @@ class CaptureTest(unittest.TestCase):
         reader._uncovered = lambda _hwnd, _bounds: True
         reader._capture = Mock(return_value=bytes((90, 80, 70, 0)) * 80 * 60)
         sides = (.05, .85, .94, .96)
-        with unittest.mock.patch.object(teams.teams, "border", return_value=Mock(active=True, sides=sides)) as border:
+        bands = (None, teams.teams.Band(.85, 3, 4), teams.teams.Band(.94, 3, 4), teams.teams.Band(.96, 3, 4))
+        with unittest.mock.patch.object(teams.teams, "border", return_value=teams.teams.Border(sides, True, bands)) as border:
             reading = reader.read()
         self.assertEqual(reading.people, 2)
         self.assertEqual(reading.active, ("Cora Example",))
         self.assertEqual((reading.tiles, reading.capture_source, reading.covered), (2, "print-window", False))
         self.assertEqual(reading.border_sides, sides)
-        border.assert_called_once()
+        self.assertEqual(reading.border_bands, bands)
+        border.assert_called_once_with(unittest.mock.ANY, 80, 60, 320, bounds, dpi=192)
+        self.assertEqual(reading.remote_names, ("Cora Example",))
+        reader._capture.return_value = None
+        unavailable = reader.read()
+        self.assertEqual(unavailable.state, "unavailable")
+        self.assertEqual(unavailable.remote_names, ("Cora Example",))
 
     def test_minimized_and_absent_meetings_never_capture(self):
         reader = teams.Reader.__new__(teams.Reader)

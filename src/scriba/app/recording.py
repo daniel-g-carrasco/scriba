@@ -99,6 +99,7 @@ class Take:
     named_spans: tuple[spans.Span, ...] = ()
     meeting_title: str = ""
     teams_people: int = 0
+    teams_peer: str = ""
 
 
 @dataclass
@@ -192,6 +193,8 @@ def join_arguments(ffmpeg_path: str, takes: list[Take], dest: str, cut=None, joi
     teams_people = max((take.teams_people for take in takes), default=0)
     if teams_people:
         argv += ["-metadata", f"{ffmpeg.TEAMS_PEOPLE_TAG}={teams_people}"]
+    if peer := next((take.teams_peer for take in takes if take.teams_peer), ""):
+        argv += ["-metadata", f"{ffmpeg.TEAMS_PEER_TAG}={peer}"]
     for n, take in enumerate(takes):
         argv += [f"-metadata:s:a:{n}", f"title={title(take)}", f"-metadata:s:a:{n}", f"{ffmpeg.ROLE_TAG}={take.role}"]
         if take.muted:
@@ -350,6 +353,7 @@ def copy_excerpt(source: Path, start: float, end: float, cancelled=None, *, join
         cut = ffmpeg.probe(tmp, cancelled)
         if (cut.tracks != tuple(expected) or cut.meeting_title != media.meeting_title
                 or cut.teams_people != media.teams_people
+                or cut.teams_peer != media.teams_peer
                 or cut.trim_selection is None or cut.trim_original != source.name
                 or cut.duration <= 0 or abs(cut.duration - duration) > DURATION_SLACK):
             raise Failure(_("The recording could not be trimmed."), "stream tags or cut duration did not match")

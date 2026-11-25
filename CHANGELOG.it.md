@@ -1,5 +1,14 @@
 # Novità di Scriba
 
+## [0.1.15] - 2026-11-25
+
+### Aggiunte
+- Nelle call a due su Teams, Scriba può proporre il nome dell’altra persona per l’unica voce remota anche senza il bordo di chi parla. Se il titolo di Teams coincide con il nome dell’interlocutore, Scriba propone «Call con …».
+
+### Correzioni
+- Su Windows, spostare una finestra secondaria su uno schermo con un'altra scala non cambia più la dimensione del testo nelle altre finestre di Scriba. Scriba segue la scala dello schermo principale, come le altre app: su uno schermo a un'altra scala è Windows a ridimensionare la finestra.
+- Nomi da Teams riconosce anche i bordi di chi parla più spessi e rientrati rispetto al margine della tessera. Il diario della registrazione riporta anche lo scostamento e lo spessore della fascia rilevata per lato.
+
 ## [0.1.14] - 2026-11-24
 
 ### Aggiunte

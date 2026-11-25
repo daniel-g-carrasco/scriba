@@ -2315,6 +2315,15 @@ msgstr "da Teams, {heard} su {total}"
 msgid "from Teams, voice match"
 msgstr "da Teams, impronta vocale"
 
+#: src/scriba/gui/result.py:438
+msgid "from Teams, two-person call"
+msgstr "da Teams, call a due"
+
+#: src/scriba/app/recorder.py:701
+#, python-brace-format
+msgid "Call with {name}"
+msgstr "Call con {name}"
+
 #: src/scriba/gui/record.py
 msgid "microphone muted"
 msgstr "microfono in silenzio"

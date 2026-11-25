@@ -5,6 +5,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 are `0.x` while the app evolves. Stable Windows and Linux packages are
 available from GitHub Releases. Linux Flatpak builds and runtime checks use GNOME Platform 50. The app's metainfo carries a shorter description.
 
+## [0.1.15] - 2026-11-25
+
+### Added
+- In two-person Teams calls, Scriba can propose the other participant's name for the only remote voice without a speaker border. When Teams uses that participant's name as the meeting title, Scriba suggests “Call with …”.
+
+### Fixed
+- On Windows, moving a dialog to a screen at another scale no longer resizes the text of the other Scriba windows. Scriba follows the main screen's scale, like the other apps: on a screen at another scale Windows resizes the window.
+- Names from Teams recognises thicker speaker borders inset from the edge of a tile. The recording journal also logs each detected band's offset and thickness.
+
 ## [0.1.14] - 2026-11-24
 
 ### Added

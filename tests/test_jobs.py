@@ -31,9 +31,9 @@ class StandIns:
     """The engines as they answer, without the programs: 20 s of audio
     with speech from 2 to 5 s and from 10 to 12 s."""
 
-    def __init__(self, test, video=False, tracks=()):
+    def __init__(self, test, video=False, tracks=(), **metadata):
         self.calls = {}
-        media = ffmpeg.Media(20.0, len(tracks) or 1, video, 0, tuple(tracks))
+        media = ffmpeg.Media(20.0, len(tracks) or 1, video, 0, tuple(tracks), **metadata)
 
         def decode(source, dest, duration=0.0, progress=None, cancelled=None, stream=0):
             self.calls.setdefault("streams", []).append(stream)
@@ -74,6 +74,36 @@ class StandIns:
 
 
 class ChainTest(unittest.TestCase):
+    def test_two_person_call_proposes_only_the_remote_name_and_reopens_with_the_reason(self):
+        tracks = (ffmpeg.Track(0, "Mic", "me"), ffmpeg.Track(1, "Output", "others"))
+        StandIns(self, tracks=tracks, teams_people=2, teams_peer="Vela Example", meeting_title="Call with Vela Example")
+        result = jobs.run(jobs.Request(self.source, self.out))
+        voice, = {s.speaker for s in result.segments} - {result.me}
+        self.assertEqual(result.proposals, {voice: jobs.naming.Proposal("Vela Example", 0, 0, "two-person")})
+        self.assertNotIn(voice, result.names)
+        self.assertTrue(all("Vela Example" not in Path(o.path).read_text(encoding="utf-8") for o in result.outputs))
+        self.assertEqual(jobs.open_session(result.session)[0].proposals, result.proposals)
+        self.assertEqual(result.meeting_title, "Call with Vela Example")
+        jobs.save_meeting_title(result, "Revised title")
+        reopened, _ = jobs.open_session(result.session)
+        self.assertEqual(reopened.meeting_title, "Revised title")
+        self.assertEqual(reopened.proposals, result.proposals)
+
+    def test_two_person_call_can_name_a_single_remote_only_track(self):
+        StandIns(self, tracks=(ffmpeg.Track(0, "Output", "others"),),
+                 teams_people=1, teams_peer="Vela Example")
+        result = jobs.run(jobs.Request(self.source, self.out))
+        self.assertEqual(result.me, "")
+        self.assertEqual(result.speakers, 1)
+        self.assertEqual(result.proposals["Speaker 1"].name, "Vela Example")
+
+    def test_two_person_peer_is_not_proposed_when_diarisation_finds_two_remote_voices(self):
+        tracks = (ffmpeg.Track(0, "Mic", "me"), ffmpeg.Track(1, "Output", "others"))
+        StandIns(self, tracks=tracks, teams_people=2, teams_peer="Vela Example")
+        result = jobs.run(jobs.Request(self.source, self.out, speakers=True, diarization_backend="legacy"))
+        self.assertEqual(len({s.speaker for s in result.segments} - {result.me}), 2)
+        self.assertEqual(result.proposals, {})
+
     def test_reopened_recording_silences_the_microphone_before_speech_detection(self):
         StandIns(self, tracks=(ffmpeg.Track(0, "Mic", "me", muted=((5, 10), (15, None))),))
         with mock.patch.object(vad, "detect", wraps=vad.detect) as detect:

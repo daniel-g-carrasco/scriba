@@ -421,6 +421,7 @@ class Recorder:
         self._named = spans.Builder()
         self._meeting_title = ""
         self._teams_state, self._teams_people = "", 0
+        self._teams_remotes: dict[str, str] = {}
         self._teams_summary = teams.ReadingSummary()
 
     # -- the tracks ----------------------------------------------------------------
@@ -521,7 +522,8 @@ class Recorder:
             return
         at = self.elapsed()
         named = self._named.snapshot(at)
-        takes = [replace(take, named_spans=named, meeting_title=self._meeting_title, teams_people=self._teams_people,
+        title, peer = self._teams_metadata()
+        takes = [replace(take, named_spans=named, meeting_title=title, teams_people=self._teams_people, teams_peer=peer,
                          loudest=self._watch.loudest.get(key, -math.inf))
                  for key, take in self._takes.items()]
         try:
@@ -671,14 +673,16 @@ class Recorder:
             self._teams_state = reading.state
             if self.teams_names:
                 self._teams_people = max(self._teams_people, reading.people)
-            if reading.title and self.teams_names:
-                self._meeting_title = reading.title
+                for name in reading.remote_names:
+                    self._teams_remotes.setdefault(" ".join(name.split()).casefold(), name)
+                if reading.title:
+                    self._meeting_title = reading.title
             at = self.elapsed()
             if self._state == "recording":
                 state = "error" if reading.error else "no-meeting" if reading.state == "ended" else reading.state
                 tiles = reading.people if reading.tiles is None else reading.tiles
                 self._teams_summary.observe(at, state, tiles, bool(reading.active), reading.capture_source,
-                                            reading.covered, reading.border_sides)
+                                            reading.covered, reading.border_sides, reading.border_bands)
             else:
                 self._teams_summary.interrupt()
             self._call_end.teams("present" if getattr(reading, "meeting", False) else reading.state, at)
@@ -686,6 +690,16 @@ class Recorder:
                 self._named.read(at, reading.active)
             else:
                 self._named.unavailable(at)
+
+    def _teams_metadata(self) -> tuple[str, str]:
+        title = self._meeting_title
+        if self._teams_people not in (1, 2) or len(self._teams_remotes) != 1:
+            return title, ""
+        label, peer = next(iter(self._teams_remotes.items()))
+        name = peer.partition(" - ")[0].strip() or peer
+        if " ".join(title.split()).casefold() in (label, " ".join(name.split()).casefold()):
+            title = _("Call with {name}").format(name=name)
+        return title, peer
 
     def _watch_teams(self) -> None:
         from scriba.app import teams
@@ -706,10 +720,12 @@ class Recorder:
                 thread.join(5)
         with self._lock:
             named = self._named.finish(self.elapsed())
+            title, peer = self._teams_metadata()
             for take in self._takes.values():
                 take.named_spans = named
-                take.meeting_title = self._meeting_title
+                take.meeting_title = title
                 take.teams_people = self._teams_people
+                take.teams_peer = peer
             self._save_locked("finishing:closing")
         self._state = "failed" if self._error and self._state == "failed" else "stopped"
 
