@@ -133,6 +133,14 @@ python tools/make_ico.py
 
 Windows and Linux CI check pushes and pull requests and build development artifacts. Pull requests do not run signing or publishing jobs. A separately authorised version tag runs release signing and the signed Flatpak repository workflow. The complete-release check requires every platform's files and signatures before publishing a draft.
 
+Pull requests also run Ruff security rules and redacted Gitleaks. The release
+jobs check the installer, portable ZIP and Flatpak inventories against the
+packaged files and eligible OSV advisories before signing. The Flatpak
+repository uses the signed inventory of the exact bundle it imports. The
+weekly check monitors both published channels. The Windows inventory and
+corresponding-source archives identify native components outside the scope
+of the OSV check, including FFmpeg.
+
 ## Licence
 
 Scriba is licensed under GPL-3.0-or-later; see [COPYRIGHT](COPYRIGHT), [LICENSE](LICENSE) and [distribution notes](docs/licensing.md). Third-party engines, models and libraries retain their own licences and credits. Release signatures and verification are described in [CODE_SIGNING.md](CODE_SIGNING.md).

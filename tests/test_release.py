@@ -91,6 +91,11 @@ class CompleteReleaseTest(unittest.TestCase):
     FILES = ("release-notes.it.md", "{slug}.flatpak", "{slug}.flatpak.minisig", "{slug}-setup-v1.2.3-windows-x64.exe",
              "{slug}-setup-v1.2.3-windows-x64.exe.minisig", "{slug}-v1.2.3-windows-x64-portable.zip",
              "{slug}-v1.2.3-windows-x64-portable.zip.minisig",
+             "{slug}.flatpak.inventory.json", "{slug}.flatpak.inventory.json.minisig",
+             "{slug}-setup-v1.2.3-windows-x64.exe.inventory.json",
+             "{slug}-setup-v1.2.3-windows-x64.exe.inventory.json.minisig",
+             "{slug}-v1.2.3-windows-x64-portable.zip.inventory.json",
+             "{slug}-v1.2.3-windows-x64-portable.zip.inventory.json.minisig",
              "{slug}-v1.2.3-windows-x64-sources.tar.xz", "{slug}-v1.2.3-windows-x64-sources.tar.xz.minisig",
              "{slug}-v1.2.3-linux-x86_64-sources.tar.xz", "{slug}-v1.2.3-linux-x86_64-sources.tar.xz.minisig")
 
