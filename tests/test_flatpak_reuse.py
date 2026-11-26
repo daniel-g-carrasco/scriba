@@ -34,12 +34,13 @@ class ReuseReleaseTest(unittest.TestCase):
         return result, {name: (tmp / name).read_text() if (tmp / name).exists() else ""
                         for name in ("calls", "signatures")}
 
-    def test_published_bundle_and_matching_sources_are_both_verified(self):
+    def test_published_bundle_inventory_and_sources_are_verified(self):
         result, files = self.run_step()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("release download v1.2.3", files["calls"])
         self.assertIn("scriba-v1.2.3-linux-x86_64-sources.tar.xz", files["calls"])
-        self.assertEqual(len(files["signatures"].splitlines()), 2)
+        self.assertEqual(len(files["signatures"].splitlines()), 3)
+        self.assertIn("scriba.flatpak.inventory.json.minisig", files["signatures"])
 
     def test_draft_or_unavailable_release_never_downloads_or_publishes(self):
         for state in ("draft", "absent"):
@@ -49,8 +50,8 @@ class ReuseReleaseTest(unittest.TestCase):
                 self.assertFalse(files["calls"])
                 self.assertFalse(files["signatures"])
 
-    def test_invalid_bundle_or_sources_signature_fails(self):
-        for asset in ("scriba.flatpak", "sources.tar.xz"):
+    def test_invalid_bundle_inventory_or_sources_signature_fails(self):
+        for asset in ("scriba.flatpak.minisig", "scriba.flatpak.inventory.json", "sources.tar.xz"):
             with self.subTest(asset=asset):
                 result, _ = self.run_step(failed_signature=asset)
                 self.assertNotEqual(result.returncode, 0)

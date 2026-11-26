@@ -80,16 +80,15 @@ class Backend:
     # -- the recording -------------------------------------------------------------
 
     def inspect(self, source: str | os.PathLike, cancelled: threading.Event | None = None):
-        """What the recording holds (ffmpeg.Media: duration, video or not).
+        """Inspect the media without changing files in its directory.
+
+        Return ffmpeg.Media (duration, video or not).
         A recording cut short by a crash has no length in its header (a
         FLAC track of the recorder's, killed): it is decoded to know it."""
         from dataclasses import replace
 
         from scriba.app.engines import ffmpeg
-        from scriba.data import edits
 
-        if Path(source).suffix.lower() == ".mka":
-            edits.recover(Path(source).parent)
         media = ffmpeg.probe(source, cancelled)
         if media.duration <= 0 and media.sound_tracks:
             media = replace(media, duration=ffmpeg.decoded_seconds(source, 0, cancelled))

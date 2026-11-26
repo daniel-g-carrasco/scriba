@@ -11,7 +11,8 @@ import _setup  # noqa: F401
 
 from scriba.app import backend, jobs, models
 from scriba.app.config import Config
-from scriba.app.engines import whisper
+from scriba.app.engines import ffmpeg, whisper
+from scriba.data import edits
 
 
 class RequestTest(unittest.TestCase):
@@ -55,6 +56,18 @@ class EstimateTest(unittest.TestCase):
         self.assertEqual(backend.needed_models(), [models.WHISPER_TURBO, models.SILERO_VAD, models.WESPEAKER, *models.community_set({}).models])
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(backend.Backend(tmp, None).missing(), backend.needed_models())
+
+    def test_inspect_of_imported_media_does_not_recover_the_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "external.mka"
+            media = ffmpeg.Media(duration=5.0, sound_tracks=1, video=False, subtitle_tracks=0)
+            with (
+                mock.patch.object(ffmpeg, "probe", return_value=media) as probe,
+                mock.patch.object(edits, "recover") as recover,
+            ):
+                self.assertIs(backend.Backend(tmp, None).inspect(source), media)
+            probe.assert_called_once_with(source, None)
+            recover.assert_not_called()
 
 
 if __name__ == "__main__":

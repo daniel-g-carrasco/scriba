@@ -437,7 +437,10 @@ class SourceWorkflowTest(unittest.TestCase):
     def test_tag_signs_verifies_and_uploads_the_sources_with_the_same_bundle(self):
         text = (_setup.ROOT / '.github/workflows/build.yml').read_text(encoding='utf-8')
         release = text.split('\n  release:\n', 1)[1]
-        self.assertIn('for f in scriba.flatpak "scriba-${GITHUB_REF_NAME}-linux-x86_64-sources.tar.xz"', release)
+        signed = release.split("for f in ", 1)[1].split("; do", 1)[0]
+        self.assertIn("scriba.flatpak", signed.split())
+        self.assertIn("scriba.flatpak.inventory.json", signed.split())
+        self.assertIn('"scriba-${GITHUB_REF_NAME}-linux-x86_64-sources.tar.xz"', signed.split())
         self.assertIn('minisign -S', release)
         self.assertIn('minisign -V', release)
         upload = release.split('gh release upload', 1)[1].split('- name: Published', 1)[0]

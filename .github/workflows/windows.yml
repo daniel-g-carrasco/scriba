@@ -454,6 +454,23 @@ jobs:
           VERSION="${GITHUB_REF_NAME}"
           case "$VERSION" in v*) ;; *) VERSION=dev ;; esac
           XZ_OPT='-T2 -1' tar -cJf "dist/scriba-${VERSION}-windows-x64-sources.tar.xz" -C "$sources" .
+      - name: Record Windows release components
+        run: |
+          PYTHONPATH=tools python - "$GITHUB_SHA" dist/scriba-setup-*.exe dist/scriba-*-windows-x64-portable.zip <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          from release_inventory import main
+
+          manifest = Path("dist/Scriba/_internal/licenses/inventory.json")
+          rows = json.loads(manifest.read_text(encoding="utf-8"))["components"].values()
+          args = ["create", "--revision", sys.argv[1], "--gtk-inventory", str(manifest)]
+          for row in rows:
+              if row["kind"] == "custom":
+                  args += ["--component", f"Native:{row['name']}={row['version']}"]
+          raise SystemExit(main([*args, *sys.argv[2:]]))
+          PY
       - name: The tag matches __version__ (a v* tag)
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
@@ -467,7 +484,9 @@ jobs:
           name: scriba-windows
           path: |
             dist/scriba-setup-*.exe
+            dist/scriba-setup-*.exe.inventory.json
             dist/scriba-*-windows-x64-portable.zip
+            dist/scriba-*-windows-x64-portable.zip.inventory.json
             dist/scriba-*-windows-x64-sources.tar.xz
             smoke/window.png
 
@@ -481,10 +500,19 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: scriba-windows
           path: artifact
+      - name: Verify the Windows inventories and check advisories
+        run: |
+          setup="artifact/dist/scriba-setup-${GITHUB_REF_NAME}-windows-x64.exe"
+          zip="artifact/dist/scriba-${GITHUB_REF_NAME}-windows-x64-portable.zip"
+          python3 tools/release_inventory.py check --revision "$GITHUB_SHA" "$setup" "$zip"
+          python3 tools/release_inventory.py audit "$setup" "$zip"
       - name: Sign with the project's key (minisign), checked before anything is uploaded
         # the installed app runs an update only with this signature
         # (updates.py, the same public key); the comment names the file,
@@ -503,6 +531,8 @@ jobs:
            esac | tr -d '\r' > "$key")
           for f in "artifact/dist/scriba-setup-${GITHUB_REF_NAME}-windows-x64.exe" \
                    "artifact/dist/scriba-${GITHUB_REF_NAME}-windows-x64-portable.zip" \
+                   "artifact/dist/scriba-setup-${GITHUB_REF_NAME}-windows-x64.exe.inventory.json" \
+                   "artifact/dist/scriba-${GITHUB_REF_NAME}-windows-x64-portable.zip.inventory.json" \
                    "artifact/dist/scriba-${GITHUB_REF_NAME}-windows-x64-sources.tar.xz"; do
             test -f "$f"
             minisign -S -s "$key" -m "$f" -x "$f.minisig" \
@@ -524,6 +554,7 @@ jobs:
             sleep 30
           done
           gh release upload "${GITHUB_REF_NAME}" "$setup" "$zip" "$setup.minisig" "$zip.minisig" "$sources" "$sources.minisig" \
+            "$setup.inventory.json" "$setup.inventory.json.minisig" "$zip.inventory.json" "$zip.inventory.json.minisig" \
             --repo "${GITHUB_REPOSITORY}" --clobber
       - name: Published when every file is there
         # release-complete: the same step, word for word, in build.yml and in
@@ -541,6 +572,11 @@ jobs:
           for wanted in "scriba.flatpak" "scriba.flatpak.minisig" "release-notes.it.md" \
                         "scriba-setup-${tag}-windows-x64.exe" "scriba-setup-${tag}-windows-x64.exe.minisig" \
                         "scriba-${tag}-windows-x64-portable.zip" "scriba-${tag}-windows-x64-portable.zip.minisig" \
+                        "scriba.flatpak.inventory.json" "scriba.flatpak.inventory.json.minisig" \
+                        "scriba-setup-${tag}-windows-x64.exe.inventory.json" \
+                        "scriba-setup-${tag}-windows-x64.exe.inventory.json.minisig" \
+                        "scriba-${tag}-windows-x64-portable.zip.inventory.json" \
+                        "scriba-${tag}-windows-x64-portable.zip.inventory.json.minisig" \
                         "scriba-${tag}-windows-x64-sources.tar.xz" "scriba-${tag}-windows-x64-sources.tar.xz.minisig" \
                         "scriba-${tag}-linux-x86_64-sources.tar.xz" "scriba-${tag}-linux-x86_64-sources.tar.xz.minisig"; do
             echo "$names" | grep -Fxq -- "$wanted" || missing="$missing $wanted"

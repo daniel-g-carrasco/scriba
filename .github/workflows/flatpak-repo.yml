@@ -54,8 +54,10 @@ jobs:
           sources="scriba-${GITHUB_REF_NAME}-linux-x86_64-sources.tar.xz"
           gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
             --pattern scriba.flatpak --pattern scriba.flatpak.minisig \
+            --pattern scriba.flatpak.inventory.json --pattern scriba.flatpak.inventory.json.minisig \
             --pattern "$sources" --pattern "$sources.minisig"
           minisign -V -P "$PUBLIC_KEY" -m scriba.flatpak -x scriba.flatpak.minisig
+          minisign -V -P "$PUBLIC_KEY" -m scriba.flatpak.inventory.json -x scriba.flatpak.inventory.json.minisig
           minisign -V -P "$PUBLIC_KEY" -m "$sources" -x "$sources.minisig"
       - name: Check that the sources describe this exact bundle and commit
         run: |
@@ -65,7 +67,10 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: scriba-flatpak-repository
-          path: scriba.flatpak
+          if-no-files-found: error
+          path: |
+            scriba.flatpak
+            scriba.flatpak.inventory.json
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -126,6 +131,19 @@ jobs:
           fi
           flatpak build-import-bundle --gpg-sign="$FLATPAK_GPG_KEY_ID" --gpg-homedir="$GNUPGHOME" \
             pages/repo scriba.flatpak
+          PYTHONPATH=tools python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          from release_inventory import check, create_pages_report
+
+          revision = os.environ["GITHUB_SHA"]
+          report, = check([Path("scriba.flatpak")], revision=revision)
+          components = [(row["ecosystem"], row["name"], row["version"]) for row in report["components"]]
+          create_pages_report(Path("pages"), "io.github.daniel_g_carrasco.scriba", revision, components)
+          PY
+          python3 tools/release_inventory.py pages-audit --pages pages \
+            --app-id io.github.daniel_g_carrasco.scriba
           flatpak build-update-repo --generate-static-deltas --prune --prune-depth=3 \
             --gpg-sign="$FLATPAK_GPG_KEY_ID" --gpg-homedir="$GNUPGHOME" pages/repo
           export LC_ALL=C
