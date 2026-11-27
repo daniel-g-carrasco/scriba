@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "artifact": "io.github.daniel_g_carrasco.scriba-x86_64-stable.ostree-ref",
+  "sha256": "7daf5e5c46a9cce380adb1ae2f9ac3e49c80bdbafb4cd5436f4d19815613788b",
+  "revision": "bd95fa7524d97e7f44d3c1cb76b767d4c683d110",
+  "platform": "flatpak",
+  "components": [
+    {
+      "ecosystem": "Flatpak",
+      "name": "org.gnome.Platform/x86_64/50",
+      "version": "47406407f781b156c267b67c78a80a60715c0ff34ab2c051029c61d65fe86c11"
+    },
+    {
+      "ecosystem": "Native",
+      "name": "gstplay",
+      "version": "1.26.11"
+    },
+    {
+      "ecosystem": "Native",
+      "name": "onnxruntime",
+      "version": "1.29.0"
+    },
+    {
+      "ecosystem": "PyPI",
+      "name": "cloudpickle",
+      "version": "3.1.2"
+    },
+    {
+      "ecosystem": "PyPI",
+      "name": "joblib",
+      "version": "1.6.0"
+    },
+    {
+      "ecosystem": "PyPI",
+      "name": "narwhals",
+      "version": "2.28.0"
+    },
+    {
+      "ecosystem": "PyPI",
+      "name": "numpy",
+      "version": "2.5.4"
+    },
+    {
+      "ecosystem": "PyPI",
+      "name": "scikit-learn",
+      "version": "1.9.1"
+    },
+    {
+      "ecosystem": "PyPI",
+      "name": "scipy",
+      "version": "1.18.1"
+    },
+    {
+      "ecosystem": "PyPI",
+      "name": "threadpoolctl",
+      "version": "3.8.0"
+    }
+  ],
+  "ostree_commit": "eb11e04401403c17323537431a5c0d0572ec643d349dc7911a5462a0b575f5c6"
+}
