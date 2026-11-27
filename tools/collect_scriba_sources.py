@@ -238,6 +238,12 @@ def archive_reader(path, zstd=None):
             try:
                 with tarfile.open(fileobj=stream, mode="r|*") as archive:
                     yield archive
+                # tar stops at its end marker; the record padding after it may
+                # still be in the pipe. Closing early makes zstd fail on a
+                # broken pipe, so read to the end as collect_sources.py does.
+                if process is not None:
+                    while stream.read(1 << 16):
+                        pass
             finally:
                 stream.close()
             if process is not None and process.wait() != 0:
