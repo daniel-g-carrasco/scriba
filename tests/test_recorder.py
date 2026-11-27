@@ -13,9 +13,11 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 
 import _setup  # noqa: F401
 
@@ -31,6 +33,67 @@ def gstreamer():
     if recorder.missing():
         raise unittest.SkipTest(f"GStreamer lacks {recorder.missing()}")
     return recorder
+
+
+class StopRecorderTest(unittest.TestCase):
+    def test_stop_returns_while_the_pipeline_is_stuck_entering_null(self):
+        recorder = gstreamer()
+        from scriba.core.devices import INPUT, Device, Plan
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        made = recorder.Recorder(Plan(Device("mic", "Microphone", INPUT), ()), Path(tmp.name), "test")
+        made._state = "recording"
+        made._began = time.monotonic()
+        made._eos.set()
+        entered_null, release, stopped = (threading.Event() for _ in range(3))
+
+        def set_state(state):
+            if state == recorder.Gst.State.NULL:
+                entered_null.set()
+                release.wait(10)
+            return recorder.Gst.StateChangeReturn.SUCCESS
+
+        made._pipeline = Mock(set_state=set_state)
+
+        def stop():
+            made.stop()
+            stopped.set()
+
+        thread = threading.Thread(target=stop, daemon=True)
+        thread.start()
+        try:
+            self.assertTrue(entered_null.wait(1))
+            self.assertTrue(stopped.wait(4), "stop still waits for GStreamer to enter NULL")
+            self.assertEqual(made.snapshot().state, "stopped")
+        finally:
+            release.set()
+            thread.join(2)
+
+    def test_skipping_while_the_sources_never_end_returns_at_once(self):
+        recorder = gstreamer()
+        from scriba.core.devices import INPUT, Device, Plan
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        made = recorder.Recorder(Plan(Device("mic", "Microphone", INPUT), ()), Path(tmp.name), "test")
+        made._state = "recording"
+        made._began = time.monotonic()
+        made._pipeline = Mock(set_state=lambda state: recorder.Gst.StateChangeReturn.SUCCESS)
+        stopped = threading.Event()
+
+        def stop():
+            made.stop()
+            stopped.set()
+
+        # no end of stream ever arrives: without the skip, stop waits STOP_WAIT
+        thread = threading.Thread(target=stop, daemon=True)
+        thread.start()
+        time.sleep(.3)
+        self.assertFalse(stopped.is_set())
+        made.skip_close()
+        self.assertTrue(stopped.wait(2), "the skip did not end the wait for the sources")
+        thread.join(2)
 
 
 @unittest.skipUnless(ASKED, "records from the real devices: SCRIBA_TEST_RECORD=1")

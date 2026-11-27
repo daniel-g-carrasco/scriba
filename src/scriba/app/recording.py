@@ -733,6 +733,11 @@ def finish(takes: list[Take], folder: Path, stem: str, cancelled: threading.Even
     prepared = journal.takes(previous, "mix_takes") if journal and joined else []
     reuse_mix = previous.get("mix_mute_applied") or not any(take.muted for take in kept)
     retained = {journal.local(path) for path in previous.get("retained", ())} if journal else set()
+    if previous.get("audio_close_timed_out") or getattr(journal, "audio_close_timed_out", False):
+        # A native writer may still hold the file. Keep the original frames
+        # even if more arrive after the join has read to the end.
+        retained.update(take.path for take in takes)
+        notes.append(_("An audio device did not close in time. The available audio was saved."))
     work = Path(tempfile.mkdtemp(prefix=".scriba-work-" if journal else "scriba-echo-",
                                  dir=folder if journal else None))
     keep_work = False
@@ -743,6 +748,7 @@ def finish(takes: list[Take], folder: Path, stem: str, cancelled: threading.Even
     working = kept
     old_work = {take.path.parent for take in prepared if take.path.parent != folder.resolve()}
     try:
+        check(cancelled)
         if joined is None:
             said(JOINING)
             if journal is not None:
@@ -757,7 +763,7 @@ def finish(takes: list[Take], folder: Path, stem: str, cancelled: threading.Even
                 check(cancelled)
                 if joined is None:
                     bounded = _bounded_tracks(kept, work, elapsed, cancelled, notes)
-                    retained = {t.path for t, b in zip(kept, bounded, strict=True) if t.path != b.path}
+                    retained.update(t.path for t, b in zip(kept, bounded, strict=True) if t.path != b.path)
                     joined = join(bounded, folder, stem, cancelled, elapsed=elapsed,
                                   fraction=fraction, cut=cut, join_id=join_id, call_range=call_range)
             except Failure as e:

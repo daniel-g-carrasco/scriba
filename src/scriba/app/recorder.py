@@ -102,6 +102,7 @@ WATCH_EVERY = 2.0                   # seconds between two looks at the devices
 SPACE_EVERY = 5.0                   # and at the disk
 PEAKS_FOR = 3.0                     # seconds of peaks an output's "sound now" looks at
 STOP_WAIT = 10.0                    # seconds the files have to close after the stop, before they are cut
+NULL_WAIT = 3.0                     # seconds to wait for a driver to release the pipeline
 TRACK_CAPS = f"audio/x-raw,format=F32LE,rate={rec.RATE},channels=1"
 FILE_CAPS = "audio/x-raw,format=S24LE"
 
@@ -388,6 +389,8 @@ class Recorder:
         self._journal_lock = None
         self._last_save_error = ""
         self._stop_lock = threading.Lock()
+        self._device_changes = threading.Lock()
+        self._skip_close = threading.Event()
         self._pipeline: Gst.Pipeline | None = None
         self._branches: dict[str, _Branch] = {}
         self._takes: dict[str, Take] = {}
@@ -402,7 +405,6 @@ class Recorder:
         self._ended_at: float | None = None     # when the stop was asked: the sources take no more sound
         self._eos = threading.Event()
         self._quit = threading.Event()
-        self._threads: list[threading.Thread] = []
         self._left = math.inf
         self._counts = {"me": 0, "others": 0}
         self._off: set[str] = set()             # the roles switched off in Scriba while recording
@@ -513,9 +515,7 @@ class Recorder:
         if (self.teams_names or self.call_stop_minutes is not None) and (WINDOWS or self.teams_reader is not None):
             watches.append((self._watch_teams, "scriba-recorder-teams"))
         for target, name in watches:
-            thread = threading.Thread(target=target, name=name, daemon=True)
-            thread.start()
-            self._threads.append(thread)
+            threading.Thread(target=target, name=name, daemon=True).start()
 
     def _save_locked(self, phase="recording"):
         if self._journal_lock is None:
@@ -641,30 +641,92 @@ class Recorder:
             complain("following the call's mute", e)
 
     def stop(self) -> list[Take]:
-        """The files closed properly (each source told it is the end, and the
-        end waited for, at most STOP_WAIT seconds: after that they are cut
-        where they are, still readable); the tracks, with their loudest
-        peaks."""
+        """Return the recorded tracks, with bounded waits for EOS and NULL."""
         with self._stop_lock:
             return self._stop_recording()
 
+    def skip_close(self) -> None:
+        """Stop waiting for audio even if an automatic stop started first."""
+        self._skip_close.set()
+
     def _stop_recording(self):
-        if self._state in ("recording", "paused", "stopping"):
-            self.resume()               # a paused source passes on nothing, the end neither
-            if self._ended_at is None:
-                self._ended_at = time.monotonic()
+        if self._state in ("recording", "paused"):
+            self._ended_at = self._paused_at if self._paused_at is not None else time.monotonic()
+            paused = self._state == "paused"
             self._state = "stopping"
-            with self._lock:
-                branches = list(self._branches.values())
-            for branch in branches:
-                branch.source.send_event(Gst.Event.new_eos())
-            if not self._eos.wait(STOP_WAIT):
-                self._error = self._error or _("The files took too long to close: they were cut where they were.")
             try:
+                if self._pipeline is not None:
+                    self._close_audio(self._pipeline, paused)
                 self._finish()
             finally:
                 self._release_journal()
         return self.takes()
+
+    def _wait_for_audio(self, event, deadline):
+        while not event.is_set() and not self._skip_close.is_set():
+            left = deadline - time.monotonic()
+            if left <= 0:
+                break
+            event.wait(min(left, .05))
+        return event.is_set()
+
+    def _close_audio(self, pipeline, paused):
+        closing, closed = threading.Event(), threading.Event()
+        deadline = time.monotonic() + STOP_WAIT
+        with self._lock:
+            devices = ", ".join(f"{key}: {take.device}" for key, take in self._takes.items())
+        stage = f"waiting for device changes ({devices})"
+        drained = closed_ok = False
+
+        def close():
+            nonlocal stage, drained, closed_ok
+            with self._device_changes:
+                try:
+                    if paused and not self._skip_close.is_set():
+                        stage = f"resuming the paused pipeline ({devices})"
+                        pipeline.set_state(Gst.State.PLAYING)
+                    with self._lock:
+                        branches = list(self._branches.values())
+                    for branch in branches:
+                        if self._skip_close.is_set() or time.monotonic() >= deadline:
+                            break
+                        stage = f"sending EOS to {branch.key}: {branch.device.name}"
+                        branch.source.send_event(Gst.Event.new_eos())
+                    stage = f"waiting for EOS ({devices})"
+                    drained = self._wait_for_audio(self._eos, deadline)
+                except Exception as error:
+                    complain(stage, error)
+                finally:
+                    # The bus reader must run up to EOS. After this point,
+                    # only this daemon owns the potentially blocked native call.
+                    self._quit.set()
+                    stage = f"setting the recording pipeline to NULL ({devices})"
+                    closing.set()
+                    try:
+                        if pipeline.set_state(Gst.State.NULL) == Gst.StateChangeReturn.FAILURE:
+                            raise RuntimeError("GStreamer refused the NULL state")
+                    except Exception as error:
+                        complain(stage, error)
+                    else:
+                        closed_ok = True
+                    finally:
+                        closed.set()
+
+        threading.Thread(target=close, name="scriba-recorder-close", daemon=True).start()
+        reached_null = self._wait_for_audio(closing, deadline)
+        reported = None
+        if not self._skip_close.is_set() and (not reached_null or not drained):
+            reported = f"waiting for EOS ({devices})" if reached_null else stage
+            self._note_close_timeout(reported)
+        if not self._wait_for_audio(closed, time.monotonic() + NULL_WAIT):
+            if not self._skip_close.is_set() and stage != reported:
+                self._note_close_timeout(stage)
+        elif not closed_ok:
+            self.journal.audio_close_timed_out = True
+
+    def _note_close_timeout(self, stage):
+        self.journal.audio_close_timed_out = True
+        complain("closing recording audio", TimeoutError(stage))
 
     def teams_reading(self, reading) -> None:
         with self._lock:
@@ -712,12 +774,6 @@ class Recorder:
 
     def _finish(self) -> None:
         self._quit.set()
-        if self._pipeline is not None:
-            self._pipeline.set_state(Gst.State.NULL)
-        current = threading.current_thread()
-        for thread in self._threads:
-            if thread is not current:
-                thread.join(5)
         with self._lock:
             named = self._named.finish(self.elapsed())
             title, peer = self._teams_metadata()
@@ -781,9 +837,11 @@ class Recorder:
                     print(f"recording, warning: {warning.message} ({debug or ''})", flush=True)
                 elif message.type == Gst.MessageType.ELEMENT:
                     found = _level(message)
-                    if found is not None and self._state == "recording":
+                    if found is not None:
                         key, rms, peak = found
                         with self._lock:
+                            if self._state != "recording":
+                                continue
                             self._now[key] = (rms, peak)
                             self._watch.feed(key, time.monotonic(), rms, peak)
                             if self._takes[key].role == "others" and "others" not in self._off:
@@ -807,7 +865,9 @@ class Recorder:
                     self._look_at_disk()
                 if now - looked >= WATCH_EVERY and self._state == "recording":
                     looked = now
-                    self._look_at_devices()
+                    with self._device_changes:
+                        if self._state == "recording":
+                            self._look_at_devices()
         except Exception as e:      # the thread's border: said, and the recording goes on unwatched
             complain("watching the devices", e)
 
@@ -859,6 +919,8 @@ class Recorder:
             present = self._list()
         except Failure as e:
             complain("listing the devices", e)
+            return
+        if self._state != "recording":
             return
         ids = {d.id for d in present}
         at = self.elapsed()

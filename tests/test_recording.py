@@ -131,6 +131,14 @@ class FinishTest(unittest.TestCase):
         # the FLAC files are gone: their bits are in the .mka
         self.assertEqual(sorted(p.name for p in self.folder.iterdir()), ["r.mka", "r_together.m4a"])
 
+    def test_a_device_that_did_not_close_is_said_and_its_original_tracks_stay(self):
+        takes = self.takes()
+        done = recording.finish(takes, self.folder, "r", previous={"audio_close_timed_out": True})
+        self.assertEqual(done.recording, self.folder / "r.mka")
+        self.assertIn("An audio device did not close in time. The available audio was saved.", done.notes)
+        # a native writer may still hold them: the originals are not removed
+        self.assertTrue(all(take.path.exists() for take in done.kept))
+
     def test_the_mix_brings_the_quiet_microphone_and_the_loud_output_to_one_loudness(self):
         takes = self.takes()[:2]
         done = recording.finish(takes, self.folder, "r")

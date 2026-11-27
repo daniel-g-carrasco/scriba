@@ -50,6 +50,11 @@
   </requires>
 
   <releases>
+    <release version="0.1.16" date="2026-11-27" type="stable">
+      <description>
+        <p>Stopping a recording no longer stays on closing the files when an audio device stops responding: Scriba saves the audio recorded so far and continues.</p>
+      </description>
+    </release>
     <release version="0.1.15" date="2026-11-25" type="stable">
       <description>
         <p>Teams speaker names are read from the thicker borders of current Teams, and two-person calls name the other voice. On Windows, Scriba follows the main screen's scale like the other apps.</p>

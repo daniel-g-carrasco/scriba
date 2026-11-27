@@ -1317,10 +1317,6 @@ msgid "The recording could not be set up."
 msgstr "Non si riesce a preparare la registrazione."
 
 #: src/scriba/app/recorder.py
-msgid "The files took too long to close: they were cut where they were."
-msgstr "I file ci hanno messo troppo a chiudersi: sono stati interrotti dove erano arrivati."
-
-#: src/scriba/app/recorder.py
 msgid "The device cannot be opened."
 msgstr "Il dispositivo non si apre."
 
@@ -2462,6 +2458,9 @@ msgstr "Salvataggio interrotto. Le tracce originali sono ancora disponibili."
 
 msgid "Listening copy skipped. You can create it from the recording."
 msgstr "Copia d’ascolto saltata. Puoi crearla dalla registrazione."
+
+msgid "An audio device did not close in time. The available audio was saved."
+msgstr "Un dispositivo audio non si è chiuso in tempo: è stato salvato l’audio disponibile."
 
 msgid "Skip Finishing"
 msgstr "Salta la rifinitura"

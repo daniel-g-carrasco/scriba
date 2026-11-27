@@ -966,6 +966,9 @@ class RecordPage(Adw.Bin):
     def skip_finishing(self) -> None:
         if self._stopping and self._finish_cancel is not None:
             self._finish_cancel.set()
+            skip_close = getattr(self.recorder, "skip_close", None)
+            if skip_close is not None:
+                skip_close()
             self.skip_finish.set_sensitive(False)
 
     def resume_saving(self, item):

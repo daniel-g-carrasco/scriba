@@ -40,6 +40,7 @@ class Journal:
         self.summary = (0.0, [])
         self.teams_minutes: list[dict] = []
         self.choice_done = False
+        self.audio_close_timed_out = False
 
     def bind_folder(self, folder: Path) -> None:
         self.folder = folder.resolve()
@@ -86,6 +87,8 @@ class Journal:
             data["teams_minutes"] = self.teams_minutes
         if self.choice_done:
             data["choice_done"] = True
+        if self.audio_close_timed_out:
+            data["audio_close_timed_out"] = True
         if cut is not None:
             data["cut"] = cut
         if call_range is not None:
@@ -115,6 +118,7 @@ class Journal:
             raise ValueError("unknown recording checkpoint")
         self.teams_minutes = data.get("teams_minutes", [])
         self.choice_done = bool(data.get("choice_done"))
+        self.audio_close_timed_out = bool(data.get("audio_close_timed_out"))
         return data
 
     def local(self, name):

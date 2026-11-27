@@ -1,5 +1,10 @@
 # Novità di Scriba
 
+## [0.1.16] - 2026-11-27
+
+### Correzioni
+- Lo stop della registrazione non resta più fermo su «sto chiudendo i file della registrazione» quando un dispositivo audio smette di rispondere: dopo qualche secondo Scriba salva l’audio registrato fino a lì e prosegue, e nei risultati lo dice. «Salta la rifinitura» funziona anche in quel passo; alla riapertura Scriba propone di completare la registrazione.
+
 ## [0.1.15] - 2026-11-25
 
 ### Aggiunte

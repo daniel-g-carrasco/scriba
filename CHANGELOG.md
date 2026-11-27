@@ -5,6 +5,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 are `0.x` while the app evolves. Stable Windows and Linux packages are
 available from GitHub Releases. Linux Flatpak builds and runtime checks use GNOME Platform 50. The app's metainfo carries a shorter description.
 
+## [0.1.16] - 2026-11-27
+
+### Fixed
+- Stopping a recording no longer stays on “closing the recording files” when an audio device stops responding: after a few seconds Scriba saves the audio recorded so far and continues, and the results say so. Skip Finishing also works at that step; the recording is offered for completion when Scriba opens again.
+
 ## [0.1.15] - 2026-11-25
 
 ### Added
