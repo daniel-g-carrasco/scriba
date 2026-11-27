@@ -117,6 +117,40 @@ class SourceCollectionTest(unittest.TestCase):
         with self.assertRaisesRegex(sources.SourceError, "duplicate"):
             sources.inspect_source(archive, "mingw-w64-example", self.recipe_hash)
 
+    def test_zstd_output_after_the_tar_end_is_read_before_the_pipe_closes(self):
+        tar = io.BytesIO()
+        with tarfile.open(fileobj=tar, mode="w") as archive:
+            info = tarfile.TarInfo(".PKGINFO")
+            info.size = 4
+            archive.addfile(info, io.BytesIO(b"x=1" + bytes([10])))
+        decoded = tar.getvalue() + bytes(1 << 20)      # padding beyond tarfile's read-ahead
+
+        class Pipe(io.BytesIO):
+            drained = False
+
+            def close(self):
+                self.drained = self.tell() == len(decoded)
+                super().close()
+
+        class Decoder:
+            """Like zstd: a reader that closes before the end leaves it on a broken pipe."""
+            def __init__(self):
+                self.stdout = Pipe(decoded)
+
+            def wait(self):
+                return 0 if self.stdout.drained else 1
+
+            def poll(self):
+                return self.wait()
+
+        decoder = Decoder()
+        path = self.root / "package.pkg.tar.zst"
+        path.write_bytes(b"unused: the decoder is replaced")
+        with mock.patch.object(sources.subprocess, "Popen", return_value=decoder):
+            with sources.archive_reader(path, zstd="zstd") as archive:
+                self.assertEqual([member.name for member in archive], [".PKGINFO"])
+        self.assertTrue(decoder.stdout.drained)
+
     def test_inventory_paths_and_package_names_are_validated_before_access(self):
         path = self.root / "packages.json"
         path.write_text(json.dumps({"schema_version": 1, "packages": [
